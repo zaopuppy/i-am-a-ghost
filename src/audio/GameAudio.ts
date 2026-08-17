@@ -7,14 +7,20 @@ export const GAME_AUDIO_ASSETS = Object.freeze({
   battery: 'assets/audio/kenney/picked-01.mp3',
   matchEnded: 'assets/audio/kenney/match-ended.mp3',
 });
+export const GAME_AUDIO_PACK_PATH = 'assets/audio/kenney/sfx-pack.json';
 
 type SoundId = keyof typeof GAME_AUDIO_ASSETS;
+
+interface AudioPack {
+  format: 'base64-audio-pack-v1';
+  mimeType: 'audio/mpeg';
+  samples: Record<string, string>;
+}
 
 export class GameAudio {
   private context: AudioContext | null = null;
   private master: GainNode | null = null;
   private readonly buffers = new Map<SoundId, AudioBuffer>();
-  private readonly fallbackAudio = new Map<SoundId, HTMLAudioElement>();
   private loadPromise: Promise<void> | null = null;
   private muted = false;
   private failedAssets = 0;
@@ -26,23 +32,17 @@ export class GameAudio {
       this.master.gain.value = this.muted ? 0 : 0.72;
       this.master.connect(this.context.destination);
     }
-    if (this.context.state !== 'running') void this.context.resume().catch(() => undefined);
-    this.loadPromise ??= this.loadAll();
+    if (this.context.state !== 'running') {
+      await this.context.resume().catch(() => undefined);
+    }
+    this.loadPromise ??= this.loadAll(this.context);
     await this.loadPromise;
   }
 
   play(id: SoundId, volume = 1): void {
     const buffer = this.buffers.get(id);
     if (this.muted) return;
-    if (!buffer || !this.context || !this.master) {
-      const fallback = this.fallbackAudio.get(id);
-      if (fallback) {
-        const sound = fallback.cloneNode(true) as HTMLAudioElement;
-        sound.volume = Math.min(1, volume * 0.72);
-        void sound.play().catch(() => undefined);
-      }
-      return;
-    }
+    if (!buffer || !this.context || !this.master) return;
     const source = this.context.createBufferSource();
     const gain = this.context.createGain();
     gain.gain.value = volume;
@@ -70,7 +70,7 @@ export class GameAudio {
     return {
       unlocked: this.context?.state === 'running',
       muted: this.muted,
-      loaded: this.buffers.size + this.fallbackAudio.size,
+      loaded: this.buffers.size,
       failed: this.failedAssets,
     };
   }
@@ -80,42 +80,48 @@ export class GameAudio {
     this.context = null;
     this.master = null;
     this.buffers.clear();
-    for (const audio of this.fallbackAudio.values()) audio.pause();
-    this.fallbackAudio.clear();
   }
 
-  private async loadAll(): Promise<void> {
-    if (!this.context) return;
-    for (const [id, relativePath] of Object.entries(GAME_AUDIO_ASSETS)) {
-      try {
-        const response = await fetch(`${import.meta.env.BASE_URL}${relativePath}`);
-        if (!response.ok) throw new Error(`Audio request failed: ${response.status}`);
-        const buffer = await this.context.decodeAudioData(await response.arrayBuffer());
-        this.buffers.set(id as SoundId, buffer);
-      } catch {
-        const fallback = await loadHtmlAudio(`${import.meta.env.BASE_URL}${relativePath}`);
-        if (fallback) this.fallbackAudio.set(id as SoundId, fallback);
-        else this.failedAssets += 1;
-      }
+  private async loadAll(context: AudioContext): Promise<void> {
+    let pack: AudioPack;
+    try {
+      const response = await fetch(`${import.meta.env.BASE_URL}${GAME_AUDIO_PACK_PATH}`);
+      if (!response.ok) throw new Error(`Audio pack request failed: ${response.status}`);
+      const payload: unknown = await response.json();
+      if (!isAudioPack(payload)) throw new Error('Unsupported audio pack format');
+      pack = payload;
+    } catch {
+      this.failedAssets = Object.keys(GAME_AUDIO_ASSETS).length;
+      return;
     }
+
+    await Promise.all(Object.entries(GAME_AUDIO_ASSETS).map(async ([id, relativePath]) => {
+      try {
+        const encoded = pack.samples[relativePath];
+        if (typeof encoded !== 'string') throw new Error(`Missing audio sample: ${relativePath}`);
+        const buffer = await context.decodeAudioData(decodeBase64(encoded));
+        if (this.context === context) this.buffers.set(id as SoundId, buffer);
+      } catch {
+        this.failedAssets += 1;
+      }
+    }));
   }
 }
 
-function loadHtmlAudio(url: string): Promise<HTMLAudioElement | null> {
-  return new Promise((resolve) => {
-    const audio = new Audio(url);
-    audio.preload = 'auto';
-    const timeout = window.setTimeout(() => finish(null), 2_000);
-    const finish = (result: HTMLAudioElement | null): void => {
-      window.clearTimeout(timeout);
-      audio.removeEventListener('canplay', onReady);
-      audio.removeEventListener('error', onError);
-      resolve(result);
-    };
-    const onReady = (): void => finish(audio);
-    const onError = (): void => finish(null);
-    audio.addEventListener('canplay', onReady, { once: true });
-    audio.addEventListener('error', onError, { once: true });
-    audio.load();
-  });
+function isAudioPack(value: unknown): value is AudioPack {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<AudioPack>;
+  return candidate.format === 'base64-audio-pack-v1'
+    && candidate.mimeType === 'audio/mpeg'
+    && Boolean(candidate.samples)
+    && typeof candidate.samples === 'object';
+}
+
+function decodeBase64(encoded: string): ArrayBuffer {
+  const binary = atob(encoded);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes.buffer;
 }

@@ -18,6 +18,7 @@
     "test:rules": "node --import tsx --test tests/game/*.test.ts tests/server/*.test.ts",
     "test:browser": "playwright test",
     "test:balance": "tsx scripts/run-balance-sim.ts",
+    "pack:audio": "node scripts/pack-audio.mjs",
     "verify:visual": "playwright test tests/visual.spec.ts tests/deterministic-states.spec.ts",
     "inspect:canvas": "node scripts/inspect-threejs-canvas.mjs"
   },
