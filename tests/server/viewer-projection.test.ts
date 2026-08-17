@@ -36,6 +36,27 @@ test('child frames omit the hidden ghost and every private checkpoint field', ()
   assert.doesNotMatch(serialized, /"x":1,"z":0/);
 });
 
+test('hidden ghost coordinates stay absent with every supported real-child count', () => {
+  for (let childCount = 1; childCount <= 4; childCount += 1) {
+    const childPlayerIds = Array.from({ length: childCount }, (_, index) => `child-${index + 1}`);
+    const engine = new MatchEngine({
+      seed: 70 + childCount,
+      map: TEST_MAP,
+      ghostPlayerId: 'ghost',
+      childPlayerIds,
+    });
+    const checkpoint = engine.checkpoint();
+    const ghost = checkpoint.players.find((player) => player.role === 'ghost');
+    assert.ok(ghost);
+
+    for (const childPlayerId of childPlayerIds) {
+      const serialized = JSON.stringify(projectViewerFrame(checkpoint, childPlayerId));
+      assert.doesNotMatch(serialized, new RegExp(`\\"x\\":${ghost.position.x},\\"z\\":${ghost.position.z}`));
+      assert.doesNotMatch(serialized, /randomState|ghostAction|phaseTicksRemaining/);
+    }
+  }
+});
+
 test('a beam reveals the ghost to children while the ghost always receives every actor', () => {
   const engine = new MatchEngine({
     seed: 11,

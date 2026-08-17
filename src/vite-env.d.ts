@@ -4,6 +4,8 @@ import type { ViewerFrame } from './game/ViewerFrame';
 
 interface GhostGameDiagnostics {
   phase: 'lobby' | 'playing' | 'ended';
+  matchPhase: ViewerFrame['phase'] | null;
+  deterministicState: string | null;
   frame: number;
   fps: number;
   networkConnected: boolean;
@@ -19,6 +21,9 @@ interface GhostGameDiagnostics {
     walls: number;
     rooms: number;
     beams: number;
+    visibleObjects: number;
+    materials: number;
+    animatedActors: number;
     assets: {
       kid: {
         status: 'not-requested' | 'loading' | 'ready' | 'failed';
@@ -58,6 +63,8 @@ interface GhostGameDiagnostics {
   renderer: {
     calls: number;
     triangles: number;
+    points: number;
+    lines: number;
     geometries: number;
     textures: number;
   };
@@ -67,6 +74,11 @@ declare global {
   interface Window {
     __THREE_GAME_DIAGNOSTICS__?: GhostGameDiagnostics;
     __THREE_GAME_TEST_HOOKS__?: {
+      seed(value: number): void;
+      setState(name: string): void;
+      setPausedForScreenshot(paused: boolean): void;
+      setReducedMotion(enabled: boolean): void;
+      hideDebugUi(hidden: boolean): void;
       hideOverlay(hidden: boolean): void;
     };
   }

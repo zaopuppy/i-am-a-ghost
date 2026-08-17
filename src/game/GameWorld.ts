@@ -71,7 +71,7 @@ export class GameWorld {
     for (const child of frame.children) {
       const actor = this.actor(`child:${child.playerId}`, 'child', child.slot);
       syncActor(actor, child.position, child.facingRadians, child.headlamp, elapsedSeconds, frame.phase, false);
-      if (actor.beam) actor.beam.visible = child.flashlightOn;
+      if (actor.beam) actor.beam.visible = child.flashlightOn && frame.phase === 'playing';
     }
     for (const doll of frame.dolls) {
       const actor = this.actor(`doll:${doll.dollId}`, 'doll', doll.slot);
@@ -105,13 +105,27 @@ export class GameWorld {
     walls: number;
     rooms: number;
     beams: number;
+    visibleObjects: number;
+    materials: number;
+    animatedActors: number;
     assets: ReturnType<typeof importedAssetMetrics>;
   } {
+    let visibleObjects = 0;
+    const materials = new Set<THREE.Material>();
+    this.scene.traverseVisible((object) => {
+      visibleObjects += 1;
+      if (!(object instanceof THREE.Mesh)) return;
+      const meshMaterials = Array.isArray(object.material) ? object.material : [object.material];
+      for (const material of meshMaterials) materials.add(material);
+    });
     return {
       actors: [...this.actors.values()].filter((actor) => actor.root.visible).length,
       walls: HOUSE_WALLS.length,
       rooms: HOUSE_ROOMS.length,
       beams: [...this.actors.values()].filter((actor) => actor.beam?.visible).length,
+      visibleObjects,
+      materials: materials.size,
+      animatedActors: [...this.actors.values()].filter((actor) => actor.root.visible && actor.imported).length,
       assets: importedAssetMetrics(),
     };
   }
@@ -171,7 +185,10 @@ export class GameWorld {
     try {
       const importedWalls = await createWallVisuals(HOUSE_WALLS, this.materials.wall);
       this.scene.add(importedWalls);
-      this.fallbackWalls.visible = false;
+      this.scene.remove(this.fallbackWalls);
+      this.fallbackWalls.traverse((object) => {
+        if (object instanceof THREE.Mesh || object instanceof THREE.LineSegments) object.geometry.dispose();
+      });
     } catch {
       this.fallbackWalls.visible = true;
     }
@@ -256,7 +273,20 @@ function createActor(
   lamp.position.set(0.22, kind === 'ghost' ? 1.05 : 1.06, -0.02);
   lamp.visible = kind !== 'ghost';
   root.add(lamp);
-  const contact = new THREE.Mesh(new THREE.CircleGeometry(kind === 'ghost' ? 0.52 : 0.38, 18), materials.contact);
+  const markerColor = kind === 'ghost'
+    ? 0x93a9df
+    : kind === 'doll'
+      ? 0x665c50
+      : CHILD_COLORS[slot % CHILD_COLORS.length];
+  const contact = new THREE.Mesh(
+    new THREE.RingGeometry(kind === 'ghost' ? 0.43 : 0.31, kind === 'ghost' ? 0.58 : 0.43, 24),
+    new THREE.MeshBasicMaterial({
+      color: markerColor,
+      transparent: true,
+      opacity: kind === 'doll' ? 0.34 : 0.78,
+      depthWrite: false,
+    }),
+  );
   contact.rotation.x = -Math.PI / 2;
   contact.position.y = 0.012;
   root.add(contact);

@@ -1,7 +1,7 @@
 # 《I Am a Ghost》开发计划
 
 - 日期：2026-08-17
-- 状态：执行中；ADR-0001 已接受，M0 foundation 与 M1 MatchEngine 已完成
+- 状态：M0–M6 实现与自动 QA 已完成；真人平衡试玩仍待组织
 - 设计依据：docs/2026-08-17_game-design-and-start-plan.md
 - 参考工程：E:\workspace\2026-gamehack\apple-picking
 - 参考基线：master / b3dcb8d399961e87bad56c7a3424005b80e51adb
@@ -369,6 +369,8 @@ Apple Picking 的 room-wide state-frame broadcast 不能迁移。AuthoritativeRo
 
 **目标**：两个浏览器在一个极简房间中移动，并证明隐藏信息没有离开服务器。
 
+**完成状态（2026-08-17）**：已完成。验证记录见 `docs/2026-08-17_m2-authoritative-room-report.md`。
+
 **工作**：
 
 - 重构房间为真人玩家集合，不使用固定 guards/kid 席位。
@@ -391,6 +393,8 @@ Apple Picking 的 room-wide state-frame broadcast 不能迁移。AuthoritativeRo
 
 **目标**：实现设计文档中的整局闭环，不要求正式资产。
 
+**完成状态（2026-08-17）**：已完成。验证记录见 `docs/2026-08-17_m3-playable-greybox-report.md`。
+
 **工作**：
 
 - 制作 8–10 房间、两条环路、1–2 个死胡同的完整灰盒房屋。
@@ -411,6 +415,8 @@ Apple Picking 的 room-wide state-frame broadcast 不能迁移。AuthoritativeRo
 ### M4：2–5 真人与局域网韧性
 
 **目标**：从技术双人闭环扩展到目标人数，并改善本地控制手感。
+
+**完成状态（2026-08-17）**：已完成。验证记录见 `docs/2026-08-17_m4-network-resilience-report.md`。
 
 **工作**：
 
@@ -433,6 +439,8 @@ Apple Picking 的 room-wide state-frame broadcast 不能迁移。AuthoritativeRo
 
 **目标**：在玩法闭环成立后，接入最小可用的风格化资产。
 
+**完成状态（2026-08-17）**：已完成。验证记录见 `docs/2026-08-17_m5-assets-and-polish-report.md`。
+
 **工作**：
 
 - 迁移 Rogue_Kid 和对应 CC0 许可证。
@@ -452,6 +460,8 @@ Apple Picking 的 room-wide state-frame broadcast 不能迁移。AuthoritativeRo
 ### M6：试玩、调参与 QA
 
 **目标**：用真人数据判断设计，而不是用感觉提前缩放人数数值。
+
+**完成状态（2026-08-17）**：自动机器人预检、单轴候选复测和完整 QA 已完成，见 `docs/2026-08-17_m6-playtest-tuning-and-qa-report.md`；自动数据不冒充真人数据，正式平衡结论仍待真人局。
 
 **工作**：
 
@@ -535,8 +545,8 @@ Apple Picking 的 room-wide state-frame broadcast 不能迁移。AuthoritativeRo
 - Three.js Gameplay Systems：已加载，用于首个可玩切片、固定步规则和关卡计划。
 - Codebase Design：已加载，用于深模块、interface、seam 和 adapter 设计。
 - Domain Modeling：已加载，用于 CONTEXT.md 和 ADR。
-- AAA Graphics、Game UI、Debug/Profile、QA/Release：本轮未进入 implementation phase；应在对应里程碑开始前加载。
-- 3D/Image/Audio Generator：本轮不需要；灰盒优先复用用户提供且许可清楚的参考资源。
+- AAA Graphics、Game UI、Debug/Profile、QA/Release：已在 M3–M6 使用并完成相应检查。
+- 3D/Image/Audio Generator：已用于资源来源决策与凭据探测；凭据缺失时按 skill 规则复用用户提供的 CC0 资源，没有生成新资源。
 
 ### Reference ledger
 
@@ -546,20 +556,18 @@ Apple Picking 的 room-wide state-frame broadcast 不能迁移。AuthoritativeRo
 - 已读取：threejs-gameplay-systems/references/physics-engine-selection.md。
 - 已读取：codebase-design/DEEPENING.md。
 - 已读取：domain-modeling 的 CONTEXT 与 ADR 格式。
-- 未进入：game feel、正式 UI、AAA 视觉、资产生成和 release QA 参考；对应阶段尚未开始。
+- 已读取并执行：game feel、正式 UI、AAA 视觉、资源接入、debug/profile、视觉测试与 release QA 的相关参考和检查清单。
 
 ### Phase ledger
 
 - Discovery and playable contract：完成，证据为设计文档、CodeGraph 勘察和本计划。
-- Gameplay systems：待开始。
-- External asset sourcing：待灰盒玩法成立后开始；当前只有候选复用清单。
-- AAA graphics：不在首个灰盒范围。
-- UI：待完整灰盒阶段开始。
-- Debug/profile：待最小 Three.js 入口完成。
-- QA/release：测试计划已定义，执行阶段待开始；不声称 release-ready。
+- Gameplay systems：完成，证据为 M1–M4 报告与规则/浏览器测试。
+- External asset sourcing：完成最小 CC0 子集，证据为 M5 报告和 `docs/ASSET_LICENSES.md`。
+- AAA graphics：完成当前试玩版的程序化视觉与技术美术检查，不声称 AAA 成品。
+- UI：完成 PC 大厅、HUD、反馈与结算状态。
+- Debug/profile：完成生产预览 GPU、画布、资源和渲染预算采集。
+- QA/release：完成首轮自动 QA；不声称最终平衡或正式发布。
 
-## 16. 开始实施前的唯一决策
+## 16. 实施结论
 
-确认是否接受 ADR-0001，将原定 Colyseus 改为选择性复用 Apple Picking 的 Socket.IO 权威联机栈。
-
-第一个实现工作包为 M0 foundation；完成后再进入 M1 的确定性 MatchEngine，不在基础搭建阶段提前加入玩法规则。
+ADR-0001 已接受并完成实施。M0–M6 均有独立提交和验证报告；下一步不是继续增加系统，而是组织 2–5 名真人完成平衡试玩并用同一指标表复测。

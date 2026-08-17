@@ -58,6 +58,17 @@ test('two browser pages join, start, and move through the authoritative input pa
   await expect
     .poll(async () => childPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.ownPosition?.x ?? null))
     .toBeGreaterThan((initialX ?? 0) + 0.1);
+  await childPage.evaluate(() => window.dispatchEvent(new Event('blur')));
+  const positionAfterBlur = await childPage.evaluate(
+    () => window.__THREE_GAME_DIAGNOSTICS__?.ownPosition?.x ?? null,
+  );
+  await childPage.waitForTimeout(600);
+  const settledPosition = await childPage.evaluate(
+    () => window.__THREE_GAME_DIAGNOSTICS__?.ownPosition?.x ?? null,
+  );
+  expect(positionAfterBlur).not.toBeNull();
+  expect(settledPosition).not.toBeNull();
+  expect(Math.abs((settledPosition ?? 0) - (positionAfterBlur ?? 0))).toBeLessThan(0.25);
   await childPage.keyboard.up('f');
 
   const batteryBefore = await childPage.evaluate(() => {
@@ -69,6 +80,10 @@ test('two browser pages join, start, and move through the authoritative input pa
     .poll(() => childPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.world.beams ?? 0))
     .toBe(1);
   await childPage.waitForTimeout(160);
+  await childPage.evaluate(() => window.dispatchEvent(new Event('blur')));
+  await expect
+    .poll(() => childPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.world.beams ?? 0))
+    .toBe(0);
   await childPage.keyboard.up(' ');
   const batteryAfter = await childPage.evaluate(() => {
     const frame = window.__THREE_GAME_DIAGNOSTICS__?.viewerFrame;

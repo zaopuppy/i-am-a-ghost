@@ -9,21 +9,54 @@ const outputDirectory = path.resolve(options.outputDirectory);
 await mkdir(outputDirectory, { recursive: true });
 
 const browser = await chromium.launch({ channel: 'chrome', headless: true });
-const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+const host = await context.newPage();
+const guest = await context.newPage();
 const errors = [];
-page.on('console', (message) => {
-  if (message.type() === 'error') errors.push(`console: ${message.text()}`);
-});
-page.on('pageerror', (error) => errors.push(`page: ${error.message}`));
+collectErrors(host, 'host', errors);
+collectErrors(guest, 'guest', errors);
 
 let report;
 try {
-  await page.goto(options.url, { waitUntil: 'networkidle', timeout: 20_000 });
-  await page.waitForSelector('#game-canvas', { state: 'visible' });
+  await Promise.all([
+    host.goto(options.url, { waitUntil: 'networkidle', timeout: 20_000 }),
+    guest.goto(options.url, { waitUntil: 'networkidle', timeout: 20_000 }),
+  ]);
+  await host.getByTestId('create-room').click();
+  await host.waitForFunction(() => document.querySelector('[data-testid="room-code"]')?.textContent !== '——');
+  const roomCode = (await host.getByTestId('room-code').textContent())?.trim();
+  if (!roomCode) throw new Error('Room code was not created.');
+  await guest.getByTestId('room-code-input').fill(roomCode);
+  await guest.getByTestId('join-room').click();
+  await host.getByTestId('roster').locator('li').nth(1).waitFor();
+  await host.getByTestId('start-match').click();
+  await Promise.all([host, guest].map((candidate) => candidate.waitForFunction(
+    () => {
+      const diagnostics = window.__THREE_GAME_DIAGNOSTICS__;
+      return Boolean(
+        diagnostics
+        && diagnostics.networkConnected
+        && diagnostics.role
+        && diagnostics.serverTick !== null
+        && diagnostics.serverTick > 6
+        && diagnostics.world.assets.kid.status === 'ready'
+        && diagnostics.world.assets.wall.status === 'ready',
+      );
+    },
+    undefined,
+    { timeout: 20_000 },
+  )));
+  const hostRole = await host.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.role);
+  const page = hostRole === 'ghost' ? host : guest;
+  const backgroundPage = page === host ? guest : host;
+  const backgroundSession = await context.newCDPSession(backgroundPage);
+  await backgroundSession.send('Page.setWebLifecycleState', { state: 'frozen' });
+  await page.bringToFront();
+  await page.waitForTimeout(1_200);
   await page.waitForFunction(
     () => {
       const diagnostics = window.__THREE_GAME_DIAGNOSTICS__;
-      return Boolean(diagnostics && diagnostics.frame > 10 && diagnostics.networkConnected);
+      return Boolean(diagnostics && diagnostics.fps > 0 && diagnostics.renderer.calls > 0);
     },
     undefined,
     { timeout: 15_000 },
@@ -43,16 +76,44 @@ try {
       bufferHeight: element.height,
     };
   });
+  const gpu = await page.evaluate(() => {
+    const canvas = document.querySelector('#game-canvas');
+    if (!(canvas instanceof HTMLCanvasElement)) return null;
+    const gl = canvas.getContext('webgl2') ?? canvas.getContext('webgl');
+    if (!gl) return null;
+    const extension = gl.getExtension('WEBGL_debug_renderer_info');
+    const renderer = extension
+      ? String(gl.getParameter(extension.UNMASKED_RENDERER_WEBGL))
+      : String(gl.getParameter(gl.RENDERER));
+    const vendor = extension
+      ? String(gl.getParameter(extension.UNMASKED_VENDOR_WEBGL))
+      : String(gl.getParameter(gl.VENDOR));
+    return {
+      renderer,
+      vendor,
+      softwareRendered: /swiftshader|llvmpipe|software/i.test(renderer),
+    };
+  });
 
-  const screenshotPath = path.join(outputDirectory, 'desktop-foundation.png');
+  const budgets = rendererBudgets(diagnostics);
+  const screenshotPath = path.join(outputDirectory, 'desktop-active-match.png');
   await page.screenshot({ path: screenshotPath, fullPage: true });
   report = {
-    result: errors.length === 0 && pixelStats.lumaRange > 20 ? 'pass' : 'fail',
+    result: errors.length === 0
+      && pixelStats.lumaRange > 20
+      && diagnostics?.role === 'ghost'
+      && Object.values(budgets).every((budget) => budget.pass)
+      ? 'pass'
+      : 'fail',
     url: options.url,
+    roomCode,
+    state: 'live-two-player-match',
     viewport: { width: 1280, height: 720 },
     canvas: canvasMetrics,
     pixels: pixelStats,
     diagnostics,
+    gpu,
+    budgets,
     errors,
     screenshot: screenshotPath,
   };
@@ -103,4 +164,32 @@ function samplePixels(png) {
     maxLuma,
     lumaRange: maxLuma - minLuma,
   };
+}
+
+function rendererBudgets(diagnostics) {
+  const renderer = diagnostics?.renderer ?? {};
+  const world = diagnostics?.world ?? {};
+  return {
+    fps: minimumBudget(diagnostics?.fps, 50),
+    calls: budget(renderer.calls, 100),
+    triangles: budget(renderer.triangles, 100_000),
+    geometries: budget(renderer.geometries, 100),
+    materials: budget(world.materials, 80),
+    textures: budget(renderer.textures, 40),
+  };
+}
+
+function budget(value, limit) {
+  return { value: value ?? null, limit, pass: Number.isFinite(value) && value <= limit };
+}
+
+function minimumBudget(value, minimum) {
+  return { value: value ?? null, minimum, pass: Number.isFinite(value) && value >= minimum };
+}
+
+function collectErrors(page, label, target) {
+  page.on('console', (message) => {
+    if (message.type() === 'error') target.push(`${label} console: ${message.text()}`);
+  });
+  page.on('pageerror', (error) => target.push(`${label} page: ${error.message}`));
 }

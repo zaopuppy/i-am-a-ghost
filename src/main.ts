@@ -7,6 +7,11 @@ import { GameWorld } from './game/GameWorld';
 import type { ViewerFrame } from './game/ViewerFrame';
 import { GameClient } from './net/GameClient';
 import { FramePresenter } from './net/FramePresenter';
+import {
+  createDeterministicViewerFrame,
+  isDeterministicStateName,
+  type DeterministicStateName,
+} from './testing/DeterministicStates';
 import './styles.css';
 
 const canvas = requireElement<HTMLCanvasElement>('#game-canvas');
@@ -39,6 +44,7 @@ const createButton = requireElement<HTMLButtonElement>('#create-room');
 const joinButton = requireElement<HTMLButtonElement>('#join-room');
 const captureMarks = [...document.querySelectorAll<HTMLElement>('.capture-mark')];
 const audioButton = requireElement<HTMLButtonElement>('#audio-toggle');
+const milestone = requireElement<HTMLElement>('#milestone');
 
 const stage = createRenderStage(canvas);
 const world = new GameWorld();
@@ -57,8 +63,17 @@ let measuredFps = 0;
 let lastIngestedFrameKey = '';
 let lastAudioEvents: typeof client.latestEvents = null;
 let lastActionHeld = false;
+const query = new URLSearchParams(window.location.search);
+const requestedTestState = query.get('testState');
+let deterministicState: DeterministicStateName | null = import.meta.env.DEV
+  && isDeterministicStateName(requestedTestState)
+  ? requestedTestState
+  : null;
+let deterministicSeed = 71;
+let screenshotPaused = Boolean(deterministicState);
+let reducedMotion = false;
 
-const queryRoom = new URLSearchParams(window.location.search).get('room');
+const queryRoom = query.get('room');
 if (queryRoom) roomCodeInput.value = normalizeRoomCode(queryRoom);
 createButton.addEventListener('click', () => void client.createRoom(nickname));
 joinButton.addEventListener('click', joinRoom);
@@ -94,19 +109,25 @@ const loop = new Loop(
         lastIngestedFrameKey = key;
       }
     }
-    const movement = input.movement();
-    const frame = presenter.present(deltaSeconds, movement);
-    if (client.latestEvents && client.latestEvents !== lastAudioEvents) {
+    const movement = deterministicState ? { x: 0, z: 0 } : input.movement();
+    const frame = deterministicState
+      ? createDeterministicViewerFrame(deterministicState, deterministicSeed)
+      : presenter.present(deltaSeconds, movement);
+    if (!deterministicState && client.latestEvents && client.latestEvents !== lastAudioEvents) {
       lastAudioEvents = client.latestEvents;
       audio.handleEvents(client.latestEvents.events);
     }
     const actionHeld = input.actionHeld();
     if (actionHeld && !lastActionHeld && frame?.viewerRole === 'child') audio.play('flashlight', 0.52);
     lastActionHeld = actionHeld;
-    world.sync(frame, elapsedSeconds);
-    updateCamera(frame, deltaSeconds);
+    const presentationSeconds = deterministicState && (screenshotPaused || reducedMotion)
+      ? 2.75
+      : elapsedSeconds;
+    world.sync(frame, presentationSeconds);
+    updateCamera(frame, deltaSeconds, Boolean(deterministicState));
     updateHud(frame);
-    if (frame && client.roomState?.phase === 'playing' && elapsedSeconds - lastInputSentAt >= 1 / 30) {
+    if (deterministicState && frame) renderDeterministicState(frame);
+    if (!deterministicState && frame && client.roomState?.phase === 'playing' && elapsedSeconds - lastInputSentAt >= 1 / 30) {
       lastInputSentAt = elapsedSeconds;
       client.sendInput({
         moveX: movement.x,
@@ -122,11 +143,30 @@ const loop = new Loop(
 
 const resizeObserver = new ResizeObserver(stage.resize);
 resizeObserver.observe(canvas);
-window.__THREE_GAME_TEST_HOOKS__ = {
-  hideOverlay: (hidden: boolean) => {
-    lobbyPanel.hidden = hidden;
-  },
-};
+if (import.meta.env.DEV) {
+  window.__THREE_GAME_TEST_HOOKS__ = {
+    seed: (value: number) => {
+      deterministicSeed = Number.isFinite(value) ? Math.trunc(value) : 0;
+    },
+    setState: (name: string) => {
+      if (!isDeterministicStateName(name)) throw new Error(`Unknown deterministic state: ${name}`);
+      deterministicState = name;
+    },
+    setPausedForScreenshot: (paused: boolean) => {
+      screenshotPaused = paused;
+    },
+    setReducedMotion: (enabled: boolean) => {
+      reducedMotion = enabled;
+      document.documentElement.dataset.reducedMotion = String(enabled);
+    },
+    hideDebugUi: (hidden: boolean) => {
+      milestone.hidden = hidden;
+    },
+    hideOverlay: (hidden: boolean) => {
+      lobbyPanel.hidden = hidden;
+    },
+  };
+}
 loop.start();
 
 if (import.meta.hot) {
@@ -153,6 +193,7 @@ function joinRoom(): void {
 }
 
 function renderClientState(): void {
+  if (deterministicState) return;
   connectionRow.dataset.connected = String(client.connected);
   networkStatus.textContent = client.connected ? '局域网房间服务已连接' : '等待局域网房间服务';
   errorMessage.textContent = client.roomState?.notice === 'ghost-disconnected'
@@ -203,6 +244,24 @@ function renderClientState(): void {
   }
 }
 
+function renderDeterministicState(frame: ViewerFrame): void {
+  lobbyPanel.hidden = true;
+  gameHud.hidden = frame.phase === 'ended';
+  resultOverlay.hidden = frame.phase !== 'ended';
+  roleLabel.textContent = frame.viewerRole === 'ghost' ? '你是鬼' : '你是小孩';
+  objectiveLabel.textContent = frame.viewerRole === 'ghost' ? '抓住孩子三次' : '照亮鬼或撑到天亮';
+  milestone.textContent = `M6 · ${deterministicState}`;
+  if (frame.phase !== 'ended') return;
+  const won = (frame.viewerRole === 'ghost' && frame.winner === 'ghost')
+    || (frame.viewerRole === 'child' && frame.winner === 'children');
+  resultTitle.textContent = won ? '你们赢了' : '这次输了';
+  resultDetail.textContent = frame.winner === 'children'
+    ? '鬼的力量耗尽，或五分钟已经过去。'
+    : '第三次抓取完成，房子归于寂静。';
+  readyButton.textContent = '准备下一局';
+  readyCount.textContent = '确定性验收状态';
+}
+
 function updateHud(frame: ViewerFrame | null): void {
   if (!frame) return;
   timerLabel.textContent = formatTime(frame.remainingTicks);
@@ -231,11 +290,11 @@ function showBanner(text: string, tone: 'danger' | 'safe'): void {
   eventBanner.hidden = false;
 }
 
-function updateCamera(frame: ViewerFrame | null, deltaSeconds: number): void {
+function updateCamera(frame: ViewerFrame | null, deltaSeconds: number, immediate = false): void {
   const ownPosition = frame ? ownActorPosition(frame) : null;
   const targetX = frame?.viewerRole === 'child' && ownPosition ? ownPosition.x : 0;
   const targetZ = frame?.viewerRole === 'child' && ownPosition ? ownPosition.z : 0;
-  const responsiveness = 1 - Math.exp(-deltaSeconds * 10);
+  const responsiveness = immediate ? 1 : 1 - Math.exp(-deltaSeconds * 10);
   cameraCenter.lerp(new THREE.Vector2(targetX, targetZ), responsiveness);
   stage.setView(cameraCenter.x, cameraCenter.y, frame?.viewerRole === 'child' ? 10.5 : 22.5);
 }
@@ -267,7 +326,9 @@ function updateDiagnostics(frame: ViewerFrame | null): void {
   const network = client.networkStats();
   const presentation = presenter.stats();
   window.__THREE_GAME_DIAGNOSTICS__ = {
-    phase: client.roomState?.phase ?? 'lobby',
+    phase: deterministicState ? (frame?.phase === 'ended' ? 'ended' : 'playing') : client.roomState?.phase ?? 'lobby',
+    matchPhase: frame?.phase ?? null,
+    deterministicState,
     frame: renderFrame,
     fps: measuredFps,
     networkConnected: client.connected,
@@ -289,6 +350,8 @@ function updateDiagnostics(frame: ViewerFrame | null): void {
     renderer: {
       calls: stage.renderer.info.render.calls,
       triangles: stage.renderer.info.render.triangles,
+      points: stage.renderer.info.render.points,
+      lines: stage.renderer.info.render.lines,
       geometries: stage.renderer.info.memory.geometries,
       textures: stage.renderer.info.memory.textures,
     },

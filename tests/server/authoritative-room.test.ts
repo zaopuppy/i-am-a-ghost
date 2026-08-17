@@ -147,6 +147,47 @@ test('two clients start an authoritative match and receive directed frames', asy
   assert.equal(lobby.players.length, 1);
 });
 
+test('rooms start correctly with every supported two-to-five player roster', async () => {
+  for (let playerCount = 2; playerCount <= 5; playerCount += 1) {
+    const application = createGameServer();
+    const port = await application.listen(0, '127.0.0.1');
+    const sockets = Array.from({ length: playerCount }, () =>
+      connect(`http://127.0.0.1:${port}`, { transports: ['websocket'] }));
+    try {
+      await Promise.all(sockets.map(waitForConnect));
+      const created = (await sockets[0].emitWithAck('create-room', {
+        protocolVersion: PROTOCOL_VERSION,
+        buildVersion: BUILD_VERSION,
+        nickname: '房主',
+      })) as RoomActionResponse;
+      assert.equal(created.ok, true);
+      if (!created.ok) continue;
+      for (let index = 1; index < sockets.length; index += 1) {
+        const joined = (await sockets[index].emitWithAck('join-room', {
+          protocolVersion: PROTOCOL_VERSION,
+          buildVersion: BUILD_VERSION,
+          nickname: `玩家${index + 1}`,
+          roomCode: created.session.roomCode,
+        })) as RoomActionResponse;
+        assert.equal(joined.ok, true);
+      }
+
+      const framePromises = sockets.map((socket) => waitForFrame(socket, () => true));
+      assert.deepEqual(await sockets[0].emitWithAck('start-match'), { ok: true });
+      const frames = await Promise.all(framePromises);
+      assert.equal(frames.filter((frame) => frame.frame.viewerRole === 'ghost').length, 1);
+      assert.equal(frames.filter((frame) => frame.frame.viewerRole === 'child').length, playerCount - 1);
+      const ghostFrame = frames.find((frame) => frame.frame.viewerRole === 'ghost');
+      assert.ok(ghostFrame && ghostFrame.frame.viewerRole === 'ghost');
+      assert.equal(ghostFrame.frame.children.length, playerCount - 1);
+      assert.equal(ghostFrame.frame.dolls.length, 5 - playerCount);
+    } finally {
+      for (const socket of sockets) socket.disconnect();
+      await application.close();
+    }
+  }
+});
+
 function waitForConnect(socket: TestSocket): Promise<void> {
   if (socket.connected) return Promise.resolve();
   return new Promise((resolve, reject) => {
