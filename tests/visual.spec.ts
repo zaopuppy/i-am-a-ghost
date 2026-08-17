@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { PNG } from 'pngjs';
 
-test('M0 foundation renders a nonblank canvas and reaches the room service', async ({ page, request }) => {
+test('the room lobby renders a nonblank canvas and reaches the authoritative service', async ({ page, request }) => {
   const browserErrors: string[] = [];
   page.on('console', (message) => {
     if (message.type() === 'error') browserErrors.push(message.text());
@@ -13,7 +13,7 @@ test('M0 foundation renders a nonblank canvas and reaches the room service', asy
   await expect(healthResponse.json()).resolves.toMatchObject({
     ok: true,
     game: 'i-am-a-ghost',
-    phase: 'foundation',
+    phase: 'authoritative-room',
   });
 
   await page.goto('/');

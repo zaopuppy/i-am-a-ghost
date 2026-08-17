@@ -4,25 +4,41 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#08090d" />
-    <link
-      rel="icon"
-      href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><text y=%2226%22 font-size=%2228%22>👻</text></svg>"
-    />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><text y=%2226%22 font-size=%2228%22>👻</text></svg>" />
     <title>I Am a Ghost</title>
   </head>
   <body>
-    <main id="app" aria-label="I Am a Ghost foundation">
-      <canvas id="game-canvas" aria-label="Three.js game canvas"></canvas>
-      <section class="foundation-panel" data-testid="foundation-panel">
-        <p class="eyebrow">M1 · RULES VERIFIED</p>
+    <main id="app" aria-label="I Am a Ghost">
+      <canvas id="game-canvas" aria-label="Three.js game canvas" tabindex="0"></canvas>
+      <section class="lobby-panel" data-testid="lobby-panel">
+        <p class="eyebrow">局域网捉迷藏</p>
         <h1>I AM A GHOST</h1>
-        <p class="scope">确定性规则引擎已就绪 · 联机接入将在 M2</p>
-        <p class="connection">
+        <p class="connection" data-connected="false">
           <span class="connection-dot" aria-hidden="true"></span>
           <span id="network-status" data-testid="network-status">连接房间服务…</span>
         </p>
+        <div class="lobby-actions" id="lobby-actions">
+          <button id="create-room" data-testid="create-room">创建房间</button>
+          <div class="join-row">
+            <label class="sr-only" for="room-code-input">房间码</label>
+            <input id="room-code-input" data-testid="room-code-input" maxlength="6" autocomplete="off" placeholder="输入 6 位房间码" />
+            <button id="join-room" data-testid="join-room">加入</button>
+          </div>
+        </div>
+        <div class="room-panel" id="room-panel" hidden>
+          <p class="room-label">房间码</p>
+          <p class="room-code" id="room-code" data-testid="room-code">——</p>
+          <ul class="roster" id="roster" data-testid="roster"></ul>
+          <button id="start-match" data-testid="start-match" hidden>开始游戏</button>
+          <p class="waiting" id="waiting-message">等待房主开始…</p>
+        </div>
+        <p class="error-message" id="error-message" role="alert"></p>
       </section>
-      <p class="milestone">当前仍不可游玩 · 下一步 M2 双客户端权威链路</p>
+      <section class="m2-hud" id="game-hud" hidden>
+        <p id="role-label" data-testid="role-label"></p>
+        <p class="control-hint">ESDF 移动 · 鼠标瞄准 · 空格行动</p>
+      </section>
+      <p class="milestone" id="milestone">M2 · 权威房间链路</p>
     </main>
     <script type="module" src="/src/main.ts"></script>
   </body>

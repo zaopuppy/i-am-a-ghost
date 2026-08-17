@@ -15,6 +15,7 @@ export interface VisibleChild {
   position: Vec2;
   facingRadians: number;
   headlamp: HeadlampBand;
+  flashlightOn: boolean;
 }
 
 export interface VisibleDoll {
@@ -27,6 +28,7 @@ export interface VisibleDoll {
 export interface VisibleGhost {
   position: Vec2;
   facingRadians: number;
+  captureState: 'idle' | 'windup' | 'cooldown';
 }
 
 export interface VisibleBattery {
@@ -36,6 +38,7 @@ export interface VisibleBattery {
 
 export interface GhostViewerFrame extends SharedMatchFrame {
   viewerRole: 'ghost';
+  viewerPlayerId: string;
   ghost: VisibleGhost;
   children: VisibleChild[];
   dolls: VisibleDoll[];
