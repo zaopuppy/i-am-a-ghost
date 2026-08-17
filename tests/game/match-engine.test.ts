@@ -359,7 +359,7 @@ function finishResetAndProtection(engine: MatchEngine): void {
   engine.advance([], MATCH_RULES.captureAnimationTicks + MATCH_RULES.protectionTicks);
 }
 
-test('contact automatically captures without an action or mouse-facing requirement', () => {
+test('contact automatically captures without an action or facing requirement', () => {
   const engine = createCaptureEngine();
 
   const result = approachCapture(engine, Math.PI, false);

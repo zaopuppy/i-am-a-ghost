@@ -45,6 +45,8 @@ test('two browser pages join, start, and move through the authoritative input pa
     .poll(() => ghostPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.cameraMode))
     .toBe('whole-house');
   await expect(ghostPage.locator('#control-hint')).toContainText('接触孩子自动抓取');
+  await expect(childPage.locator('#control-hint')).toContainText('ESDF 移动并朝向');
+  await expect(childPage.locator('#control-hint')).not.toContainText('鼠标');
   const flashlightLengthInput = host
     .locator('.lil-gui .lil-controller')
     .filter({ hasText: '手电距离' })
@@ -84,6 +86,15 @@ test('two browser pages join, start, and move through the authoritative input pa
   const childFrame = await childPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.viewerFrame);
   expect(childFrame?.viewerRole).toBe('child');
   if (childFrame?.viewerRole === 'child') expect(childFrame.ghost).toBeUndefined();
+
+  await childPage.keyboard.down('e');
+  await expect.poll(() => readOwnChildFacing(childPage)).toBeCloseTo(-Math.PI / 2, 2);
+  await childPage.keyboard.up('e');
+  const facingBeforePointerMove = await readOwnChildFacing(childPage);
+  await childPage.mouse.move(20, 20);
+  await childPage.mouse.move(1100, 650);
+  await childPage.waitForTimeout(150);
+  expect(await readOwnChildFacing(childPage)).toBeCloseTo(facingBeforePointerMove ?? 0, 5);
 
   const initialX = await childPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.ownPosition?.x ?? null);
   expect(initialX).not.toBeNull();
@@ -148,6 +159,14 @@ test('two browser pages join, start, and move through the authoritative input pa
 
 function readRole(page: Page): Promise<string | null> {
   return page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.role ?? null);
+}
+
+function readOwnChildFacing(page: Page): Promise<number | null> {
+  return page.evaluate(() => {
+    const frame = window.__THREE_GAME_DIAGNOSTICS__?.viewerFrame;
+    if (frame?.viewerRole !== 'child') return null;
+    return frame.children.find((child) => child.playerId === frame.viewerPlayerId)?.facingRadians ?? null;
+  });
 }
 
 function collectErrors(page: Page, errors: string[]): void {

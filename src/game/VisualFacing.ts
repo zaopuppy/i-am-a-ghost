@@ -2,7 +2,6 @@ import type { Vec2 } from './MatchEngine';
 
 const DEGREES_TO_RADIANS = Math.PI / 180;
 
-export const AIM_DEADZONE_RADIUS = 0.42;
 export const CHILD_HEAD_MAX_RADIANS = 45 * DEGREES_TO_RADIANS;
 export const CHILD_CHEST_MAX_RADIANS = 20 * DEGREES_TO_RADIANS;
 export const CHILD_IDLE_TURN_START_RADIANS = 65 * DEGREES_TO_RADIANS;
@@ -66,18 +65,6 @@ export function movementFacing(
   const offsetX = current.x - previous.x;
   const offsetZ = current.z - previous.z;
   if (Math.hypot(offsetX, offsetZ) < minimumDistance) return null;
-  return Math.atan2(offsetZ, offsetX);
-}
-
-export function aimFacingWithDeadzone(
-  origin: Vec2,
-  target: Vec2,
-  previousRadians: number,
-  deadzoneRadius = AIM_DEADZONE_RADIUS,
-): number {
-  const offsetX = target.x - origin.x;
-  const offsetZ = target.z - origin.z;
-  if (Math.hypot(offsetX, offsetZ) < deadzoneRadius) return previousRadians;
   return Math.atan2(offsetZ, offsetX);
 }
 

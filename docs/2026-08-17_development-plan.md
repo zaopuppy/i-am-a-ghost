@@ -12,7 +12,7 @@
 最先验证的不是正式房屋或角色资产，而是下面这条最小链路：
 
     两个浏览器加入同一房间
-      -> 客户端只发送 ESDF、鼠标朝向和空格意图
+      -> 客户端只发送 ESDF 移动朝向和空格意图
       -> 服务器推进权威规则和角色阻挡
       -> 鬼客户端收到全局玩家视图
       -> 小孩客户端收不到隐藏鬼坐标
@@ -71,7 +71,7 @@
 
 ## 4. 目标数据流
 
-    键盘/鼠标
+    键盘
       -> InputRouter
       -> ClientSession
       -> Socket.IO client adapter
@@ -251,7 +251,7 @@ ClientSession 只处理当前玩家被允许看到的 ViewerFrame，不接受完
 | AuthoritativeGameRoom | 固定步累积器、输入合并、事件去重 | 2–5 人、房主、随机鬼、每玩家定向帧、断线变人偶 |
 | GameSimulation | 与渲染分离的确定性规则模块 | 全部旧玩法领域规则 |
 | MovementCollision | XZ 平面、圆形角色、简化代理 | 房屋墙段、真人对真人阻挡和狭窄开口稳定解算 |
-| InputRouter | held/pressed 分离、blur 清理 | ESDF、鼠标朝向、按住/按下两种空格语义 |
+| InputRouter | held/pressed 分离、blur 清理 | ESDF 移动与朝向、按住/按下两种空格语义 |
 | Hud / AudioSystem / VfxSystem | 事件驱动表现和池化 | 鬼血、电量、抓捕、显形、电池及新事件名称 |
 | ImportedKidView | Rogue 模型加载、骨骼 clone、动画切换 | 删除旧玩法附件与状态；增加四种暖色与头灯 socket |
 
@@ -348,7 +348,7 @@ ClientSession 只处理当前玩家被允许看到的 ViewerFrame，不接受完
 
 - 定义角色、四个小孩槽位、感应人偶、命令、权威状态、事件和玩家视图类型。
 - 建立一个简化房屋数据：墙体、开口、中央鬼出生点、四个外围槽位和电池候选点。
-- 实现固定 60 Hz 移动、ESDF 方向、鼠标朝向和真人圆形阻挡。
+- 实现固定 60 Hz 移动、ESDF 移动朝向和真人圆形阻挡。
 - 实现手电长度/角度、墙体遮挡、伤害、减速和多人递减。
 - 实现抓取前摇/冷却、三次抓捕、全员复位、保护时间和时钟暂停。
 - 实现头灯档位、电池生成/拾取/保留、五分钟超时和同 tick 胜负优先级。
@@ -484,7 +484,7 @@ ClientSession 只处理当前玩家被允许看到的 ViewerFrame，不接受完
 | room-lifecycle.spec.ts | 2–5 人、房主、随机鬼、人偶填充、轮换、离开和重连 |
 | network-smoothing.spec.ts | 20 Hz 帧、插值、本地预测、校正和事件去重 |
 | multiplayer.spec.ts | 双标签真实输入、所有权、显形传播、断线和状态收敛 |
-| input-controls.spec.ts | ESDF、鼠标朝向、按住手电、单次抓取、blur 清理 |
+| input-controls.spec.ts | ESDF 移动朝向、按住手电、单次抓取、blur 清理 |
 | visual.spec.ts | 两种镜头、黑暗、HUD、感应灯、光束、结算和非空画布 |
 
 建议保持 Playwright 单 worker，避免多个无头 WebGL 上下文争抢 GPU。

@@ -6,7 +6,6 @@ import { createRenderStage } from './core/Renderer';
 import { GameWorld } from './game/GameWorld';
 import type { GameplayTuning } from './game/MatchEngine';
 import { createRuntimeTuning } from './game/RuntimeTuning';
-import { aimFacingWithDeadzone } from './game/VisualFacing';
 import type { ViewerFrame } from './game/ViewerFrame';
 import { GameClient } from './net/GameClient';
 import { FramePresenter } from './net/FramePresenter';
@@ -56,11 +55,8 @@ const stage = createRenderStage(canvas);
 const world = new GameWorld();
 const client = new GameClient();
 const presenter = new FramePresenter();
-const input = new GameInput(canvas);
+const input = new GameInput();
 const audio = new GameAudio();
-const raycaster = new THREE.Raycaster();
-const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-const pointerTarget = new THREE.Vector3();
 const batteryScreenPoint = new THREE.Vector3();
 const ownScreenPoint = new THREE.Vector3();
 const cameraCenter = new THREE.Vector2();
@@ -151,7 +147,7 @@ const loop = new Loop(
       client.sendInput({
         moveX: movement.x,
         moveZ: movement.z,
-        facingRadians: calculateFacing(frame, movement),
+        facingRadians: calculateFacing(movement),
         action: frame.viewerRole === 'child' && actionHeld,
       });
     }
@@ -415,32 +411,10 @@ function updateCamera(frame: ViewerFrame | null, deltaSeconds: number, immediate
   stage.setView(cameraCenter.x + shakeX, cameraCenter.y + shakeZ, currentCameraHeight);
 }
 
-function calculateFacing(frame: ViewerFrame, movement: { x: number; z: number }): number {
-  if (frame.viewerRole === 'ghost') {
-    if (Math.hypot(movement.x, movement.z) > 0) {
-      lastFacingRadians = Math.atan2(movement.z, movement.x);
-    }
-    return lastFacingRadians;
+function calculateFacing(movement: { x: number; z: number }): number {
+  if (Math.hypot(movement.x, movement.z) > 0) {
+    lastFacingRadians = Math.atan2(movement.z, movement.x);
   }
-  const ownPosition = ownActorPosition(frame);
-  if (!ownPosition) return lastFacingRadians;
-  const pointer = input.pointerClient();
-  const bounds = canvas.getBoundingClientRect();
-  const pointerX = pointer.x || bounds.left + bounds.width / 2;
-  const pointerY = pointer.y || bounds.top + bounds.height / 2;
-  raycaster.setFromCamera(
-    new THREE.Vector2(
-      ((pointerX - bounds.left) / bounds.width) * 2 - 1,
-      -((pointerY - bounds.top) / bounds.height) * 2 + 1,
-    ),
-    stage.camera,
-  );
-  if (!raycaster.ray.intersectPlane(groundPlane, pointerTarget)) return lastFacingRadians;
-  lastFacingRadians = aimFacingWithDeadzone(
-    ownPosition,
-    { x: pointerTarget.x, z: pointerTarget.z },
-    lastFacingRadians,
-  );
   return lastFacingRadians;
 }
 
@@ -462,7 +436,7 @@ function updateControlHint(frame: ViewerFrame): void {
     ? frame.ghost.burning
       ? '灼烧中 · 无法抓取 · ESDF 逃离光束'
       : 'ESDF 移动 · 接触孩子自动抓取'
-    : 'ESDF 移动 · 鼠标瞄准 · 空格手电';
+    : 'ESDF 移动并朝向 · 空格手电';
 }
 
 async function installDebugGui(): Promise<void> {

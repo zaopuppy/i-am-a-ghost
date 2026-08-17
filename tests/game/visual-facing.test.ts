@@ -4,7 +4,6 @@ import {
   advanceChildBodyFacing,
   advanceChildLookFacing,
   advanceGhostBodyFacing,
-  aimFacingWithDeadzone,
   calculateLookOffsets,
   CHILD_CHEST_MAX_RADIANS,
   CHILD_HEAD_MAX_RADIANS,
@@ -28,19 +27,7 @@ test('shortest angle delta crosses the wrap boundary instead of turning the long
   assertNear(shortestAngleDelta(-179 * DEG, 179 * DEG), -2 * DEG);
 });
 
-test('aim deadzone keeps the last meaningful direction', () => {
-  const previous = 70 * DEG;
-  assert.equal(
-    aimFacingWithDeadzone({ x: 2, z: 3 }, { x: 2.1, z: 3.1 }, previous),
-    previous,
-  );
-  assertNear(
-    aimFacingWithDeadzone({ x: 2, z: 3 }, { x: 2, z: 5 }, previous),
-    Math.PI / 2,
-  );
-});
-
-test('movement heading is independent from aim and ignores positional noise', () => {
+test('movement heading ignores positional noise', () => {
   assert.equal(movementFacing({ x: 0, z: 0 }, { x: 0.001, z: 0 }), null);
   assertNear(movementFacing({ x: 1, z: 1 }, { x: 1, z: 2 }) ?? 0, Math.PI / 2);
 });
