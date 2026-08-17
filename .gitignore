@@ -7,11 +7,15 @@
 
 node_modules/
 dist/
-test-results/
-playwright-report/
 artifacts/
+playwright-report/
+test-results/
+coverage/
 *.log
 .DS_Store
 
 package-lock.json
 
+.env
+.env.*
+!.env.example

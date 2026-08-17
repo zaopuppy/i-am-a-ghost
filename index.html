@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#08090d" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><text y=%2226%22 font-size=%2228%22>👻</text></svg>"
+    />
+    <title>I Am a Ghost</title>
+  </head>
+  <body>
+    <main id="app" aria-label="I Am a Ghost foundation">
+      <canvas id="game-canvas" aria-label="Three.js game canvas"></canvas>
+      <section class="foundation-panel" data-testid="foundation-panel">
+        <p class="eyebrow">M0 · FOUNDATION</p>
+        <h1>I AM A GHOST</h1>
+        <p class="scope">Three.js 客户端与局域网房间服务已就绪</p>
+        <p class="connection">
+          <span class="connection-dot" aria-hidden="true"></span>
+          <span id="network-status" data-testid="network-status">连接房间服务…</span>
+        </p>
+      </section>
+      <p class="milestone">当前仅为工程基线 · 玩法从 M1 开始</p>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

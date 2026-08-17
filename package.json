@@ -1,0 +1,37 @@
+{
+  "name": "i-am-a-ghost",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "dev": "concurrently --kill-others --names web,rooms \"npm:dev:web\" \"npm:dev:server\"",
+    "dev:web": "vite",
+    "dev:server": "tsx watch server/index.ts",
+    "build": "tsc && vite build",
+    "preview": "concurrently --kill-others --names web,rooms \"npm:preview:web\" \"npm:server\"",
+    "preview:web": "vite preview",
+    "server": "tsx server/index.ts",
+    "test": "playwright test",
+    "verify:visual": "playwright test tests/visual.spec.ts",
+    "inspect:canvas": "node scripts/inspect-threejs-canvas.mjs"
+  },
+  "dependencies": {
+    "socket.io": "^4.8.3",
+    "socket.io-client": "^4.8.3",
+    "three": "^0.184.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "@types/node": "^25.9.0",
+    "@types/pngjs": "^6.0.5",
+    "@types/three": "^0.184.1",
+    "concurrently": "^10.0.5",
+    "pngjs": "^7.0.0",
+    "tsx": "^4.23.12",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.13"
+  }
+}
