@@ -66,6 +66,9 @@ interface GhostGameDiagnostics {
     corrections: number;
     hardSnaps: number;
     interpolationAlpha: number;
+    bufferedFrames: number;
+    bufferLeadMs: number;
+    bufferUnderruns: number;
   };
   renderer: {
     calls: number;

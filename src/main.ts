@@ -530,9 +530,7 @@ function updateDiagnostics(frame: ViewerFrame | null): void {
     input: { actionHeld: input.actionHeld() },
     network: {
       ...network,
-      corrections: presentation.corrections,
-      hardSnaps: presentation.hardSnaps,
-      interpolationAlpha: presentation.interpolationAlpha,
+      ...presentation,
     },
     audio: audio.metrics(),
     renderer: {

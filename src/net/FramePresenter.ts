@@ -11,14 +11,28 @@ export interface PresentationStats {
   corrections: number;
   hardSnaps: number;
   interpolationAlpha: number;
+  bufferedFrames: number;
+  bufferLeadMs: number;
+  bufferUnderruns: number;
 }
+
+const REMOTE_BUFFER_TICKS = 6;
+const MAX_BUFFERED_FRAMES = 12;
+const MAX_CONTINUOUS_FRAME_GAP_TICKS = 30;
+const MAX_REMOTE_PLAYBACK_RATE = 1.5;
+const REMOTE_CATCHUP_GAIN = 0.25;
+const SOFT_CORRECTION_DISTANCE = 0.35;
+const HARD_CORRECTION_DISTANCE = 1.25;
+const SOFT_CORRECTION_RATIO = 0.35;
 
 export class FramePresenter {
   private matchId: string | null = null;
-  private previous: ViewerFrame | null = null;
   private current: ViewerFrame | null = null;
-  private transitionSeconds = 1 / 20;
-  private transitionElapsed = 0;
+  private bufferedFrames: ViewerFrame[] = [];
+  private presentationTick: number | null = null;
+  private playbackStarted = false;
+  private bufferUnderruns = 0;
+  private bufferUnderrunActive = false;
   private predictedPosition: Vec2 | null = null;
   private corrections = 0;
   private hardSnaps = 0;
@@ -29,8 +43,15 @@ export class FramePresenter {
       this.matchId !== matchId ||
       !this.current ||
       this.current.viewerPlayerId !== frame.viewerPlayerId ||
-      this.current.viewerRole !== frame.viewerRole ||
-      frame.tick <= this.current.tick
+      this.current.viewerRole !== frame.viewerRole
+    ) {
+      this.reset(matchId, frame);
+      return;
+    }
+    if (frame.tick <= this.current.tick) return;
+    if (
+      frame.phase !== this.current.phase ||
+      frame.tick - this.current.tick > MAX_CONTINUOUS_FRAME_GAP_TICKS
     ) {
       this.reset(matchId, frame);
       return;
@@ -44,21 +65,27 @@ export class FramePresenter {
         const errorX = serverPosition.x - this.predictedPosition.x;
         const errorZ = serverPosition.z - this.predictedPosition.z;
         const error = Math.hypot(errorX, errorZ);
-        if (error > 1.25) {
+        if (error > HARD_CORRECTION_DISTANCE) {
           this.predictedPosition = { ...serverPosition };
           this.hardSnaps += 1;
-        } else if (error > 0.025) {
-          this.predictedPosition.x += errorX * 0.35;
-          this.predictedPosition.z += errorZ * 0.35;
+        } else if (error > SOFT_CORRECTION_DISTANCE) {
+          this.predictedPosition.x += errorX * SOFT_CORRECTION_RATIO;
+          this.predictedPosition.z += errorZ * SOFT_CORRECTION_RATIO;
           this.corrections += 1;
         }
       }
     }
 
-    this.previous = this.current;
-    this.current = cloneFrame(frame);
-    this.transitionSeconds = Math.max(1 / 30, Math.min(0.12, (frame.tick - this.previous.tick) / 60));
-    this.transitionElapsed = 0;
+    const snapshot = cloneFrame(frame);
+    this.current = snapshot;
+    this.bufferedFrames.push(snapshot);
+    if (this.bufferedFrames.length > MAX_BUFFERED_FRAMES) {
+      this.bufferedFrames.splice(0, this.bufferedFrames.length - MAX_BUFFERED_FRAMES);
+      this.presentationTick = Math.max(
+        this.presentationTick ?? snapshot.tick,
+        this.bufferedFrames[0].tick,
+      );
+    }
   }
 
   present(
@@ -67,11 +94,7 @@ export class FramePresenter {
     movementTuning: Pick<GameplayTuning, 'childMoveSpeed' | 'ghostMoveSpeed'> = DEFAULT_GAMEPLAY_TUNING,
   ): ViewerFrame | null {
     if (!this.current) return null;
-    this.transitionElapsed += Math.max(0, deltaSeconds);
-    const linearAlpha = Math.min(1, this.transitionElapsed / this.transitionSeconds);
-    this.interpolationAlpha = linearAlpha * linearAlpha * (3 - 2 * linearAlpha);
-    const frame = cloneFrame(this.current);
-    if (this.previous) interpolateRemoteActors(frame, this.previous, this.interpolationAlpha);
+    const frame = this.presentBufferedFrame(Math.max(0, deltaSeconds));
 
     if (this.predictedPosition) {
       if (frame.phase === 'playing') {
@@ -98,17 +121,86 @@ export class FramePresenter {
       corrections: this.corrections,
       hardSnaps: this.hardSnaps,
       interpolationAlpha: this.interpolationAlpha,
+      bufferedFrames: this.bufferedFrames.length,
+      bufferLeadMs: this.bufferLeadMs(),
+      bufferUnderruns: this.bufferUnderruns,
     };
   }
 
   reset(matchId: string, frame: ViewerFrame): void {
     this.matchId = matchId;
-    this.previous = cloneFrame(frame);
     this.current = cloneFrame(frame);
+    this.bufferedFrames = [this.current];
+    this.presentationTick = frame.tick;
+    this.playbackStarted = false;
+    this.bufferUnderrunActive = false;
     const position = ownPosition(frame);
     this.predictedPosition = position ? { ...position } : null;
-    this.transitionElapsed = this.transitionSeconds;
     this.interpolationAlpha = 1;
+  }
+
+  private presentBufferedFrame(deltaSeconds: number): ViewerFrame {
+    const latest = this.bufferedFrames[this.bufferedFrames.length - 1];
+    this.presentationTick ??= latest.tick;
+    if (!this.playbackStarted && latest.tick - this.presentationTick >= REMOTE_BUFFER_TICKS) {
+      this.playbackStarted = true;
+      this.presentationTick = Math.max(
+        this.presentationTick,
+        latest.tick - REMOTE_BUFFER_TICKS,
+      );
+    }
+    if (this.playbackStarted) {
+      const leadTicks = latest.tick - this.presentationTick;
+      const excessLeadRatio = Math.max(0, leadTicks - REMOTE_BUFFER_TICKS) / REMOTE_BUFFER_TICKS;
+      const playbackRate = Math.min(
+        MAX_REMOTE_PLAYBACK_RATE,
+        1 + excessLeadRatio * REMOTE_CATCHUP_GAIN,
+      );
+      const nextTick = this.presentationTick
+        + deltaSeconds * MATCH_RULES.tickRate * playbackRate;
+      if (nextTick <= latest.tick) {
+        this.presentationTick = nextTick;
+        this.bufferUnderrunActive = false;
+      } else {
+        this.presentationTick = latest.tick;
+        if (!this.bufferUnderrunActive) {
+          this.bufferUnderruns += 1;
+          this.bufferUnderrunActive = true;
+        }
+      }
+    }
+
+    let before = this.bufferedFrames[0];
+    let after = before;
+    for (let index = 1; index < this.bufferedFrames.length; index += 1) {
+      const candidate = this.bufferedFrames[index];
+      if (candidate.tick >= this.presentationTick) {
+        after = candidate;
+        break;
+      }
+      before = candidate;
+      after = candidate;
+    }
+    const tickSpan = after.tick - before.tick;
+    this.interpolationAlpha = tickSpan > 0
+      ? clamp((this.presentationTick - before.tick) / tickSpan, 0, 1)
+      : 1;
+    const frame = cloneFrame(after);
+    if (before !== after) interpolateRemoteActors(frame, before, this.interpolationAlpha);
+
+    while (
+      this.bufferedFrames.length > 2 &&
+      this.bufferedFrames[1].tick <= this.presentationTick
+    ) {
+      this.bufferedFrames.shift();
+    }
+    return frame;
+  }
+
+  private bufferLeadMs(): number {
+    if (this.presentationTick === null || this.bufferedFrames.length === 0) return 0;
+    const latestTick = this.bufferedFrames[this.bufferedFrames.length - 1].tick;
+    return ((latestTick - this.presentationTick) / MATCH_RULES.tickRate) * 1_000;
   }
 }
 
@@ -164,6 +256,10 @@ function interpolatePosition(before: Vec2, after: Vec2, alpha: number): Vec2 {
     x: before.x + (after.x - before.x) * alpha,
     z: before.z + (after.z - before.z) * alpha,
   };
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.max(minimum, Math.min(maximum, value));
 }
 
 function ownPosition(frame: ViewerFrame): Vec2 | null {
