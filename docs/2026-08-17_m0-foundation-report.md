@@ -7,7 +7,7 @@
 
 ## 完成内容
 
-- 接受 ADR-0001，技术路线改为选择性复用 Apple Picking 的 Socket.IO 权威联机基础。
+- 接受 ADR-0001，技术路线确定为 Socket.IO 权威联机架构。
 - 同步更新游戏设计文档中的服务端、状态过滤和同步描述。
 - 建立 TypeScript、Vite、Three.js、Socket.IO 和 Playwright 工具链。
 - 建立单一 PC Web 入口，使用 Web 端口 `5189` 和房间服务端口 `5191`。

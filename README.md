@@ -20,9 +20,9 @@ npm run dev
 
 ## 操作与规则
 
-- `E/S/D/F`：向上/左/下/右移动。
-- 鼠标：朝向。
-- `空格`：小孩按住打开手电；鬼按下发起一次抓取。
+- 鬼：`E/S/D/F` 向上/左/下/右移动；接触小孩后自动抓取，不使用鼠标或空格。
+- 小孩：`E/S/D/F` 向上/左/下/右移动，鼠标瞄准，按住 `空格` 打开手电。
+- 鬼被手电照中后进入灼烧状态，期间减速且无法抓取，只能移动逃离。
 - 鬼抓到小孩三次获胜；鬼生命归零或五分钟倒计时归零则小孩获胜。
 - 小孩低电时地图生成一块全角色可见的电池；头灯随鬼接近由慢闪、快闪变为常亮。
 
@@ -50,10 +50,8 @@ npx playwright test tests/deterministic-states.spec.ts
 
 - 游戏规则：[docs/2026-08-17_game-design-and-start-plan.md](docs/2026-08-17_game-design-and-start-plan.md)
 - 开发计划：[docs/2026-08-17_development-plan.md](docs/2026-08-17_development-plan.md)
-- 联机栈决策：[docs/adr/0001-reuse-socketio-authoritative-stack.md](docs/adr/0001-reuse-socketio-authoritative-stack.md)
+- 联机栈决策：[docs/adr/0001-use-socketio-authoritative-stack.md](docs/adr/0001-use-socketio-authoritative-stack.md)
 - M6 自动试玩与 QA：[docs/2026-08-17_m6-playtest-tuning-and-qa-report.md](docs/2026-08-17_m6-playtest-tuning-and-qa-report.md)
 - 第三方资产许可：[docs/ASSET_LICENSES.md](docs/ASSET_LICENSES.md)
-
-工程基础选择性参考 `E:\workspace\2026-gamehack\apple-picking` 的 commit `b3dcb8d399961e87bad56c7a3424005b80e51adb`，不复制其玩法领域或全量状态广播策略。
 
 当前是首轮局域网试玩版，不代表最终平衡或正式发布。自动机器人显示少人数局对鬼明显有利；下一轮应以 2–5 名真人的实际操作、误判与路线选择数据决定调整。

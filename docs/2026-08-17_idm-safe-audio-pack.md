@@ -10,7 +10,7 @@ MP3 文件本身没有损坏：ffprobe 能识别全部五个文件，Vite 直连
 
 ## 方案
 
-采用 `apple-picking` 已验证的资源包边界：
+采用单文件音频资源包边界：
 
 - `scripts/pack-audio.mjs` 将五个 MP3 原始字节编码到一个 `base64-audio-pack-v1` JSON 文件。
 - 首次用户操作只请求 `assets/audio/kenney/sfx-pack.json`，然后在内存中恢复字节并调用 `decodeAudioData()`。

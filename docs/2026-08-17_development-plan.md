@@ -3,13 +3,11 @@
 - 日期：2026-08-17
 - 状态：M0–M6 实现与自动 QA 已完成；真人平衡试玩仍待组织
 - 设计依据：docs/2026-08-17_game-design-and-start-plan.md
-- 参考工程：E:\workspace\2026-gamehack\apple-picking
-- 参考基线：master / b3dcb8d399961e87bad56c7a3424005b80e51adb
 - 当前范围：按里程碑推进；M0 只建立工程基线，不复制玩法代码或资源
 
 ## 1. 结论先行
 
-不从空目录重新搭建，也不整体复制 Apple Picking。建议以 Apple Picking 的工具链、局域网权威房间、同步诊断和测试框架为技术基线，选择性迁移到当前仓库；完全重写苹果领域、地图、席位模型和渲染场景。
+以 TypeScript、Vite、Socket.IO、Playwright 和既有局域网权威同步模式为工程基线；玩法领域、地图、席位模型和渲染场景均由本项目独立实现。
 
 最先验证的不是正式房屋或角色资产，而是下面这条最小链路：
 
@@ -34,7 +32,7 @@
 
 因此不存在需要兼容的旧运行时，也没有必要先做迁移层。
 
-### Apple Picking 可用基线
+### 可用工程基线
 
 参考工程已经实现：
 
@@ -54,14 +52,14 @@
 - 房间固定为两个席位，而本项目需要 2–5 名真人和随机角色。
 - 完整 snapshot 与 checkpoint 会广播给全部客户端，会泄露隐藏鬼坐标。
 - 客户端预测会重放完整对局，依赖完整规则状态；本项目的小孩客户端不能这样做。
-- GameSnapshot、协议、HUD、音频和渲染均包含苹果领域类型。
-- 地图编辑器、果园生成器和本地同键盘模式不属于本项目范围。
+- GameSnapshot、协议、HUD、音频和渲染均包含旧玩法领域类型。
+- 地图编辑器、旧地图生成器和本地同键盘模式不属于本项目范围。
 
 ## 3. 架构修订门槛
 
-原设计文档选择 Colyseus，是因为当时假设团队没有成熟的 Socket.IO 游戏同步层。Apple Picking 使这个前提不再成立。
+原设计文档选择 Colyseus，是因为当时假设团队没有成熟的 Socket.IO 游戏同步层。进一步勘察确认现有技术栈已经覆盖所需的房间与同步能力，因此该前提不再成立。
 
-本计划推荐接受 docs/adr/0001-reuse-socketio-authoritative-stack.md：
+本计划推荐接受 docs/adr/0001-use-socketio-authoritative-stack.md：
 
 - 使用 Socket.IO，而不是 Colyseus。
 - 复用房间和同步基础设施，不复用全量状态广播。
@@ -227,45 +225,44 @@ ClientSession 只处理当前玩家被允许看到的 ViewerFrame，不接受完
 
 文件名是计划目标，不要求在第一个提交一次性建齐。
 
-## 7. 复用清单
+## 7. 工程基线清单
 
 ### 可近似原样迁移
 
-| Apple Picking 来源 | 用途 | 迁移注意 |
+| 基线模块 | 用途 | 接入注意 |
 |---|---|---|
 | package.json 的工具链与 scripts | Vite、TypeScript、Playwright、并行启动 | 改项目名、端口和依赖；暂不加入 lil-gui 之外的无用依赖 |
 | vite.config.ts / tsconfig.json / playwright.config.ts | 构建和浏览器测试基线 | 改入口与端口，移除编辑器页面配置 |
 | src/core/Loop.ts | 60 FPS 渲染循环 | 保持与 60 Hz 规则 tick 分离 |
-| src/core/Renderer.ts 的 createRenderer | WebGL、色彩空间、tone mapping、阴影 | 相机投影尺寸依赖果园配置的部分需要重写 |
+| src/core/Renderer.ts 的 createRenderer | WebGL、色彩空间、tone mapping、阴影 | 相机投影尺寸依赖旧地图配置的部分需要重写 |
 | server/index.ts 的 HTTP、healthz 和关闭流程 | 局域网房间进程 | 环境变量改为 I_AM_A_GHOST_SERVER_* |
 | RoomManager 的房间码生成、空房清理模式 | 邀请房和内存生命周期 | 重写两席位限制、开始条件和房主逻辑 |
 | 输入序号、事件 ID、过期输入保护 | 权威命令和一次性事件 | ActorId/SeatId 全部替换为玩家与角色 ID |
 | scripts/inspect-threejs-canvas.mjs | 非空画布、GPU 和预算证据 | 预算改为仅桌面，状态钩子改为本游戏名称 |
 | Playwright 配置与测试辅助模式 | 系统 Chrome、单 worker、多页面测试 | 删除手机项目，仅保留 PC 视口和局域网用例 |
-| src/utils/random.ts / dispose.ts | 确定性随机与资源释放 | 确认无苹果领域依赖后迁移 |
+| src/utils/random.ts / dispose.ts | 确定性随机与资源释放 | 确认无旧玩法领域依赖后迁移 |
 
 ### 迁移后重写核心逻辑
 
-| Apple Picking 来源 | 保留的形状 | 必须重写 |
+| 基线模块 | 保留的形状 | 必须重写 |
 |---|---|---|
-| GameDriver / OnlineGameDriver | tick、视图、诊断、会话替换 | 完整 checkpoint 预测、席位所有权和苹果快照 |
+| GameDriver / OnlineGameDriver | tick、视图、诊断、会话替换 | 完整 checkpoint 预测、席位所有权和旧玩法快照 |
 | SnapshotInterpolation | 时间线和插值思想 | 改为 ViewerFrame 与动态玩家集合 |
 | AuthoritativeGameRoom | 固定步累积器、输入合并、事件去重 | 2–5 人、房主、随机鬼、每玩家定向帧、断线变人偶 |
-| GameSimulation | 与渲染分离的确定性规则模块 | 全部苹果、守卫、投递和果园规则 |
+| GameSimulation | 与渲染分离的确定性规则模块 | 全部旧玩法领域规则 |
 | MovementCollision | XZ 平面、圆形角色、简化代理 | 房屋墙段、真人对真人阻挡和狭窄开口稳定解算 |
 | InputRouter | held/pressed 分离、blur 清理 | ESDF、鼠标朝向、按住/按下两种空格语义 |
 | Hud / AudioSystem / VfxSystem | 事件驱动表现和池化 | 鬼血、电量、抓捕、显形、电池及新事件名称 |
-| ImportedKidView | Rogue 模型加载、骨骼 clone、动画切换 | 删除苹果背包、负重、拾取和滴汗；增加四种暖色与头灯 socket |
+| ImportedKidView | Rogue 模型加载、骨骼 clone、动画切换 | 删除旧玩法附件与状态；增加四种暖色与头灯 socket |
 
 ### 不迁移
 
 - src/editor/ 与 editor.html。
-- 果园地图生成器、地图迁移、OrchardMap 和岛屿世界。
-- 苹果、投递区、守卫飞扑与双守卫状态。
+- 旧地图生成器、地图迁移和无关世界场景。
+- 旧玩法实体、投递区与双席位状态。
 - 本地同键盘单机入口；本项目没有单机版。
 - Nature Pack 和完整 KayKit 世界资源库。
-- dist、node_modules、artifacts、test-results、playwright-report 和参考仓库的 .git。
-- Apple Picking 的历史文档，只在本计划中记录来源 commit。
+- dist、node_modules、artifacts、test-results、playwright-report 和其他仓库的 .git。
 
 ## 8. 资源复用
 
@@ -286,14 +283,14 @@ ClientSession 只处理当前玩家被允许看到的 ViewerFrame，不接受完
 
 - 灰盒阶段先使用程序化胶囊/球体鬼，确保“无脚、漂浮”读得清楚；不要把 Knight 当作鬼。
 - 只复制实际使用的运行时文件和对应 LICENSE，不复制完整素材包。
-- 第一次迁移资源时创建 docs/ASSET_LICENSES.md，记录来源仓库、上游作者、许可证、文件大小、三角面、动画和修改方式。
+- 第一次引入资源时创建 docs/ASSET_LICENSES.md，记录上游来源、作者、许可证、文件大小、三角面、动画和修改方式。
 - 视觉模型永远不直接作为权威碰撞体。
-- Rogue 小孩需要删除苹果专属附件，并验证 Idle_A、Running_A、Hit_A；PickUp 不作为首版必需动画。
+- Rogue 小孩需要删除旧玩法附件，并验证 Idle_A、Running_A、Hit_A；PickUp 不作为首版必需动画。
 - 正式鬼资产、房屋套件和完整音频属于灰盒验证后的独立阶段。
 
 ## 9. 玩家视图与安全规则
 
-Apple Picking 的 room-wide state-frame broadcast 不能迁移。AuthoritativeRoom 必须逐玩家生成并发送帧。
+禁止 room-wide 广播完整状态帧。AuthoritativeRoom 必须逐玩家生成并发送帧。
 
 ### 鬼玩家视图
 
@@ -322,16 +319,16 @@ Apple Picking 的 room-wide state-frame broadcast 不能迁移。AuthoritativeRo
 
 ### M0：架构门槛与仓库基线
 
-**目标**：确认 Socket.IO 修订，建立可构建、可测试、没有苹果领域残留的最小工程。
+**目标**：确认 Socket.IO 修订，建立可构建、可测试、没有旧玩法领域残留的最小工程。
 
 **完成状态（2026-08-17）**：已完成。验证记录见 `docs/2026-08-17_m0-foundation-report.md`；下一工作包为 M1，不在 M0 中提前实现玩法。
 
 **工作**：
 
 - 接受或拒绝 ADR-0001；接受后同步更新设计文档。
-- 从固定 commit 选择性迁移 package、Vite、TypeScript、Playwright、Loop、Renderer 起点、server 进程和 canvas inspector。
+- 建立 package、Vite、TypeScript、Playwright、Loop、Renderer、server 进程和 canvas inspector 基线。
 - 改名、环境变量、sessionStorage key、端口和页面标题。
-- 建议使用 Web 5189、房间服务 5191，避免与 Apple Picking 的 5188/5190 冲突，最终可再调整。
+- 使用 Web 5189、房间服务 5191，避免与本机其他开发服务冲突，最终可再调整。
 - 保留一个 index.html，不创建本地单机和地图编辑器入口。
 - 建立最小 healthz、空 canvas、测试钩子和构建命令。
 
@@ -339,7 +336,7 @@ Apple Picking 的 room-wide state-frame broadcast 不能迁移。AuthoritativeRo
 
 - npm run build 通过。
 - 空灰盒页面和 healthz 可访问。
-- 代码与 UI 中没有 Apple Picking、guard、apple、orchard 等领域残留。
+- 代码与 UI 中没有旧项目领域残留。
 
 ### M1：确定性 MatchEngine
 
@@ -512,12 +509,12 @@ Apple Picking 的 room-wide state-frame broadcast 不能迁移。AuthoritativeRo
 
 | 风险 | 应对 |
 |---|---|
-| 从参考工程复制出苹果领域残留 | M0 以术语搜索和构建作为硬门槛 |
+| 引入无关的旧玩法领域残留 | M0 以术语搜索和构建作为硬门槛 |
 | 完整 checkpoint 泄露鬼坐标 | checkpoint 仅服务器持有；独立 view-security 测试 |
 | 自预测需要隐藏鬼状态 | 只预测本地角色；隐藏碰撞由权威校正 |
 | 五人狭窄阻挡导致抖动或卡死 | 压力测试自定义圆形碰撞；失败时再引入 Rapier |
 | Socket.IO room-wide broadcast 误发全局状态 | 状态帧逐 socket 定向发送，事件也按 viewer 投影 |
-| Apple Picking 两席位假设扩散 | 协议先改为 playerId/role/actorId，再迁移大厅 UI |
+| 双席位假设扩散 | 协议先采用 playerId/role/actorId，再接入大厅 UI |
 | 先做完整地图导致网络风险暴露太晚 | M2 使用极简房间先验证权威和保密性 |
 | 资源整包迁移污染仓库 | 只复制实际使用文件和 LICENSE，禁止完整素材包 |
 | 无屏外电池提示导致无聊搜索 | 先记录低电到拾取时间，优先调整合法点位 |

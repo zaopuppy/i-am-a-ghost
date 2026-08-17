@@ -10,7 +10,7 @@ GEMINI_API_KEY=MISSING
 ELEVENLABS_API_KEY=MISSING
 ```
 
-因此没有调用 Tripo、Gemini 或 ElevenLabs，也没有生成任务 ID。用户指定的 Apple Picking 仓库已经包含更合适的 CC0 KayKit/Kenney 素材，本阶段直接复用并保留许可证。
+因此没有调用 Tripo、Gemini 或 ElevenLabs，也没有生成任务 ID。仓库已有更合适的 CC0 KayKit/Kenney 素材，本阶段直接复用并保留许可证。
 
 引用资料账本：
 

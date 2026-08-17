@@ -4,8 +4,8 @@ All runtime assets in this project are local files. No API key or expiring remot
 
 | Runtime path | Source | Creator | License | Use |
 | --- | --- | --- | --- | --- |
-| `public/assets/models/kaykit-adventurers/Rogue_Kid.glb` | KayKit Adventurers Character Pack 2.0, copied from the sibling Apple Picking repository | Kay Lousberg | CC0 1.0 | Child and sensing-doll visual; the authoritative collider remains a separate circle |
-| `public/assets/models/kaykit-medieval/wall_straight.glb` | KayKit Medieval Builder Pack 1.0, copied from the sibling Apple Picking repository | Kay Lousberg | CC0 1.0 | Visual-only wall skin fitted to existing AABB collision segments |
+| `public/assets/models/kaykit-adventurers/Rogue_Kid.glb` | KayKit Adventurers Character Pack 2.0 | Kay Lousberg | CC0 1.0 | Child and sensing-doll visual; the authoritative collider remains a separate circle |
+| `public/assets/models/kaykit-medieval/wall_straight.glb` | KayKit Medieval Builder Pack 1.0 | Kay Lousberg | CC0 1.0 | Visual-only wall skin fitted to existing AABB collision segments |
 | `public/assets/audio/kenney/guard-pounce.mp3` | Kenney Impact Sounds | Kenney | CC0 1.0 | Ghost capture windup |
 | `public/assets/audio/kenney/kid-captured.mp3` | Kenney Impact Sounds | Kenney | CC0 1.0 | Successful capture |
 | `public/assets/audio/kenney/picked-01.mp3` | Kenney Interface Sounds | Kenney | CC0 1.0 | Battery collected |
