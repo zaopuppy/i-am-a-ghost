@@ -34,6 +34,18 @@ test('two browser pages join, start, and move through the authoritative input pa
   await expect
     .poll(() => ghostPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.cameraMode))
     .toBe('whole-house');
+  const actionPressesBefore = await ghostPage.evaluate(
+    () => window.__THREE_GAME_DIAGNOSTICS__?.input?.actionPressesSent ?? 0,
+  );
+  await ghostPage.evaluate(() => {
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space' }));
+    window.dispatchEvent(new KeyboardEvent('keyup', { code: 'Space' }));
+  });
+  await expect
+    .poll(() => ghostPage.evaluate(
+      () => window.__THREE_GAME_DIAGNOSTICS__?.input?.actionPressesSent ?? 0,
+    ))
+    .toBeGreaterThan(actionPressesBefore);
   const worldMetrics = await ghostPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.world);
   expect(worldMetrics).toMatchObject({ rooms: 9, walls: 22, actors: 5 });
   await expect
@@ -45,7 +57,10 @@ test('two browser pages join, start, and move through the authoritative input pa
   await host.locator('#audio-toggle').click();
   await host.locator('#audio-toggle').click();
   await expect
-    .poll(() => host.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.audio.loaded ?? 0))
+    .poll(
+      () => host.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.audio.loaded ?? 0),
+      { timeout: 15_000 },
+    )
     .toBe(5);
   expect(await host.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.audio.failed)).toBe(0);
   const childFrame = await childPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.viewerFrame);

@@ -4,6 +4,8 @@ import { GameInput } from './core/GameInput';
 import { Loop } from './core/Loop';
 import { createRenderStage } from './core/Renderer';
 import { GameWorld } from './game/GameWorld';
+import { DEFAULT_HOUSE_MAP } from './game/defaultHouse';
+import { isCaptureTargetInReach, MATCH_RULES } from './game/MatchEngine';
 import type { ViewerFrame } from './game/ViewerFrame';
 import { GameClient } from './net/GameClient';
 import { FramePresenter } from './net/FramePresenter';
@@ -63,6 +65,8 @@ let measuredFps = 0;
 let lastIngestedFrameKey = '';
 let lastAudioEvents: typeof client.latestEvents = null;
 let lastActionHeld = false;
+let pendingActionPress = false;
+let actionPressesSent = 0;
 const query = new URLSearchParams(window.location.search);
 const requestedTestState = query.get('testState');
 let deterministicState: DeterministicStateName | null = import.meta.env.DEV
@@ -118,6 +122,10 @@ const loop = new Loop(
       audio.handleEvents(client.latestEvents.events);
     }
     const actionHeld = input.actionHeld();
+    const actionPressed = input.consumeActionPress();
+    pendingActionPress = !deterministicState && frame?.phase === 'playing'
+      ? pendingActionPress || actionPressed
+      : false;
     if (actionHeld && !lastActionHeld && frame?.viewerRole === 'child') audio.play('flashlight', 0.52);
     lastActionHeld = actionHeld;
     const presentationSeconds = deterministicState && (screenshotPaused || reducedMotion)
@@ -129,12 +137,15 @@ const loop = new Loop(
     if (deterministicState && frame) renderDeterministicState(frame);
     if (!deterministicState && frame && client.roomState?.phase === 'playing' && elapsedSeconds - lastInputSentAt >= 1 / 30) {
       lastInputSentAt = elapsedSeconds;
+      const sendQueuedPress = frame.viewerRole === 'ghost' && pendingActionPress;
       client.sendInput({
         moveX: movement.x,
         moveZ: movement.z,
         facingRadians: calculateFacing(frame),
-        action: actionHeld,
+        action: actionHeld || sendQueuedPress,
       });
+      if (sendQueuedPress) actionPressesSent += 1;
+      pendingActionPress = false;
     }
     updateDiagnostics(frame);
   },
@@ -279,6 +290,12 @@ function updateHud(frame: ViewerFrame | null): void {
     showBanner('保护时间 · 计时暂停', 'safe');
   } else if (frame.viewerRole === 'ghost' && frame.ghost.captureState === 'windup') {
     showBanner('抓取中…', 'danger');
+  } else if (frame.viewerRole === 'ghost' && frame.ghost.captureState === 'cooldown') {
+    showBanner('抓空了 · 冷却中', 'danger');
+  } else if (frame.viewerRole === 'ghost' && captureTargetAvailable(frame)) {
+    showBanner('目标锁定 · 对准后按空格抓取', 'safe');
+  } else if (frame.viewerRole === 'ghost' && childWithinCaptureRange(frame)) {
+    showBanner('已进入抓取距离 · 移动鼠标对准', 'safe');
   } else {
     eventBanner.hidden = true;
   }
@@ -322,6 +339,23 @@ function ownActorPosition(frame: ViewerFrame): { x: number; z: number } | null {
   return frame.children.find((child) => child.playerId === frame.viewerPlayerId)?.position ?? null;
 }
 
+function childWithinCaptureRange(frame: ViewerFrame): boolean {
+  if (frame.viewerRole !== 'ghost') return false;
+  return frame.children.some((child) => Math.hypot(
+    child.position.x - frame.ghost.position.x,
+    child.position.z - frame.ghost.position.z,
+  ) <= MATCH_RULES.captureRange);
+}
+
+function captureTargetAvailable(frame: ViewerFrame): boolean {
+  if (frame.viewerRole !== 'ghost') return false;
+  return frame.children.some((child) => isCaptureTargetInReach(
+    frame.ghost,
+    child,
+    DEFAULT_HOUSE_MAP.walls,
+  ));
+}
+
 function updateDiagnostics(frame: ViewerFrame | null): void {
   const network = client.networkStats();
   const presentation = presenter.stats();
@@ -340,6 +374,7 @@ function updateDiagnostics(frame: ViewerFrame | null): void {
     viewerFrame: frame,
     cameraMode: frame?.viewerRole === 'child' ? 'follow' : 'whole-house',
     world: world.metrics(),
+    input: { actionPressesSent },
     network: {
       ...network,
       corrections: presentation.corrections,

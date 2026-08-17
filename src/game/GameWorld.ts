@@ -13,11 +13,14 @@ import type { ViewerFrame } from './ViewerFrame';
 const CHILD_COLORS = [0xf0a060, 0xdcb35d, 0xd98265, 0xe2a08d] as const;
 const HEADLAMP_OFF = new THREE.Color(0x3b3025);
 const HEADLAMP_ON = new THREE.Color(0xffd36b);
+const HEADLAMP_HEIGHT = 1.5;
 
 interface ActorVisual {
   root: THREE.Group;
   body: THREE.Object3D;
   lamp: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
+  lampHalo: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
+  lampLight: THREE.PointLight;
   beam: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial> | null;
   headlamp: HeadlampBand;
   imported: KidAssetInstance | null;
@@ -215,9 +218,6 @@ export class GameWorld {
       actor.body = imported.root;
       actor.imported = imported;
       actor.root.add(imported.root);
-      actor.root.remove(actor.lamp);
-      actor.lamp.position.set(0, 0, 0);
-      imported.headlampSocket.add(actor.lamp);
     } catch {
       actor.imported = null;
     }
@@ -227,7 +227,10 @@ export class GameWorld {
     for (const actor of this.actors.values()) {
       const active = headlampIsLit(actor.headlamp, elapsedSeconds);
       actor.lamp.material.color.copy(active ? HEADLAMP_ON : HEADLAMP_OFF);
-      actor.lamp.scale.setScalar(active ? 1.4 : 1);
+      actor.lamp.scale.setScalar(active ? 1.65 : 1);
+      actor.lampHalo.visible = active;
+      actor.lampHalo.scale.setScalar(active ? 1 + Math.sin(elapsedSeconds * 12) * 0.08 : 1);
+      actor.lampLight.intensity = active ? 1.4 : 0;
     }
   }
 }
@@ -267,12 +270,32 @@ function createActor(
     }
   }
   const lamp = new THREE.Mesh(
-    new THREE.SphereGeometry(0.105, 10, 8),
+    new THREE.SphereGeometry(0.13, 12, 9),
     new THREE.MeshBasicMaterial({ color: HEADLAMP_OFF }),
   );
-  lamp.position.set(0.22, kind === 'ghost' ? 1.05 : 1.06, -0.02);
+  lamp.position.set(0, HEADLAMP_HEIGHT, 0);
   lamp.visible = kind !== 'ghost';
   root.add(lamp);
+  const lampHalo = new THREE.Mesh(
+    new THREE.RingGeometry(0.17, 0.31, 24),
+    new THREE.MeshBasicMaterial({
+      color: HEADLAMP_ON,
+      transparent: true,
+      opacity: 0.82,
+      blending: THREE.AdditiveBlending,
+      depthTest: false,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    }),
+  );
+  lampHalo.rotation.x = -Math.PI / 2;
+  lampHalo.position.set(0, HEADLAMP_HEIGHT + 0.015, 0);
+  lampHalo.visible = false;
+  root.add(lampHalo);
+  const lampLight = new THREE.PointLight(HEADLAMP_ON, 0, 2.8, 2);
+  lampLight.position.set(0, HEADLAMP_HEIGHT, 0);
+  lampLight.visible = kind !== 'ghost';
+  root.add(lampLight);
   const markerColor = kind === 'ghost'
     ? 0x93a9df
     : kind === 'doll'
@@ -283,7 +306,7 @@ function createActor(
     new THREE.MeshBasicMaterial({
       color: markerColor,
       transparent: true,
-      opacity: kind === 'doll' ? 0.34 : 0.78,
+      opacity: kind === 'doll' ? 0.62 : 0.78,
       depthWrite: false,
     }),
   );
@@ -294,6 +317,8 @@ function createActor(
     root,
     body,
     lamp,
+    lampHalo,
+    lampLight,
     beam,
     headlamp: 'off',
     imported: null,

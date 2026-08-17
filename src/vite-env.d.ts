@@ -51,6 +51,9 @@ interface GhostGameDiagnostics {
     loaded: number;
     failed: number;
   };
+  input: {
+    actionPressesSent: number;
+  };
   network: {
     pendingInputs: number;
     lastAckLatencyMs: number | null;

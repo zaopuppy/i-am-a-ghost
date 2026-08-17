@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 
 export const ART_COLORS = Object.freeze({
-  bodyPrimary: 0x353b48,
+  bodyPrimary: 0x586477,
   bodySecondary: 0x171a21,
-  trim: 0x848c9d,
+  trim: 0xb6c2d6,
   hazard: 0xd96f5f,
   reward: 0xe6c965,
   shieldBoost: 0x83d5ad,
@@ -29,8 +29,8 @@ export interface HouseMaterialKit {
 export function createHouseMaterialKit(): HouseMaterialKit {
   const wall = new THREE.MeshStandardMaterial({
     color: ART_COLORS.bodyPrimary,
-    emissive: 0x10131a,
-    emissiveIntensity: 0.5,
+    emissive: 0x30394d,
+    emissiveIntensity: 1.05,
     roughness: 0.82,
     metalness: 0.03,
   });
@@ -40,7 +40,7 @@ export function createHouseMaterialKit(): HouseMaterialKit {
   });
   const roomFloorA = new THREE.MeshStandardMaterial({ color: 0x101319, roughness: 0.95 });
   const roomFloorB = new THREE.MeshStandardMaterial({ color: 0x13151b, roughness: 0.92 });
-  const trim = new THREE.LineBasicMaterial({ color: ART_COLORS.trim, transparent: true, opacity: 0.34 });
+  const trim = new THREE.LineBasicMaterial({ color: ART_COLORS.trim, transparent: true, opacity: 0.68 });
   const ghostBody = new THREE.MeshStandardMaterial({
     color: 0x9ba5bd,
     emissive: 0x30384d,

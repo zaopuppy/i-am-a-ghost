@@ -4,6 +4,7 @@ export class GameInput {
   private readonly pressed = new Set<string>();
   private pointer = { x: 0, y: 0 };
   private action = false;
+  private actionPressQueued = false;
 
   constructor(private readonly element: HTMLElement) {
     window.addEventListener('keydown', this.onKeyDown);
@@ -28,6 +29,12 @@ export class GameInput {
     return this.action;
   }
 
+  consumeActionPress(): boolean {
+    const queued = this.actionPressQueued;
+    this.actionPressQueued = false;
+    return queued;
+  }
+
   dispose(): void {
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);
@@ -39,7 +46,10 @@ export class GameInput {
   private readonly onKeyDown = (event: KeyboardEvent): void => {
     if (isGameKey(event.code)) event.preventDefault();
     this.pressed.add(event.code);
-    if (event.code === 'Space') this.action = true;
+    if (event.code === 'Space') {
+      if (!event.repeat && !this.action) this.actionPressQueued = true;
+      this.action = true;
+    }
   };
 
   private readonly onKeyUp = (event: KeyboardEvent): void => {
@@ -59,6 +69,7 @@ export class GameInput {
   private readonly clear = (): void => {
     this.pressed.clear();
     this.action = false;
+    this.actionPressQueued = false;
   };
 }
 

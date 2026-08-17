@@ -11,6 +11,19 @@ for (const state of VISUAL_STATES) {
 
     const png = PNG.sync.read(await page.locator('#game-canvas').screenshot());
     expect(lumaRange(png)).toBeGreaterThan(20);
+    if (state === 'child-playing') {
+      const ownHeadlamp = regionStats(png, 640, 360, 20);
+      const nearbyWall = regionStats(png, 1032, 360, 5);
+      expect(ownHeadlamp.brightPixels).toBeGreaterThan(30);
+      expect(nearbyWall.meanLuma).toBeGreaterThan(18);
+    }
+    if (state === 'ghost-playing') {
+      const litNpc = regionStats(png, 332, 573, 20);
+      const unlitNpc = regionStats(png, 993, 560, 20);
+      expect(litNpc.brightPixels).toBeGreaterThan(30);
+      expect(unlitNpc.meanLuma).toBeGreaterThan(18);
+      await expect(page.getByTestId('event-banner')).toContainText('锁定');
+    }
     await expect(page).toHaveScreenshot(`${state}.png`, {
       animations: 'disabled',
       maxDiffPixelRatio: 0.008,
@@ -85,4 +98,27 @@ function lumaRange(png: PNG): number {
     maximum = Math.max(maximum, luma);
   }
   return maximum - minimum;
+}
+
+function regionStats(
+  png: PNG,
+  centerX: number,
+  centerY: number,
+  radius: number,
+): { meanLuma: number; brightPixels: number } {
+  let lumaSum = 0;
+  let pixels = 0;
+  let brightPixels = 0;
+  for (let y = centerY - radius; y < centerY + radius; y += 1) {
+    for (let x = centerX - radius; x < centerX + radius; x += 1) {
+      const index = (y * png.width + x) * 4;
+      const luma = Math.round(
+        png.data[index] * 0.2126 + png.data[index + 1] * 0.7152 + png.data[index + 2] * 0.0722,
+      );
+      lumaSum += luma;
+      pixels += 1;
+      if (luma >= 120) brightPixels += 1;
+    }
+  }
+  return { meanLuma: lumaSum / pixels, brightPixels };
 }

@@ -112,6 +112,23 @@ export const MATCH_RULES = Object.freeze({
   batteryPickupRadius: 0.75,
 });
 
+export function isCaptureTargetInReach(
+  ghost: { position: Vec2; facingRadians: number },
+  target: { position: Vec2 },
+  walls: MatchMap['walls'],
+): boolean {
+  const offsetX = target.position.x - ghost.position.x;
+  const offsetZ = target.position.z - ghost.position.z;
+  const distance = Math.hypot(offsetX, offsetZ);
+  if (distance === 0 || distance > MATCH_RULES.captureRange) return false;
+  const alignment = (
+    Math.cos(ghost.facingRadians) * offsetX
+    + Math.sin(ghost.facingRadians) * offsetZ
+  ) / distance;
+  if (alignment < Math.cos(MATCH_RULES.captureConeRadians / 2)) return false;
+  return !walls.some((wall) => segmentIntersectsRectangle(ghost.position, target.position, wall));
+}
+
 export class MatchEngine {
   private tick = 0;
   private readonly players: PlayerCheckpoint[];
@@ -334,23 +351,10 @@ export class MatchEngine {
   private findCaptureTarget(): PlayerCheckpoint | undefined {
     const ghost = this.players.find((player) => player.role === 'ghost');
     if (!ghost) return undefined;
-    const forwardX = Math.cos(ghost.facingRadians);
-    const forwardZ = Math.sin(ghost.facingRadians);
-
     return this.players
       .filter((player) => player.role === 'child')
       .filter((player) => player.active)
-      .filter((child) => {
-        const offsetX = child.position.x - ghost.position.x;
-        const offsetZ = child.position.z - ghost.position.z;
-        const distance = Math.hypot(offsetX, offsetZ);
-        if (distance === 0 || distance > MATCH_RULES.captureRange) return false;
-        const alignment = (forwardX * offsetX + forwardZ * offsetZ) / distance;
-        if (alignment < Math.cos(MATCH_RULES.captureConeRadians / 2)) return false;
-        return !this.setup.map.walls.some((wall) =>
-          segmentIntersectsRectangle(ghost.position, child.position, wall),
-        );
-      })
+      .filter((child) => isCaptureTargetInReach(ghost, child, this.setup.map.walls))
       .sort((left, right) => {
         const leftDistance = Math.hypot(
           left.position.x - ghost.position.x,

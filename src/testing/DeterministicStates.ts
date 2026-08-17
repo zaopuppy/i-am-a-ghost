@@ -27,12 +27,13 @@ const CHILDREN: readonly VisibleChild[] = [
 ];
 
 const DOLLS: readonly VisibleDoll[] = [
-  { dollId: 'doll-3', slot: 2, position: { x: -13.5, z: 7.2 }, headlamp: 'slow' },
-  { dollId: 'doll-4', slot: 3, position: { x: 13.5, z: 7.2 }, headlamp: 'off' },
+  { dollId: 'doll-2', slot: 1, position: { x: 9.2, z: -6.4 }, headlamp: 'off' },
+  { dollId: 'doll-3', slot: 2, position: { x: -9.4, z: 6.5 }, headlamp: 'slow' },
+  { dollId: 'doll-4', slot: 3, position: { x: 10.8, z: 6.1 }, headlamp: 'off' },
 ];
 
 const GHOST: VisibleGhost = {
-  position: { x: -8.95, z: -6.7 },
+  position: { x: -9.55, z: -6.7 },
   facingRadians: Math.PI,
   captureState: 'idle',
 };
@@ -64,9 +65,9 @@ export function createDeterministicViewerFrame(
       captureCount: ended ? 3 : common.captureCount,
       viewerRole: 'ghost',
       viewerPlayerId: 'ghost',
-      ghost: { ...GHOST, captureState: ended ? 'idle' : 'windup' },
-      children: cloneChildren(CHILDREN),
-      dolls: [],
+      ghost: { ...GHOST, captureState: 'idle' },
+      children: cloneChildren(CHILDREN.slice(0, 1)),
+      dolls: cloneDolls(DOLLS),
       battery: { batteryId: 'battery-1', position: { x: 2.2, z: 0 } },
     };
     return frame;
@@ -95,7 +96,7 @@ export function createDeterministicViewerFrame(
     viewerPlayerId: 'child-1',
     ownBattery: state === 'low-battery' ? 0.08 : 0.58,
     children,
-    dolls: hidden && children.length === 2 ? cloneDolls(DOLLS) : [],
+    dolls: hidden && children.length === 2 ? cloneDolls(DOLLS.slice(1)) : [],
     ...(!hidden ? { ghost: { ...GHOST, position: { ...GHOST.position } } } : {}),
     ...(state === 'low-battery'
       ? { battery: { batteryId: 'battery-1', position: { x: -8.2, z: -5.8 } } }

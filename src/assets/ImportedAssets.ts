@@ -24,7 +24,6 @@ export interface KidAssetInstance {
   root: THREE.Group;
   mixer: THREE.AnimationMixer;
   actions: Map<string, THREE.AnimationAction>;
-  headlampSocket: THREE.Group;
 }
 
 const diagnostics: { kid: ImportedAssetMetrics; wall: ImportedAssetMetrics } = {
@@ -46,7 +45,7 @@ export async function createKidAssetInstance(slot: number, doll: boolean): Promi
   scene.rotation.y = Math.PI / 2;
 
   const tint = new THREE.Color(CHILD_TINTS[slot % CHILD_TINTS.length]);
-  if (doll) tint.lerp(new THREE.Color(0x62594d), 0.7);
+  if (doll) tint.lerp(new THREE.Color(0x9b8064), 0.42);
   scene.traverse((object) => {
     if (!(object instanceof THREE.Mesh)) return;
     object.castShadow = !doll;
@@ -55,7 +54,9 @@ export async function createKidAssetInstance(slot: number, doll: boolean): Promi
     const clonedMaterials = sourceMaterials.map((source) => {
       const material = source.clone();
       if (material instanceof THREE.MeshStandardMaterial) {
-        material.color.copy(tint).lerp(new THREE.Color(0xffffff), doll ? 0.12 : 0.32);
+        material.color.copy(tint).lerp(new THREE.Color(0xffffff), doll ? 0.24 : 0.36);
+        material.emissive.copy(tint);
+        material.emissiveIntensity = doll ? 0.46 : 0.3;
         material.roughness = doll ? 0.94 : 0.78;
         material.metalness = 0;
       }
@@ -67,11 +68,6 @@ export async function createKidAssetInstance(slot: number, doll: boolean): Promi
   const root = new THREE.Group();
   root.name = doll ? 'kaykit-sensing-doll' : 'kaykit-rogue-child';
   root.add(scene);
-  const head = findNode(scene, 'head') ?? scene;
-  const headlampSocket = new THREE.Group();
-  headlampSocket.name = 'headlamp-socket';
-  headlampSocket.position.set(0, head === scene ? 1.42 : 0.13, 0.12);
-  head.add(headlampSocket);
 
   const mixer = new THREE.AnimationMixer(scene);
   const actions = new Map<string, THREE.AnimationAction>();
@@ -87,7 +83,7 @@ export async function createKidAssetInstance(slot: number, doll: boolean): Promi
     actions.set(name, action);
   }
   actions.get('Idle_A')?.play();
-  return { root, mixer, actions, headlampSocket };
+  return { root, mixer, actions };
 }
 
 export async function createWallVisuals(
@@ -185,12 +181,4 @@ function inspectGltf(gltf: GLTF, fileBytes: number): ImportedAssetMetrics {
 
 function emptyMetrics(fileBytes: number): ImportedAssetMetrics {
   return { status: 'not-requested', fileBytes, triangles: 0, meshes: 0, materials: 0, textures: 0, clips: [] };
-}
-
-function findNode(root: THREE.Object3D, name: string): THREE.Object3D | null {
-  let found: THREE.Object3D | null = null;
-  root.traverse((object) => {
-    if (!found && object.name.toLowerCase() === name) found = object;
-  });
-  return found;
 }
