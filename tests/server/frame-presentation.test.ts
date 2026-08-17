@@ -35,6 +35,7 @@ function childFrame(tick: number, ownX: number, remoteX: number): ChildViewerFra
     remainingTicks: 18_000 - tick,
     captureCount: 0,
     ghostHealth: 100,
+    capture: null,
     viewerRole: 'child',
     viewerPlayerId: 'own',
     ownBattery: 1,

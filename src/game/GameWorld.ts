@@ -41,6 +41,16 @@ interface ActorVisual {
   lastPosition: Vec2 | null;
   lastUpdateSeconds: number;
   facing: VisualFacingState;
+  ghostRig: GhostRig | null;
+}
+
+interface GhostRig {
+  leftShoulder: THREE.Group;
+  rightShoulder: THREE.Group;
+  leftElbow: THREE.Group;
+  rightElbow: THREE.Group;
+  captureAura: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
+  captureLight: THREE.PointLight;
 }
 
 const HOUSE_WALLS = [
@@ -87,21 +97,29 @@ export class GameWorld {
 
     for (const child of frame.children) {
       const actor = this.actor(`child:${child.playerId}`, 'child', child.slot);
-      syncActor(actor, child.position, child.facingRadians, child.headlamp, elapsedSeconds, frame.phase, false);
+      syncActor(
+        actor,
+        child.position,
+        child.facingRadians,
+        child.headlamp,
+        elapsedSeconds,
+        frame.phase,
+        false,
+        frame.capture?.childPlayerId === child.playerId,
+      );
       if (actor.beam) actor.beam.visible = child.flashlightOn && frame.phase === 'playing';
     }
     for (const doll of frame.dolls) {
       const actor = this.actor(`doll:${doll.dollId}`, 'doll', doll.slot);
-      syncActor(actor, doll.position, 0, doll.headlamp, elapsedSeconds, frame.phase, true);
+      syncActor(actor, doll.position, 0, doll.headlamp, elapsedSeconds, frame.phase, true, false);
     }
     if (frame.ghost) {
       const actor = this.actor('ghost', 'ghost', 0);
       syncGhostActor(actor, frame.ghost.position, frame.ghost.facingRadians, elapsedSeconds);
-      const windupPulse = frame.ghost.captureState === 'windup'
-        ? 1 + Math.sin(elapsedSeconds * 28) * 0.09
-        : 1;
-      actor.body.scale.setScalar(windupPulse);
+      actor.body.scale.setScalar(1);
+      if (actor.ghostRig) poseGhostRig(actor.ghostRig, 0, 0, elapsedSeconds);
     }
+    if (frame.capture && frame.ghost) this.applyCapturePresentation(frame, elapsedSeconds);
 
     this.battery.root.visible = Boolean(frame.battery);
     if (frame.battery) {
@@ -245,6 +263,40 @@ export class GameWorld {
       actor.lampLight.intensity = active ? 1.4 : 0;
     }
   }
+
+  private applyCapturePresentation(frame: ViewerFrame, elapsedSeconds: number): void {
+    const capture = frame.capture;
+    if (!capture || !frame.ghost) return;
+    const ghost = this.actors.get('ghost');
+    const child = this.actors.get(`child:${capture.childPlayerId}`);
+    if (!ghost?.ghostRig || !child) return;
+
+    const target = frame.children.find((candidate) => candidate.playerId === capture.childPlayerId);
+    if (!target) return;
+    const facing = Math.atan2(
+      target.position.z - frame.ghost.position.z,
+      target.position.x - frame.ghost.position.x,
+    );
+    const progress = 1 - capture.ticksRemaining / Math.max(1, capture.durationTicks);
+    const grip = smoothstep(Math.min(1, progress * 8));
+    const forwardX = Math.cos(facing);
+    const forwardZ = Math.sin(facing);
+
+    ghost.facing.bodyRadians = facing;
+    ghost.facing.initialized = true;
+    ghost.bodyPivot.rotation.y = -facing;
+    child.root.position.set(
+      frame.ghost.position.x + forwardX * 0.62,
+      0.08 + Math.sin(elapsedSeconds * 18) * 0.018 * grip,
+      frame.ghost.position.z + forwardZ * 0.62,
+    );
+    child.facing.bodyRadians = facing;
+    child.facing.lookRadians = facing;
+    child.facing.initialized = true;
+    child.bodyPivot.rotation.y = -facing;
+    child.aimPivot.rotation.y = -facing;
+    poseGhostRig(ghost.ghostRig, grip, progress, elapsedSeconds);
+  }
 }
 
 function createActor(
@@ -260,8 +312,11 @@ function createActor(
   root.add(bodyPivot, aimPivot);
   let body: THREE.Object3D;
   let beam: ActorVisual['beam'] = null;
+  let ghostRig: GhostRig | null = null;
   if (kind === 'ghost') {
-    body = createGhost(materials);
+    const ghost = createGhost(materials);
+    body = ghost.root;
+    ghostRig = ghost.rig;
     bodyPivot.add(body);
   } else {
     const color = kind === 'doll' ? 0x655849 : CHILD_COLORS[slot % CHILD_COLORS.length];
@@ -345,6 +400,7 @@ function createActor(
     lastPosition: null,
     lastUpdateSeconds: 0,
     facing: createVisualFacingState(),
+    ghostRig,
   };
 }
 
@@ -356,6 +412,7 @@ function syncActor(
   elapsedSeconds: number,
   phase: ViewerFrame['phase'],
   doll: boolean,
+  captured: boolean,
 ): void {
   actor.root.visible = true;
   actor.root.position.set(position.x, 0, position.z);
@@ -366,7 +423,7 @@ function syncActor(
   if (doll) {
     actor.facing.bodyRadians = 0;
     actor.facing.initialized = true;
-  } else if (phase !== 'capture-animation') {
+  } else if (!captured && phase !== 'capture-animation') {
     advanceChildBodyFacing(
       actor.facing,
       facingRadians,
@@ -383,7 +440,7 @@ function syncActor(
       : 0;
     const nextAnimation = doll
       ? 'Idle_A'
-      : phase === 'capture-animation'
+      : captured
         ? 'Hit_A'
         : distance > 0.012
           ? 'Running_A'
@@ -391,6 +448,10 @@ function syncActor(
     if (nextAnimation !== actor.currentAnimation) {
       const previous = actor.imported.actions.get(actor.currentAnimation);
       const next = actor.imported.actions.get(nextAnimation);
+      if (next) {
+        next.clampWhenFinished = nextAnimation === 'Hit_A';
+        next.setLoop(nextAnimation === 'Hit_A' ? THREE.LoopOnce : THREE.LoopRepeat, nextAnimation === 'Hit_A' ? 1 : Infinity);
+      }
       next?.reset().play();
       if (previous && next) next.crossFadeFrom(previous, 0.1, false);
       actor.currentAnimation = nextAnimation;
@@ -444,7 +505,7 @@ function applyJointYaw(joint: THREE.Object3D | null, radians: number): void {
   joint.quaternion.premultiply(LOOK_ROTATION);
 }
 
-function createGhost(materials: HouseMaterialKit): THREE.Group {
+function createGhost(materials: HouseMaterialKit): { root: THREE.Group; rig: GhostRig } {
   const ghost = new THREE.Group();
   ghost.name = 'procedural-footless-ghost';
   const hood = new THREE.Mesh(new THREE.SphereGeometry(0.43, 20, 14), materials.ghostTrim);
@@ -467,8 +528,73 @@ function createGhost(materials: HouseMaterialKit): THREE.Group {
     wisp.rotation.z = side * 0.2;
     ghost.add(wisp);
   }
+  const leftArm = createGhostArm(materials, -1);
+  const rightArm = createGhostArm(materials, 1);
+  const captureAura = new THREE.Mesh(
+    new THREE.RingGeometry(0.58, 0.72, 32),
+    new THREE.MeshBasicMaterial({
+      color: 0xc7d5ff,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    }),
+  );
+  captureAura.rotation.x = -Math.PI / 2;
+  captureAura.position.y = 0.035;
+  const captureLight = new THREE.PointLight(0xaebfff, 0, 3.2, 2);
+  captureLight.position.set(0.4, 0.9, 0);
+  ghost.add(leftArm.shoulder, rightArm.shoulder, captureAura, captureLight);
   ghost.add(hood, robe, collar, leftEye, rightEye);
-  return ghost;
+  return {
+    root: ghost,
+    rig: {
+      leftShoulder: leftArm.shoulder,
+      rightShoulder: rightArm.shoulder,
+      leftElbow: leftArm.elbow,
+      rightElbow: rightArm.elbow,
+      captureAura,
+      captureLight,
+    },
+  };
+}
+
+function createGhostArm(
+  materials: HouseMaterialKit,
+  side: -1 | 1,
+): { shoulder: THREE.Group; elbow: THREE.Group } {
+  const shoulder = new THREE.Group();
+  shoulder.position.set(0.05, 0.73, side * 0.44);
+  const upper = new THREE.Mesh(new THREE.CapsuleGeometry(0.085, 0.28, 4, 8), materials.ghostTrim);
+  upper.position.y = -0.22;
+  upper.castShadow = true;
+  const elbow = new THREE.Group();
+  elbow.position.y = -0.44;
+  const forearm = new THREE.Mesh(new THREE.CapsuleGeometry(0.075, 0.24, 4, 8), materials.ghostTrim);
+  forearm.position.y = -0.19;
+  const hand = new THREE.Mesh(new THREE.SphereGeometry(0.105, 10, 7), materials.ghostTrim);
+  hand.scale.set(1.25, 0.8, 1);
+  hand.position.y = -0.4;
+  elbow.add(forearm, hand);
+  shoulder.add(upper, elbow);
+  return { shoulder, elbow };
+}
+
+function poseGhostRig(rig: GhostRig, grip: number, progress: number, elapsedSeconds: number): void {
+  const pulse = 1 + Math.sin(elapsedSeconds * 24) * 0.05;
+  rig.leftShoulder.rotation.set(0.46 * grip, 0, 1.36 * grip - 0.08);
+  rig.rightShoulder.rotation.set(-0.46 * grip, 0, 1.36 * grip + 0.08);
+  rig.leftElbow.rotation.set(0.72 * grip, 0, 0.56 * grip);
+  rig.rightElbow.rotation.set(-0.72 * grip, 0, 0.56 * grip);
+  rig.captureAura.visible = grip > 0.01;
+  rig.captureAura.scale.setScalar((0.8 + progress * 2.4) * pulse);
+  rig.captureAura.material.opacity = grip * Math.max(0.08, 0.72 * (1 - progress));
+  rig.captureLight.intensity = grip * (1.5 + Math.sin(elapsedSeconds * 30) * 0.35);
+}
+
+function smoothstep(value: number): number {
+  return value * value * (3 - 2 * value);
 }
 
 function createBeam(): THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial> {

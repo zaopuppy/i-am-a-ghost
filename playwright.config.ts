@@ -17,6 +17,7 @@ export default defineConfig({
     {
       command: 'node --import tsx server/index.ts',
       url: 'http://127.0.0.1:5191/healthz',
+      env: { ...process.env, NODE_ENV: 'development' },
       reuseExistingServer: true,
       timeout: 20_000,
     },

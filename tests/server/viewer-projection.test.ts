@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { MatchEngine, type MatchMap } from '../../src/game/MatchEngine';
+import { MATCH_RULES, MatchEngine, type MatchMap } from '../../src/game/MatchEngine';
 import { projectViewerFrame } from '../../server/ViewerProjection';
 
 const TEST_MAP: MatchMap = {
@@ -95,6 +95,37 @@ test('one successful beam reveals the ghost in every child-directed frame', () =
     assert.equal(frame.viewerRole, 'child');
     assert.deepEqual(frame.ghost?.position, { x: 1, z: 0 });
   }
+});
+
+test('capture presentation reveals the ghost only to the captured child', () => {
+  const engine = new MatchEngine({
+    seed: 15,
+    map: {
+      ...TEST_MAP,
+      ghostSpawn: { x: 0, z: 0 },
+      childSpawns: [
+        { x: 0.95, z: 0 },
+        { x: -4, z: 0 },
+        TEST_MAP.childSpawns[2],
+        TEST_MAP.childSpawns[3],
+      ],
+    },
+    ghostPlayerId: 'ghost',
+    childPlayerIds: ['captured-child', 'other-child'],
+  });
+  engine.advance();
+
+  const capturedFrame = projectViewerFrame(engine.checkpoint(), 'captured-child');
+  assert.equal(capturedFrame.viewerRole, 'child');
+  assert.equal(capturedFrame.capture?.childPlayerId, 'captured-child');
+  assert.equal(capturedFrame.capture?.durationTicks, MATCH_RULES.captureAnimationTicks);
+  assert.deepEqual(capturedFrame.ghost?.position, { x: 0, z: 0 });
+
+  const otherFrame = projectViewerFrame(engine.checkpoint(), 'other-child');
+  assert.equal(otherFrame.viewerRole, 'child');
+  assert.equal(otherFrame.capture?.childPlayerId, 'captured-child');
+  assert.equal(otherFrame.ghost, undefined);
+  assert.doesNotMatch(JSON.stringify(otherFrame), /phaseTicksRemaining|capturedChildPlayerId/);
 });
 
 test('a disconnected child is projected as a non-player sensing doll', () => {

@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { DEFAULT_HOUSE_MAP } from '../../src/game/defaultHouse';
-import { MATCH_RULES, MatchEngine, type MatchMap } from '../../src/game/MatchEngine';
+import {
+  MATCH_RULES,
+  MatchEngine,
+  type MatchAdvanceResult,
+  type MatchMap,
+} from '../../src/game/MatchEngine';
 
 const OPEN_MAP: MatchMap = {
   id: 'open-test-house',
@@ -38,6 +43,25 @@ test('a child moves at the fixed 60 Hz rules speed', () => {
   assert.ok(child);
   assertApproximately(child.position.x, MATCH_RULES.childMoveSpeed);
   assert.equal(child.position.z, 0);
+});
+
+test('development movement tuning changes the authoritative simulation speed', () => {
+  const engine = new MatchEngine({
+    seed: 7,
+    map: OPEN_MAP,
+    ghostPlayerId: 'ghost',
+    childPlayerIds: ['child'],
+  });
+  engine.setMovementTuning({ childMoveSpeed: 5.25, ghostMoveSpeed: 5.8 });
+
+  engine.advance(
+    [{ playerId: 'child', move: { x: 1, z: 0 }, facingRadians: 0, action: false }],
+    MATCH_RULES.tickRate,
+  );
+
+  const child = engine.checkpoint().players.find((player) => player.id === 'child');
+  assert.ok(child);
+  assertApproximately(child.position.x, 5.25);
 });
 
 test('a moving player slides along a wall instead of crossing it', () => {
@@ -235,7 +259,7 @@ function createCaptureEngine(): MatchEngine {
       ...OPEN_MAP,
       ghostSpawn: { x: 0, z: 0 },
       childSpawns: [
-        { x: 1.2, z: 0 },
+        { x: 2.2, z: 0 },
         OPEN_MAP.childSpawns[1],
         OPEN_MAP.childSpawns[2],
         OPEN_MAP.childSpawns[3],
@@ -246,52 +270,55 @@ function createCaptureEngine(): MatchEngine {
   });
 }
 
-function pressCapture(engine: MatchEngine): void {
-  engine.advance([{ playerId: 'ghost', move: { x: 0, z: 0 }, facingRadians: 0, action: false }]);
-  engine.advance(
-    [{ playerId: 'ghost', move: { x: 0, z: 0 }, facingRadians: 0, action: true }],
-    MATCH_RULES.captureWindupTicks,
-  );
+function approachCapture(
+  engine: MatchEngine,
+  ghostFacing = Math.PI,
+  ghostAction = false,
+): MatchAdvanceResult {
+  for (let tick = 0; tick < MATCH_RULES.tickRate; tick += 1) {
+    const result = engine.advance([
+      { playerId: 'ghost', move: { x: 1, z: 0 }, facingRadians: ghostFacing, action: ghostAction },
+      { playerId: 'child', move: { x: 0, z: 0 }, facingRadians: Math.PI, action: false },
+    ]);
+    if (result.checkpoint.phase === 'capture-animation') return result;
+  }
+  throw new Error('Ghost did not reach contact range within one second.');
 }
 
 function finishResetAndProtection(engine: MatchEngine): void {
   engine.advance([], MATCH_RULES.captureAnimationTicks + MATCH_RULES.protectionTicks);
 }
 
-test('capture resolves only after its windup', () => {
+test('contact automatically captures without an action or mouse-facing requirement', () => {
   const engine = createCaptureEngine();
 
-  engine.advance(
-    [{ playerId: 'ghost', move: { x: 0, z: 0 }, facingRadians: 0, action: true }],
-    MATCH_RULES.captureWindupTicks - 1,
-  );
-  assert.equal(engine.checkpoint().captureCount, 0);
-  assert.equal(engine.checkpoint().ghostAction.state, 'windup');
-
-  const result = engine.advance();
+  const result = approachCapture(engine, Math.PI, false);
   assert.equal(result.checkpoint.captureCount, 1);
   assert.equal(result.checkpoint.phase, 'capture-animation');
-  assert.ok(result.events.some((event) => event.type === 'child-captured'));
+  assert.equal(result.checkpoint.capturedChildPlayerId, 'child');
+  assert.ok(result.events.some((event) => event.type === 'child-captured' && event.childPlayerId === 'child'));
 });
 
-test('a missed capture enters cooldown and holding space does not repeat it', () => {
+test('the former capture range does not count until bodies make contact', () => {
   const engine = new MatchEngine({
     seed: 11,
-    map: OPEN_MAP,
+    map: {
+      ...OPEN_MAP,
+      ghostSpawn: { x: 0, z: 0 },
+      childSpawns: [
+        { x: 1.2, z: 0 },
+        OPEN_MAP.childSpawns[1],
+        OPEN_MAP.childSpawns[2],
+        OPEN_MAP.childSpawns[3],
+      ],
+    },
     ghostPlayerId: 'ghost',
     childPlayerIds: ['child'],
   });
 
-  const result = engine.advance(
-    [{ playerId: 'ghost', move: { x: 0, z: 0 }, facingRadians: 0, action: true }],
-    MATCH_RULES.captureWindupTicks,
-  );
-  assert.equal(result.checkpoint.ghostAction.state, 'cooldown');
-  assert.ok(result.events.some((event) => event.type === 'capture-missed'));
-
-  engine.advance([], MATCH_RULES.captureMissCooldownTicks * 2);
+  engine.advance([{ playerId: 'ghost', move: { x: 0, z: 0 }, facingRadians: 0, action: true }], 30);
   assert.equal(engine.checkpoint().captureCount, 0);
-  assert.equal(engine.checkpoint().ghostAction.state, 'idle');
+  assert.equal(engine.checkpoint().phase, 'playing');
 });
 
 test('a capture pauses the clock, resets positions, and preserves progress through protection', () => {
@@ -307,7 +334,7 @@ test('a capture pauses the clock, resets positions, and preserves progress throu
     { playerId: 'ghost', move: { x: 0, z: 0 }, facingRadians: 0, action: false },
     { playerId: 'child', move: { x: 0, z: 0 }, facingRadians: Math.PI, action: false },
   ]);
-  pressCapture(engine);
+  approachCapture(engine);
 
   const captured = engine.checkpoint();
   const remainingAfterCapture = captured.remainingTicks;
@@ -324,19 +351,24 @@ test('a capture pauses the clock, resets positions, and preserves progress throu
   assert.equal(reset.ghostHealth, healthAfterCapture);
   assert.equal(child.battery, batteryAfterCapture);
   assert.deepEqual(ghost.position, { x: 0, z: 0 });
-  assert.deepEqual(child.position, { x: 1.2, z: 0 });
+  assert.deepEqual(child.position, { x: 2.2, z: 0 });
+  assert.equal(reset.capturedChildPlayerId, null);
 });
 
-test('three captures give the ghost victory', () => {
+test('the third capture plays its full cinematic before ghost victory', () => {
   const engine = createCaptureEngine();
 
-  pressCapture(engine);
+  approachCapture(engine);
   finishResetAndProtection(engine);
-  pressCapture(engine);
+  approachCapture(engine);
   finishResetAndProtection(engine);
-  pressCapture(engine);
+  approachCapture(engine);
 
   assert.equal(engine.checkpoint().captureCount, 3);
+  assert.equal(engine.checkpoint().winner, null);
+  assert.equal(engine.checkpoint().phase, 'capture-animation');
+
+  engine.advance([], MATCH_RULES.captureAnimationTicks);
   assert.equal(engine.checkpoint().winner, 'ghost');
   assert.equal(engine.checkpoint().phase, 'ended');
 });
@@ -447,7 +479,7 @@ test('a spawned battery survives capture reset', () => {
   const batteryBeforeCapture = engine.checkpoint().battery;
   assert.ok(batteryBeforeCapture);
   engine.advance([{ playerId: 'child', move: { x: 0, z: 0 }, facingRadians: 0, action: false }]);
-  pressCapture(engine);
+  approachCapture(engine);
   finishResetAndProtection(engine);
 
   assert.deepEqual(engine.checkpoint().battery, batteryBeforeCapture);
@@ -468,31 +500,33 @@ test('the five-minute rules clock ending gives children victory', () => {
   assert.ok(result.events.some((event) => event.type === 'match-ended' && event.winner === 'children'));
 });
 
-test('children win when lethal light and a third capture resolve on the same tick', () => {
-  const engine = createCaptureEngine();
-  pressCapture(engine);
-  finishResetAndProtection(engine);
-  pressCapture(engine);
-  finishResetAndProtection(engine);
-
+test('lethal flashlight damage resolves before contact capture on the same tick', () => {
+  const engine = new MatchEngine({
+    seed: 29,
+    map: {
+      ...OPEN_MAP,
+      ghostSpawn: { x: 0, z: 0 },
+      childSpawns: [
+        { x: 1, z: 0 },
+        OPEN_MAP.childSpawns[1],
+        OPEN_MAP.childSpawns[2],
+        OPEN_MAP.childSpawns[3],
+      ],
+    },
+    ghostPlayerId: 'ghost',
+    childPlayerIds: ['child'],
+  });
   engine.advance(
     [{ playerId: 'child', move: { x: 0, z: 0 }, facingRadians: Math.PI, action: true }],
     479,
   );
-  engine.advance([
-    { playerId: 'child', move: { x: 0, z: 0 }, facingRadians: Math.PI, action: false },
-    { playerId: 'ghost', move: { x: 0, z: 0 }, facingRadians: 0, action: false },
-  ]);
-  engine.advance(
-    [{ playerId: 'ghost', move: { x: 0, z: 0 }, facingRadians: 0, action: true }],
-    MATCH_RULES.captureWindupTicks - 1,
-  );
   const result = engine.advance([
     { playerId: 'child', move: { x: 0, z: 0 }, facingRadians: Math.PI, action: true },
+    { playerId: 'ghost', move: { x: 1, z: 0 }, facingRadians: Math.PI, action: true },
   ]);
 
   assert.equal(result.checkpoint.ghostHealth, 0);
-  assert.equal(result.checkpoint.captureCount, 2);
+  assert.equal(result.checkpoint.captureCount, 0);
   assert.equal(result.checkpoint.winner, 'children');
 });
 
@@ -613,7 +647,7 @@ test('an inactive child becomes nonblocking and cannot be captured or use a flas
   engine.advance([
     { playerId: 'child', move: { x: 0, z: 0 }, facingRadians: Math.PI, action: true },
     { playerId: 'ghost', move: { x: 1, z: 0 }, facingRadians: 0, action: true },
-  ], MATCH_RULES.captureWindupTicks + 20);
+  ], MATCH_RULES.tickRate);
 
   const checkpoint = engine.checkpoint();
   const ghost = checkpoint.players.find((player) => player.id === 'ghost');

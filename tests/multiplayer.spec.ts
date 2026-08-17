@@ -17,6 +17,16 @@ test('two browser pages join, start, and move through the authoritative input pa
   await guest.getByTestId('join-room').click();
   await expect(host.getByTestId('roster').locator('li')).toHaveCount(2);
   await expect(guest.getByTestId('roster').locator('li')).toHaveCount(2);
+  const childSpeedInput = host
+    .locator('.lil-gui .lil-controller')
+    .filter({ hasText: '小孩速度' })
+    .locator('input');
+  await expect(childSpeedInput).toBeVisible();
+  await childSpeedInput.fill('5.25');
+  await childSpeedInput.press('Enter');
+  await expect
+    .poll(() => guest.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.tuning.childMoveSpeed ?? 0))
+    .toBe(5.25);
   await host.getByTestId('start-match').click();
 
   await expect
@@ -34,18 +44,14 @@ test('two browser pages join, start, and move through the authoritative input pa
   await expect
     .poll(() => ghostPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.cameraMode))
     .toBe('whole-house');
-  const actionPressesBefore = await ghostPage.evaluate(
-    () => window.__THREE_GAME_DIAGNOSTICS__?.input?.actionPressesSent ?? 0,
-  );
+  await expect(ghostPage.locator('#control-hint')).toContainText('接触孩子自动抓取');
   await ghostPage.evaluate(() => {
     window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space' }));
     window.dispatchEvent(new KeyboardEvent('keyup', { code: 'Space' }));
   });
   await expect
-    .poll(() => ghostPage.evaluate(
-      () => window.__THREE_GAME_DIAGNOSTICS__?.input?.actionPressesSent ?? 0,
-    ))
-    .toBeGreaterThan(actionPressesBefore);
+    .poll(() => ghostPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.input?.actionHeld ?? true))
+    .toBe(false);
   const worldMetrics = await ghostPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.world);
   expect(worldMetrics).toMatchObject({ rooms: 9, walls: 22, actors: 5 });
   await expect

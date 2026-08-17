@@ -18,7 +18,6 @@ interface AggregateRow {
   averageBatteryPickupDelaySeconds: number | null;
   averageBatteryDepletionsPerChild: number;
   averageDoorwayBlockEpisodes: number;
-  averageCaptureMisses: number;
   averageWarningBandSeconds: BotMatchMetrics['warningBandSeconds'];
   minimumHumanDistance: number;
   permanentOverlaps: number;
@@ -70,7 +69,6 @@ function aggregate(values: readonly BotMatchMetrics[]): AggregateRow {
     averageBatteryPickupDelaySeconds: nullableAverage(pickupDelays),
     averageBatteryDepletionsPerChild: rounded(average(values.map((value) => value.averageBatteryDepletions))),
     averageDoorwayBlockEpisodes: rounded(average(values.map((value) => value.doorwayBlockEpisodes))),
-    averageCaptureMisses: rounded(average(values.map((value) => value.captureMisses))),
     averageWarningBandSeconds: {
       off: rounded(average(values.map((value) => value.warningBandSeconds.off))),
       slow: rounded(average(values.map((value) => value.warningBandSeconds.slow))),

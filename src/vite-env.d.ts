@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 
 import type { ViewerFrame } from './game/ViewerFrame';
+import type { RuntimeTuning } from './game/RuntimeTuning';
 
 interface GhostGameDiagnostics {
   phase: 'lobby' | 'playing' | 'ended';
@@ -15,7 +16,10 @@ interface GhostGameDiagnostics {
   ackSeq: number | null;
   ownPosition: { x: number; z: number } | null;
   viewerFrame: ViewerFrame | null;
-  cameraMode: 'follow' | 'whole-house';
+  cameraMode: 'follow' | 'whole-house' | 'capture-closeup';
+  cameraViewHeight: number;
+  capturedChildPlayerId: string | null;
+  tuning: RuntimeTuning;
   world: {
     actors: number;
     walls: number;
@@ -52,7 +56,7 @@ interface GhostGameDiagnostics {
     failed: number;
   };
   input: {
-    actionPressesSent: number;
+    actionHeld: boolean;
   };
   network: {
     pendingInputs: number;

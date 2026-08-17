@@ -1,8 +1,10 @@
-import type { MatchEvent } from '../game/MatchEngine';
+import type { MatchEvent, MovementTuning } from '../game/MatchEngine';
 import type { ViewerFrame } from '../game/ViewerFrame';
 
-export const PROTOCOL_VERSION = 1;
-export const BUILD_VERSION = '0.4.0-resilient-lan';
+export type { MovementTuning } from '../game/MatchEngine';
+
+export const PROTOCOL_VERSION = 2;
+export const BUILD_VERSION = '0.5.0-contact-capture';
 export const MIN_PLAYERS = 2;
 export const MAX_PLAYERS = 5;
 export const INPUT_STALE_MS = 250;
@@ -29,6 +31,7 @@ export interface RoomState {
   minimumPlayers: typeof MIN_PLAYERS;
   maximumPlayers: typeof MAX_PLAYERS;
   notice: 'ghost-disconnected' | null;
+  debugMovementTuning: MovementTuning | null;
 }
 
 export interface RoomSession {
@@ -67,7 +70,8 @@ export interface MatchFrameEnvelope {
   frame: ViewerFrame;
 }
 
-export type ViewerMatchEvent = Omit<MatchEvent, 'battery'>;
+type OmitDistributively<T, Key extends PropertyKey> = T extends unknown ? Omit<T, Key> : never;
+export type ViewerMatchEvent = OmitDistributively<MatchEvent, 'battery'>;
 
 export interface MatchEventEnvelope {
   matchId: string;
@@ -103,6 +107,10 @@ export interface ClientToServerEvents {
   'start-match': (acknowledge: Acknowledge<BasicActionResponse>) => void;
   'set-ready': (ready: boolean, acknowledge: Acknowledge<BasicActionResponse>) => void;
   'leave-room': (acknowledge: Acknowledge<BasicActionResponse>) => void;
+  'set-debug-tuning': (
+    tuning: MovementTuning,
+    acknowledge: Acknowledge<BasicActionResponse>,
+  ) => void;
   'input-frame': (frame: ClientInputFrame) => void;
 }
 
@@ -144,4 +152,21 @@ export function parseClientInputFrame(value: unknown): ClientInputFrame | null {
     return null;
   }
   return frame as ClientInputFrame;
+}
+
+export function parseMovementTuning(value: unknown): MovementTuning | null {
+  if (!value || typeof value !== 'object') return null;
+  const tuning = value as Partial<MovementTuning>;
+  if (
+    !Number.isFinite(tuning.childMoveSpeed)
+    || !Number.isFinite(tuning.ghostMoveSpeed)
+    || (tuning.childMoveSpeed ?? 0) < 1
+    || (tuning.childMoveSpeed ?? 9) > 8
+    || (tuning.ghostMoveSpeed ?? 0) < 1
+    || (tuning.ghostMoveSpeed ?? 9) > 8
+  ) return null;
+  return {
+    childMoveSpeed: tuning.childMoveSpeed as number,
+    ghostMoveSpeed: tuning.ghostMoveSpeed as number,
+  };
 }

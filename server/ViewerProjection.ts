@@ -1,4 +1,4 @@
-import type { MatchCheckpoint } from '../src/game/MatchEngine';
+import { MATCH_RULES, type MatchCheckpoint } from '../src/game/MatchEngine';
 import type {
   ChildViewerFrame,
   GhostViewerFrame,
@@ -27,6 +27,13 @@ export function projectViewerFrame(
     remainingTicks: checkpoint.remainingTicks,
     captureCount: checkpoint.captureCount,
     ghostHealth: checkpoint.ghostHealth,
+    capture: checkpoint.phase === 'capture-animation' && checkpoint.capturedChildPlayerId
+      ? {
+          childPlayerId: checkpoint.capturedChildPlayerId,
+          ticksRemaining: checkpoint.phaseTicksRemaining,
+          durationTicks: MATCH_RULES.captureAnimationTicks,
+        }
+      : null,
   };
   const children: VisibleChild[] = checkpoint.players
     .filter((player) => player.role === 'child' && player.active)
@@ -59,7 +66,6 @@ export function projectViewerFrame(
   const ghost: VisibleGhost = {
     position: { ...ghostPlayer.position },
     facingRadians: ghostPlayer.facingRadians,
-    captureState: checkpoint.ghostAction.state,
   };
   const battery = checkpoint.battery
     ? { batteryId: checkpoint.battery.id, position: { ...checkpoint.battery.position } }
@@ -87,7 +93,7 @@ export function projectViewerFrame(
     ownBattery: viewer.battery ?? 0,
     children,
     dolls,
-    ...(checkpoint.ghostRevealed ? { ghost } : {}),
+    ...(checkpoint.ghostRevealed || checkpoint.capturedChildPlayerId === viewerPlayerId ? { ghost } : {}),
     ...(battery ? { battery } : {}),
   };
   return frame;

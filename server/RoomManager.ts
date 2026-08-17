@@ -4,6 +4,7 @@ import {
   PROTOCOL_VERSION,
   isCompatibleClient,
   parseClientInputFrame,
+  parseMovementTuning,
   type CreateRoomRequest,
   type JoinRoomRequest,
   type RoomActionResponse,
@@ -16,6 +17,8 @@ import type { GameServer, GameSocket } from './types';
 const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const EMPTY_ROOM_TTL_MS = 30_000;
 const ROOM_SWEEP_MS = 10_000;
+const DEBUG_TUNING_ENABLED = process.env.NODE_ENV === 'development'
+  || process.env.npm_lifecycle_event === 'dev:server';
 
 export class RoomManager {
   private readonly rooms = new Map<string, GameRoom>();
@@ -59,6 +62,17 @@ export class RoomManager {
       const room = this.roomForSocket(socket);
       acknowledge(room?.leave(socket) ? { ok: true } : this.error('NOT_IN_ROOM', '尚未加入房间。'));
     });
+    socket.on('set-debug-tuning', (rawTuning, acknowledge) => {
+      const tuning = parseMovementTuning(rawTuning);
+      const room = this.roomForSocket(socket);
+      if (!tuning) {
+        acknowledge(this.error('BAD_REQUEST', '调试参数无效。'));
+      } else if (!room) {
+        acknowledge(this.error('NOT_IN_ROOM', '尚未加入房间。'));
+      } else {
+        acknowledge(room.setDebugTuning(socket.id, tuning));
+      }
+    });
     socket.on('input-frame', (rawFrame) => {
       const frame = parseClientInputFrame(rawFrame);
       const room = this.roomForSocket(socket);
@@ -72,7 +86,7 @@ export class RoomManager {
     if (error) return error;
     this.leaveCurrentRoom(socket);
     const code = this.generateRoomCode();
-    const room = new GameRoom(this.io, code);
+    const room = new GameRoom(this.io, code, DEBUG_TUNING_ENABLED);
     this.rooms.set(code, room);
     return room.join(socket, normalizeNickname(request.nickname));
   }

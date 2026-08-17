@@ -7,6 +7,7 @@ import {
   type ClientToServerEvents,
   type MatchEventEnvelope,
   type MatchFrameEnvelope,
+  type MovementTuning,
   type RoomActionResponse,
   type RoomSession,
   type RoomState,
@@ -61,6 +62,7 @@ export class GameClient {
     });
     this.socket.on('room-state', (state) => {
       this.roomState = state;
+      this.synchronizeSessionHost(state);
       this.notify();
     });
     this.socket.on('match-frame', (frame) => {
@@ -126,6 +128,13 @@ export class GameClient {
 
   async setReady(ready: boolean): Promise<BasicActionResponse> {
     const response = await this.socket.emitWithAck('set-ready', ready);
+    if (!response.ok) this.errorMessage = response.error.message;
+    this.notify();
+    return response;
+  }
+
+  async setDebugTuning(tuning: MovementTuning): Promise<BasicActionResponse> {
+    const response = await this.socket.emitWithAck('set-debug-tuning', tuning);
     if (!response.ok) this.errorMessage = response.error.message;
     this.notify();
     return response;
@@ -204,6 +213,14 @@ export class GameClient {
       SESSION_STORAGE_KEY,
       JSON.stringify({ session: this.session, nickname: this.nickname }),
     );
+  }
+
+  private synchronizeSessionHost(state: RoomState): void {
+    if (!this.session) return;
+    const ownPlayer = state.players.find((player) => player.playerId === this.session?.playerId);
+    if (!ownPlayer || ownPlayer.isHost === this.session.isHost) return;
+    this.session = { ...this.session, isHost: ownPlayer.isHost };
+    this.storeSession();
   }
 
   private restoreStoredSession(): void {

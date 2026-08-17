@@ -30,7 +30,6 @@ export interface BotMatchMetrics {
   averageBatteryPickupDelaySeconds: number | null;
   averageBatteryDepletions: number;
   doorwayBlockEpisodes: number;
-  captureMisses: number;
   warningBandSeconds: Record<HeadlampBand, number>;
   minimumHumanDistance: number;
   permanentOverlap: boolean;
@@ -42,7 +41,6 @@ export interface BotMatchMetrics {
 
 interface BotMemory {
   patrolIndex: number;
-  lastCaptureAction: boolean;
   doorwayBlockedTicks: Map<string, number>;
   doorwayBlockActive: Set<string>;
   depletionCounts: Map<string, number>;
@@ -76,7 +74,6 @@ export function runBotMatch(options: BotMatchOptions): BotMatchMetrics {
   const navigator = new GridNavigator(DEFAULT_HOUSE_MAP);
   const memory: BotMemory = {
     patrolIndex: Math.abs(options.seed) % PATROL_POINTS.length,
-    lastCaptureAction: false,
     doorwayBlockedTicks: new Map(),
     doorwayBlockActive: new Set(),
     depletionCounts: new Map(childIds.map((id) => [id, 0])),
@@ -90,7 +87,6 @@ export function runBotMatch(options: BotMatchOptions): BotMatchMetrics {
   let beamTicks = 0;
   let batterySpawns = 0;
   let batteryCollections = 0;
-  let captureMisses = 0;
   const batteryPickupDelayTicks: number[] = [];
   const warningTicks: Record<HeadlampBand, number> = { off: 0, slow: 0, fast: 0, solid: 0 };
   let doorwayBlockEpisodes = 0;
@@ -123,8 +119,6 @@ export function runBotMatch(options: BotMatchOptions): BotMatchMetrics {
       if (event.type === 'child-captured') {
         firstCaptureTick ??= event.tick;
         if (event.captureCount === 3) thirdCaptureTick = event.tick;
-      } else if (event.type === 'capture-missed') {
-        captureMisses += 1;
       } else if (event.type === 'battery-spawned') {
         batterySpawns += 1;
         memory.spawnedBatteryTicks.set(event.battery.id, event.tick);
@@ -183,7 +177,6 @@ export function runBotMatch(options: BotMatchOptions): BotMatchMetrics {
     averageBatteryPickupDelaySeconds: pickupDelay,
     averageBatteryDepletions: depletionTotal / options.childCount,
     doorwayBlockEpisodes,
-    captureMisses,
     warningBandSeconds: {
       off: warningTicks.off / warningDivisor,
       slow: warningTicks.slow / warningDivisor,
@@ -208,7 +201,6 @@ function createBotCommands(
   const ghost = checkpoint.players.find((player) => player.role === 'ghost');
   if (!ghost) throw new Error('Bot checkpoint has no ghost.');
   if (checkpoint.phase !== 'playing') {
-    memory.lastCaptureAction = false;
     return checkpoint.players.map((player) => command(player, { x: 0, z: 0 }, player.facingRadians, false));
   }
 
@@ -222,15 +214,7 @@ function createBotCommands(
   const ghostFacing = targetChild
     ? Math.atan2(targetChild.position.z - ghost.position.z, targetChild.position.x - ghost.position.x)
     : ghost.facingRadians;
-  const canCapture = Boolean(
-    targetChild
-    && checkpoint.ghostAction.state === 'idle'
-    && distanceBetween(ghost.position, targetChild.position) <= MATCH_RULES.captureRange * 0.94
-    && navigator.hasLineOfSight(ghost.position, targetChild.position),
-  );
-  const captureAction = canCapture && !memory.lastCaptureAction;
-  memory.lastCaptureAction = captureAction;
-  const commands = [command(ghost, ghostMove, ghostFacing, captureAction)];
+  const commands = [command(ghost, ghostMove, ghostFacing, false)];
 
   for (const childPlayer of children) {
     const battery = childPlayer.battery ?? 0;

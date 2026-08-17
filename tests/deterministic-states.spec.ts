@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { PNG } from 'pngjs';
 
-const VISUAL_STATES = ['child-playing', 'ghost-playing', 'capture', 'child-win'] as const;
+const VISUAL_STATES = ['child-playing', 'ghost-playing', 'low-battery', 'capture', 'child-win'] as const;
 
 for (const state of VISUAL_STATES) {
   test(`${state} deterministic visual baseline`, async ({ page }) => {
@@ -13,7 +13,7 @@ for (const state of VISUAL_STATES) {
     expect(lumaRange(png)).toBeGreaterThan(20);
     if (state === 'child-playing') {
       const ownHeadlamp = regionStats(png, 640, 360, 20);
-      const nearbyWall = regionStats(png, 1032, 360, 5);
+      const nearbyWall = regionStats(png, 968, 360, 5);
       expect(ownHeadlamp.brightPixels).toBeGreaterThan(30);
       expect(nearbyWall.meanLuma).toBeGreaterThan(18);
     }
@@ -22,7 +22,17 @@ for (const state of VISUAL_STATES) {
       const unlitNpc = regionStats(png, 993, 560, 20);
       expect(litNpc.brightPixels).toBeGreaterThan(30);
       expect(unlitNpc.meanLuma).toBeGreaterThan(18);
-      await expect(page.getByTestId('event-banner')).toContainText('锁定');
+      await expect(page.locator('#control-hint')).toContainText('接触孩子自动抓取');
+      await expect(page.getByTestId('event-banner')).toBeHidden();
+    }
+    if (state === 'capture') {
+      const diagnostics = await page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__);
+      expect(diagnostics?.cameraMode).toBe('capture-closeup');
+      expect(diagnostics?.cameraViewHeight).toBeCloseTo(5.2, 3);
+      expect(diagnostics?.capturedChildPlayerId).toBe('child-1');
+      const frame = diagnostics?.viewerFrame;
+      expect(frame?.viewerRole).toBe('child');
+      if (frame?.viewerRole === 'child') expect(frame.ghost).toBeDefined();
     }
     await expect(page).toHaveScreenshot(`${state}.png`, {
       animations: 'disabled',
@@ -43,18 +53,41 @@ test('hidden child state does not leak a ghost through browser diagnostics', asy
 test('laptop PC viewport keeps the HUD bands separated and visible', async ({ page }) => {
   await page.setViewportSize({ width: 1024, height: 768 });
   await openState(page, 'low-battery');
+  const batteryLocator = page.getByTestId('battery-locator');
+  await expect(batteryLocator).toBeVisible();
+  await expect(batteryLocator).toHaveAttribute('data-offscreen', 'true');
+  await expect(batteryLocator).toContainText(/\d+m/);
   const layout = await page.evaluate(() => {
     const role = document.querySelector('.hud-role-block')?.getBoundingClientRect();
     const objective = document.querySelector('.hud-objective')?.getBoundingClientRect();
     const captures = document.querySelector('.hud-captures')?.getBoundingClientRect();
     const battery = document.querySelector('#battery-meter')?.getBoundingClientRect();
-    return { role, objective, captures, battery };
+    const audio = document.querySelector('#audio-toggle')?.getBoundingClientRect();
+    const locator = document.querySelector('#battery-locator')?.getBoundingClientRect();
+    return { role, objective, captures, battery, audio, locator };
   });
   expect(layout.role?.right ?? 0).toBeLessThan(layout.objective?.left ?? 0);
   expect(layout.objective?.right ?? 0).toBeLessThan(layout.captures?.left ?? 0);
   expect(layout.battery?.right ?? 2000).toBeLessThanOrEqual(1024);
   expect(layout.battery?.bottom ?? 2000).toBeLessThanOrEqual(768);
+  expect(layout.locator?.left ?? -1).toBeGreaterThanOrEqual(0);
+  expect(layout.locator?.top ?? -1).toBeGreaterThanOrEqual(150);
+  expect(layout.locator?.right ?? 2000).toBeLessThanOrEqual(1024);
+  expect(layout.locator?.bottom ?? 2000).toBeLessThanOrEqual(768);
+  expect(rectanglesOverlap(layout.locator, layout.battery)).toBe(false);
+  expect(rectanglesOverlap(layout.locator, layout.audio)).toBe(false);
 });
+
+function rectanglesOverlap(
+  left: { left: number; right: number; top: number; bottom: number } | undefined,
+  right: { left: number; right: number; top: number; bottom: number } | undefined,
+): boolean {
+  if (!left || !right) return false;
+  return left.left < right.right
+    && left.right > right.left
+    && left.top < right.bottom
+    && left.bottom > right.top;
+}
 
 async function openState(page: Page, state: string): Promise<void> {
   await page.goto(`/?testState=${state}`);

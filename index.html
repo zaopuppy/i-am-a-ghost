@@ -37,7 +37,7 @@
       <section class="m2-hud" id="game-hud" hidden>
         <div class="hud-role-block">
           <p id="role-label" data-testid="role-label"></p>
-          <p class="control-hint">ESDF · 鼠标 · 空格</p>
+          <p class="control-hint" id="control-hint">ESDF 移动 · 根据角色显示操作</p>
         </div>
         <div class="hud-objective">
           <p class="hud-kicker" id="objective-label">撑过这栋房子</p>
@@ -53,6 +53,19 @@
         <div class="battery-meter" id="battery-meter">
           <span class="battery-icon" aria-hidden="true"></span>
           <span class="battery-track"><span id="battery-fill"></span></span>
+        </div>
+        <div
+          class="battery-locator"
+          id="battery-locator"
+          data-testid="battery-locator"
+          role="img"
+          hidden
+        >
+          <span class="battery-bearing" aria-hidden="true"></span>
+          <span class="battery-locator-copy">
+            <span>备用电池</span>
+            <strong id="battery-distance">--m</strong>
+          </span>
         </div>
       </section>
       <p class="event-banner" id="event-banner" data-testid="event-banner" hidden></p>

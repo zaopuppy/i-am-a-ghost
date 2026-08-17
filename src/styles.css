@@ -14,12 +14,31 @@ button, input { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: 0.42; }
 [hidden] { display: none !important; }
+.lil-gui { z-index: 10 !important; }
 
 #app {
   position: relative;
   isolation: isolate;
   background: radial-gradient(circle at 50% 48%, #171822 0%, #08090d 66%);
 }
+
+#app::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    radial-gradient(circle at center, transparent 18%, rgb(12 0 3 / 22%) 52%, rgb(0 0 0 / 88%) 100%),
+    linear-gradient(rgb(133 16 23 / 10%), rgb(15 0 3 / 28%));
+  transition: opacity 260ms ease-out;
+}
+:root[data-capture-scare="true"] #app::after {
+  opacity: 1;
+  animation: capture-vignette 180ms ease-out both;
+}
+.lobby-panel, .m2-hud, .event-banner, .audio-toggle, .result-overlay, .milestone { z-index: 3; }
 
 #game-canvas { display: block; width: 100%; height: 100%; outline: none; }
 
@@ -83,6 +102,66 @@ input { width: 100%; padding: 0 12px; color: #f3f0e8; background: rgb(255 255 25
 .battery-track { position: relative; width: 118px; height: 6px; overflow: hidden; background: rgb(255 255 255 / 12%); }
 #battery-fill { position: absolute; inset: 0; transform-origin: left; background: #d8bd72; transition: transform 100ms linear; }
 .battery-meter.low { animation: low-battery 1.1s ease-in-out infinite; }
+.battery-locator {
+  --battery-bearing: 0rad;
+  position: fixed;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transform: translate(-50%, -50%);
+  color: #ead99f;
+  filter: drop-shadow(0 5px 13px rgb(0 0 0 / 72%));
+  transition: left 100ms linear, top 100ms linear;
+  animation: battery-locator-pulse 1.8s ease-in-out infinite;
+}
+.battery-locator[data-side="right"] { flex-direction: row-reverse; }
+.battery-bearing {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  transform: rotate(var(--battery-bearing));
+  border: 1px solid rgb(216 189 114 / 62%);
+  border-radius: 50%;
+  background: rgb(7 8 12 / 76%);
+  box-shadow: inset 0 0 10px rgb(216 189 114 / 12%);
+}
+.battery-bearing::after {
+  content: "";
+  position: absolute;
+  top: 8px;
+  right: -6px;
+  border-block: 5px solid transparent;
+  border-left: 8px solid #ead27e;
+  filter: drop-shadow(0 0 4px rgb(234 210 126 / 52%));
+}
+.battery-locator-copy {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 98px;
+  padding: 6px 9px;
+  border-block: 1px solid rgb(216 189 114 / 28%);
+  background: linear-gradient(90deg, rgb(7 8 12 / 86%), rgb(7 8 12 / 66%));
+  color: #bdb59f;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  white-space: nowrap;
+}
+.battery-locator-copy strong {
+  min-width: 4ch;
+  color: #f0d678;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .03em;
+  text-align: right;
+}
+.battery-locator[data-offscreen="false"] .battery-bearing {
+  opacity: .72;
+  transform: rotate(var(--battery-bearing)) scale(.86);
+}
 .event-banner { position: absolute; top: 132px; left: 50%; min-width: 260px; margin: 0; padding: 8px 18px; transform: translateX(-50%); border-block: 1px solid rgb(255 255 255 / 12%); background: rgb(7 8 12 / 82%); color: #e9dfc5; text-align: center; font-size: 12px; letter-spacing: .08em; pointer-events: none; }
 .event-banner[data-tone="danger"] { color: #f0a092; border-color: rgb(213 92 76 / 35%); }
 .event-banner[data-tone="safe"] { color: #9ee0bd; border-color: rgb(105 196 151 / 35%); }
@@ -97,11 +176,24 @@ input { width: 100%; padding: 0 12px; color: #f3f0e8; background: rgb(255 255 25
 .ready-count { margin: 9px 0 0; color: #77746d; font-size: 10px; letter-spacing: .1em; }
 
 @keyframes low-battery { 50% { box-shadow: 0 0 20px rgb(208 91 65 / 24%); } }
+@keyframes battery-locator-pulse { 50% { filter: drop-shadow(0 5px 15px rgb(216 189 114 / 34%)); } }
+@keyframes capture-vignette {
+  from { opacity: .18; filter: brightness(1.8); }
+  35% { opacity: 1; filter: brightness(1); }
+  to { opacity: .78; filter: brightness(.82); }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .battery-meter.low { animation: none; border: 1px solid #b55749; }
+  .battery-locator { animation: none; transition: none; }
+  :root[data-capture-scare="true"] #app::after { animation: none; }
   * { scroll-behavior: auto !important; }
 }
 :root[data-reduced-motion="true"] .battery-meter.low { animation: none; border: 1px solid #b55749; }
+:root[data-reduced-motion="true"] .battery-locator { animation: none; transition: none; }
+@media (max-width: 1100px) {
+  .battery-locator { gap: 6px; }
+  .battery-locator-copy { min-width: 88px; padding-inline: 7px; }
+}
 .milestone { position: absolute; right: 32px; bottom: 26px; margin: 0; color: rgb(255 255 255 / 42%); font-size: 11px; letter-spacing: .08em; pointer-events: none; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }

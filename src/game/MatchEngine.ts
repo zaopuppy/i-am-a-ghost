@@ -19,6 +19,12 @@ export interface MatchSetup {
   map: MatchMap;
   ghostPlayerId: string;
   childPlayerIds: readonly string[];
+  movementTuning?: Partial<MovementTuning>;
+}
+
+export interface MovementTuning {
+  childMoveSpeed: number;
+  ghostMoveSpeed: number;
 }
 
 export interface PlayerCommand {
@@ -59,10 +65,7 @@ export interface MatchCheckpoint {
   remainingTicks: number;
   captureCount: number;
   phaseTicksRemaining: number;
-  ghostAction: {
-    state: 'idle' | 'windup' | 'cooldown';
-    ticksRemaining: number;
-  };
+  capturedChildPlayerId: string | null;
   ghostHealth: number;
   ghostRevealed: boolean;
   randomState: number;
@@ -72,7 +75,7 @@ export interface MatchCheckpoint {
 }
 
 type MatchEventPayload =
-  | { type: 'capture-started' | 'capture-missed' | 'round-reset' | 'protection-ended' }
+  | { type: 'round-reset' | 'protection-ended' }
   | { type: 'child-captured'; childPlayerId: string; captureCount: number }
   | { type: 'battery-spawned'; battery: BatteryCheckpoint }
   | { type: 'battery-collected'; batteryId: string; childPlayerId: string }
@@ -98,12 +101,9 @@ export const MATCH_RULES = Object.freeze({
   ghostMaxHealth: 100,
   illuminatedGhostSpeedMultiplier: 0.8,
   matchDurationTicks: 18_000,
-  captureWindupTicks: 21,
-  captureMissCooldownTicks: 72,
-  captureAnimationTicks: 90,
+  captureAnimationTicks: 156,
   protectionTicks: 120,
-  captureRange: 1.4,
-  captureConeRadians: Math.PI / 2,
+  captureContactRange: 0.98,
   capturesToWin: 3,
   headlampSlowDistance: 6,
   headlampFastDistance: 4,
@@ -112,21 +112,16 @@ export const MATCH_RULES = Object.freeze({
   batteryPickupRadius: 0.75,
 });
 
-export function isCaptureTargetInReach(
-  ghost: { position: Vec2; facingRadians: number },
+export const DEFAULT_MOVEMENT_TUNING: Readonly<MovementTuning> = Object.freeze({
+  childMoveSpeed: MATCH_RULES.childMoveSpeed,
+  ghostMoveSpeed: MATCH_RULES.ghostMoveSpeed,
+});
+
+export function isCaptureTargetInContact(
+  ghost: { position: Vec2 },
   target: { position: Vec2 },
-  walls: MatchMap['walls'],
 ): boolean {
-  const offsetX = target.position.x - ghost.position.x;
-  const offsetZ = target.position.z - ghost.position.z;
-  const distance = Math.hypot(offsetX, offsetZ);
-  if (distance === 0 || distance > MATCH_RULES.captureRange) return false;
-  const alignment = (
-    Math.cos(ghost.facingRadians) * offsetX
-    + Math.sin(ghost.facingRadians) * offsetZ
-  ) / distance;
-  if (alignment < Math.cos(MATCH_RULES.captureConeRadians / 2)) return false;
-  return !walls.some((wall) => segmentIntersectsRectangle(ghost.position, target.position, wall));
+  return distanceBetween(ghost, target) <= MATCH_RULES.captureContactRange;
 }
 
 export class MatchEngine {
@@ -141,17 +136,17 @@ export class MatchEngine {
   private remainingTicks: number = MATCH_RULES.matchDurationTicks;
   private captureCount = 0;
   private phaseTicksRemaining = 0;
-  private ghostActionState: MatchCheckpoint['ghostAction']['state'] = 'idle';
-  private ghostActionTicksRemaining = 0;
-  private captureRequested = false;
+  private capturedChildPlayerId: string | null = null;
   private nextEventId = 1;
   private events: MatchEvent[] = [];
   private randomState: number;
   private batterySerial = 0;
   private battery: BatteryCheckpoint | null = null;
+  private movementTuning: MovementTuning;
 
   constructor(private readonly setup: MatchSetup) {
     validateSetup(setup);
+    this.movementTuning = normalizeMovementTuning(setup.movementTuning);
     this.randomState = setup.seed >>> 0;
     this.players = [
       {
@@ -189,7 +184,6 @@ export class MatchEngine {
     if (!Number.isInteger(ticks) || ticks < 1) throw new RangeError('ticks must be a positive integer.');
     this.events = [];
     for (const command of commands) {
-      const previousCommand = this.commands.get(command.playerId);
       const player = this.players.find((candidate) => candidate.id === command.playerId);
       if (!player) throw new Error(`Command references unknown player: ${command.playerId}`);
       if (
@@ -198,9 +192,6 @@ export class MatchEngine {
         !Number.isFinite(command.facingRadians)
       ) {
         throw new RangeError('Command movement and facing must be finite numbers.');
-      }
-      if (player?.role === 'ghost' && command.action && !previousCommand?.action && this.phase === 'playing') {
-        this.captureRequested = true;
       }
       this.commands.set(command.playerId, {
         ...command,
@@ -219,6 +210,10 @@ export class MatchEngine {
     if (!active) this.commands.delete(playerId);
   }
 
+  setMovementTuning(tuning: Partial<MovementTuning>): void {
+    this.movementTuning = normalizeMovementTuning({ ...this.movementTuning, ...tuning });
+  }
+
   checkpoint(): MatchCheckpoint {
     this.updateHeadlamps();
     return {
@@ -228,10 +223,7 @@ export class MatchEngine {
       remainingTicks: this.remainingTicks,
       captureCount: this.captureCount,
       phaseTicksRemaining: this.phaseTicksRemaining,
-      ghostAction: {
-        state: this.ghostActionState,
-        ticksRemaining: this.ghostActionTicksRemaining,
-      },
+      capturedChildPlayerId: this.capturedChildPlayerId,
       ghostHealth: this.ghostHealth,
       ghostRevealed: this.ghostRevealed,
       randomState: this.randomState,
@@ -258,14 +250,18 @@ export class MatchEngine {
       if (!player.active) continue;
       const command = this.commands.get(player.id);
       if (!command) continue;
-      player.facingRadians = command.facingRadians;
       const magnitude = Math.hypot(command.move.x, command.move.z);
+      if (player.role === 'child') {
+        player.facingRadians = command.facingRadians;
+      } else if (magnitude > 0) {
+        player.facingRadians = Math.atan2(command.move.z, command.move.x);
+      }
       if (magnitude === 0) continue;
       const speed =
         player.role === 'ghost'
-          ? MATCH_RULES.ghostMoveSpeed *
+          ? this.movementTuning.ghostMoveSpeed *
             (illuminatedAtStart ? MATCH_RULES.illuminatedGhostSpeedMultiplier : 1)
-          : MATCH_RULES.childMoveSpeed;
+          : this.movementTuning.childMoveSpeed;
       const distance = speed * secondsPerTick;
       const xCandidate = {
         x: player.position.x + (command.move.x / magnitude) * distance,
@@ -287,18 +283,23 @@ export class MatchEngine {
       this.tick += 1;
       return;
     }
-    this.updateCapture();
+    const contactTarget = this.findCaptureTarget();
+    if (contactTarget) this.completeCapture(contactTarget);
     this.tick += 1;
   }
 
   private updatePausedPhase(): void {
-    this.captureRequested = false;
     this.ghostRevealed = false;
     this.phaseTicksRemaining = Math.max(0, this.phaseTicksRemaining - 1);
     if (this.phaseTicksRemaining > 0) return;
 
     if (this.phase === 'capture-animation') {
+      if (this.captureCount >= MATCH_RULES.capturesToWin) {
+        this.finishMatch('ghost');
+        return;
+      }
       this.resetPlayerPositions();
+      this.capturedChildPlayerId = null;
       this.phase = 'protection';
       this.phaseTicksRemaining = MATCH_RULES.protectionTicks;
       this.emit({ type: 'round-reset' });
@@ -309,41 +310,10 @@ export class MatchEngine {
     this.emit({ type: 'protection-ended' });
   }
 
-  private updateCapture(): void {
-    if (this.ghostActionState === 'cooldown') {
-      this.ghostActionTicksRemaining = Math.max(0, this.ghostActionTicksRemaining - 1);
-      if (this.ghostActionTicksRemaining === 0) this.ghostActionState = 'idle';
-      this.captureRequested = false;
-      return;
-    }
-
-    if (this.ghostActionState === 'idle' && this.captureRequested) {
-      this.ghostActionState = 'windup';
-      this.ghostActionTicksRemaining = MATCH_RULES.captureWindupTicks;
-      this.emit({ type: 'capture-started' });
-    }
-    this.captureRequested = false;
-
-    if (this.ghostActionState !== 'windup') return;
-    this.ghostActionTicksRemaining = Math.max(0, this.ghostActionTicksRemaining - 1);
-    if (this.ghostActionTicksRemaining > 0) return;
-
-    const target = this.findCaptureTarget();
-    if (!target) {
-      this.ghostActionState = 'cooldown';
-      this.ghostActionTicksRemaining = MATCH_RULES.captureMissCooldownTicks;
-      this.emit({ type: 'capture-missed' });
-      return;
-    }
-
+  private completeCapture(target: PlayerCheckpoint): void {
     this.captureCount += 1;
-    this.ghostActionState = 'idle';
+    this.capturedChildPlayerId = target.id;
     this.emit({ type: 'child-captured', childPlayerId: target.id, captureCount: this.captureCount });
-    if (this.captureCount >= MATCH_RULES.capturesToWin) {
-      this.finishMatch('ghost');
-      return;
-    }
-
     this.phase = 'capture-animation';
     this.phaseTicksRemaining = MATCH_RULES.captureAnimationTicks;
   }
@@ -354,7 +324,7 @@ export class MatchEngine {
     return this.players
       .filter((player) => player.role === 'child')
       .filter((player) => player.active)
-      .filter((child) => isCaptureTargetInReach(ghost, child, this.setup.map.walls))
+      .filter((child) => isCaptureTargetInContact(ghost, child))
       .sort((left, right) => {
         const leftDistance = Math.hypot(
           left.position.x - ghost.position.x,
@@ -382,8 +352,7 @@ export class MatchEngine {
     this.winner = winner;
     this.phase = 'ended';
     this.phaseTicksRemaining = 0;
-    this.ghostActionState = 'idle';
-    this.ghostActionTicksRemaining = 0;
+    this.capturedChildPlayerId = null;
     this.emit({ type: 'match-ended', winner });
   }
 
@@ -556,6 +525,21 @@ function validateSetup(setup: MatchSetup): void {
   if (!Number.isFinite(setup.seed)) throw new RangeError('Match seed must be finite.');
   if (setup.map.childSpawns.length !== 4) throw new Error('A match map must define four child spawns.');
   if (setup.map.batterySpawns.length === 0) throw new Error('A match map must define battery spawns.');
+}
+
+function normalizeMovementTuning(tuning: Partial<MovementTuning> | undefined): MovementTuning {
+  return {
+    childMoveSpeed: finiteSpeed(tuning?.childMoveSpeed, DEFAULT_MOVEMENT_TUNING.childMoveSpeed),
+    ghostMoveSpeed: finiteSpeed(tuning?.ghostMoveSpeed, DEFAULT_MOVEMENT_TUNING.ghostMoveSpeed),
+  };
+}
+
+function finiteSpeed(value: number | undefined, fallback: number): number {
+  if (value === undefined) return fallback;
+  if (!Number.isFinite(value) || value < 1 || value > 8) {
+    throw new RangeError('Movement speed must be between 1 and 8 world units per second.');
+  }
+  return value;
 }
 
 function distanceBetween(left: { position: Vec2 }, right: { position: Vec2 }): number {

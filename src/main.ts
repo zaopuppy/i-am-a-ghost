@@ -4,8 +4,7 @@ import { GameInput } from './core/GameInput';
 import { Loop } from './core/Loop';
 import { createRenderStage } from './core/Renderer';
 import { GameWorld } from './game/GameWorld';
-import { DEFAULT_HOUSE_MAP } from './game/defaultHouse';
-import { isCaptureTargetInReach, MATCH_RULES } from './game/MatchEngine';
+import { createRuntimeTuning } from './game/RuntimeTuning';
 import { aimFacingWithDeadzone } from './game/VisualFacing';
 import type { ViewerFrame } from './game/ViewerFrame';
 import { GameClient } from './net/GameClient';
@@ -37,6 +36,8 @@ const healthFill = requireElement<HTMLElement>('#ghost-health-fill');
 const healthValue = requireElement<HTMLElement>('#ghost-health-value');
 const batteryMeter = requireElement<HTMLElement>('#battery-meter');
 const batteryFill = requireElement<HTMLElement>('#battery-fill');
+const batteryLocator = requireElement<HTMLElement>('#battery-locator');
+const batteryDistance = requireElement<HTMLElement>('#battery-distance');
 const eventBanner = requireElement<HTMLElement>('#event-banner');
 const resultOverlay = requireElement<HTMLElement>('#result-overlay');
 const resultTitle = requireElement<HTMLElement>('#result-title');
@@ -48,6 +49,7 @@ const joinButton = requireElement<HTMLButtonElement>('#join-room');
 const captureMarks = [...document.querySelectorAll<HTMLElement>('.capture-mark')];
 const audioButton = requireElement<HTMLButtonElement>('#audio-toggle');
 const milestone = requireElement<HTMLElement>('#milestone');
+const controlHint = requireElement<HTMLElement>('#control-hint');
 
 const stage = createRenderStage(canvas);
 const world = new GameWorld();
@@ -58,7 +60,10 @@ const audio = new GameAudio();
 const raycaster = new THREE.Raycaster();
 const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const pointerTarget = new THREE.Vector3();
+const batteryScreenPoint = new THREE.Vector3();
+const ownScreenPoint = new THREE.Vector3();
 const cameraCenter = new THREE.Vector2();
+const runtimeTuning = createRuntimeTuning();
 const nickname = createTemporaryNickname();
 let renderFrame = 0;
 let lastInputSentAt = 0;
@@ -67,8 +72,10 @@ let measuredFps = 0;
 let lastIngestedFrameKey = '';
 let lastAudioEvents: typeof client.latestEvents = null;
 let lastActionHeld = false;
-let pendingActionPress = false;
-let actionPressesSent = 0;
+let currentCameraHeight = runtimeTuning.ghostCameraHeight;
+let debugGui: import('lil-gui').GUI | null = null;
+let debugGuiHidden = false;
+let debugTuningTimer: ReturnType<typeof setTimeout> | null = null;
 const query = new URLSearchParams(window.location.search);
 const requestedTestState = query.get('testState');
 let deterministicState: DeterministicStateName | null = import.meta.env.DEV
@@ -118,16 +125,12 @@ const loop = new Loop(
     const movement = deterministicState ? { x: 0, z: 0 } : input.movement();
     const frame = deterministicState
       ? createDeterministicViewerFrame(deterministicState, deterministicSeed)
-      : presenter.present(deltaSeconds, movement);
+      : presenter.present(deltaSeconds, movement, runtimeTuning);
     if (!deterministicState && client.latestEvents && client.latestEvents !== lastAudioEvents) {
       lastAudioEvents = client.latestEvents;
-      audio.handleEvents(client.latestEvents.events);
+      audio.handleEvents(client.latestEvents.events, frame?.viewerPlayerId);
     }
     const actionHeld = input.actionHeld();
-    const actionPressed = input.consumeActionPress();
-    pendingActionPress = !deterministicState && frame?.phase === 'playing'
-      ? pendingActionPress || actionPressed
-      : false;
     if (actionHeld && !lastActionHeld && frame?.viewerRole === 'child') audio.play('flashlight', 0.52);
     lastActionHeld = actionHeld;
     const presentationSeconds = deterministicState && (screenshotPaused || reducedMotion)
@@ -139,15 +142,12 @@ const loop = new Loop(
     if (deterministicState && frame) renderDeterministicState(frame);
     if (!deterministicState && frame && client.roomState?.phase === 'playing' && elapsedSeconds - lastInputSentAt >= 1 / 30) {
       lastInputSentAt = elapsedSeconds;
-      const sendQueuedPress = frame.viewerRole === 'ghost' && pendingActionPress;
       client.sendInput({
         moveX: movement.x,
         moveZ: movement.z,
-        facingRadians: calculateFacing(frame),
-        action: actionHeld || sendQueuedPress,
+        facingRadians: calculateFacing(frame, movement),
+        action: frame.viewerRole === 'child' && actionHeld,
       });
-      if (sendQueuedPress) actionPressesSent += 1;
-      pendingActionPress = false;
     }
     updateDiagnostics(frame);
   },
@@ -173,12 +173,13 @@ if (import.meta.env.DEV) {
       document.documentElement.dataset.reducedMotion = String(enabled);
     },
     hideDebugUi: (hidden: boolean) => {
-      milestone.hidden = hidden;
+      setDebugUiHidden(hidden);
     },
     hideOverlay: (hidden: boolean) => {
       lobbyPanel.hidden = hidden;
     },
   };
+  if (!deterministicState) void installDebugGui();
 }
 loop.start();
 
@@ -187,6 +188,8 @@ if (import.meta.hot) {
     loop.stop();
     input.dispose();
     audio.dispose();
+    if (debugTuningTimer) clearTimeout(debugTuningTimer);
+    debugGui?.destroy();
     window.removeEventListener('pointerdown', unlockAudio);
     window.removeEventListener('keydown', unlockAudio);
     client.dispose();
@@ -228,14 +231,20 @@ function renderClientState(): void {
         return item;
       }),
     );
-    const canStart = room.phase === 'lobby' && session.isHost && room.players.length >= 2;
-    startButton.hidden = !session.isHost || room.phase !== 'lobby';
-    startButton.disabled = !canStart;
-    waitingMessage.hidden = session.isHost || room.phase !== 'lobby';
     const ownPlayer = room.players.find((player) => player.playerId === session.playerId);
+    const isCurrentHost = ownPlayer?.isHost ?? false;
+    const canStart = room.phase === 'lobby' && isCurrentHost && room.players.length >= 2;
+    startButton.hidden = !isCurrentHost || room.phase !== 'lobby';
+    startButton.disabled = !canStart;
+    waitingMessage.hidden = isCurrentHost || room.phase !== 'lobby';
     readyButton.disabled = ownPlayer?.ready ?? false;
     readyButton.textContent = ownPlayer?.ready ? '已准备，等待其他人' : '准备下一局';
     readyCount.textContent = `${room.players.filter((player) => player.ready).length} / ${room.players.length} 已准备`;
+    if (room.debugMovementTuning) {
+      runtimeTuning.childMoveSpeed = room.debugMovementTuning.childMoveSpeed;
+      runtimeTuning.ghostMoveSpeed = room.debugMovementTuning.ghostMoveSpeed;
+      debugGui?.controllersRecursive().forEach((controller) => controller.updateDisplay());
+    }
   }
   const playing = room?.phase === 'playing';
   const ended = room?.phase === 'ended';
@@ -246,6 +255,7 @@ function renderClientState(): void {
     const frame = client.latestFrame.frame;
     roleLabel.textContent = frame.viewerRole === 'ghost' ? '你是鬼' : '你是小孩';
     objectiveLabel.textContent = frame.viewerRole === 'ghost' ? '抓住孩子三次' : '照亮鬼或撑到天亮';
+    updateControlHint(frame);
     if (ended) {
       const won = (frame.viewerRole === 'ghost' && frame.winner === 'ghost') ||
         (frame.viewerRole === 'child' && frame.winner === 'children');
@@ -263,6 +273,7 @@ function renderDeterministicState(frame: ViewerFrame): void {
   resultOverlay.hidden = frame.phase !== 'ended';
   roleLabel.textContent = frame.viewerRole === 'ghost' ? '你是鬼' : '你是小孩';
   objectiveLabel.textContent = frame.viewerRole === 'ghost' ? '抓住孩子三次' : '照亮鬼或撑到天亮';
+  updateControlHint(frame);
   milestone.textContent = `M6 · ${deterministicState}`;
   if (frame.phase !== 'ended') return;
   const won = (frame.viewerRole === 'ghost' && frame.winner === 'ghost')
@@ -276,7 +287,10 @@ function renderDeterministicState(frame: ViewerFrame): void {
 }
 
 function updateHud(frame: ViewerFrame | null): void {
-  if (!frame) return;
+  if (!frame) {
+    document.documentElement.dataset.captureScare = 'false';
+    return;
+  }
   timerLabel.textContent = formatTime(frame.remainingTicks);
   healthValue.textContent = String(Math.ceil(frame.ghostHealth));
   healthFill.style.transform = `scaleX(${Math.max(0, frame.ghostHealth / 100)})`;
@@ -286,21 +300,61 @@ function updateHud(frame: ViewerFrame | null): void {
     batteryFill.style.transform = `scaleX(${frame.ownBattery})`;
     batteryMeter.classList.toggle('low', frame.ownBattery < 0.15);
   }
+  updateBatteryLocator(frame);
   if (frame.phase === 'capture-animation') {
-    showBanner('被抓到了 · 位置即将重置', 'danger');
+    const caught = frame.capture?.childPlayerId === frame.viewerPlayerId;
+    showBanner(caught ? '你被抓住了' : '鬼抓住了一个孩子', 'danger');
   } else if (frame.phase === 'protection') {
     showBanner('保护时间 · 计时暂停', 'safe');
-  } else if (frame.viewerRole === 'ghost' && frame.ghost.captureState === 'windup') {
-    showBanner('抓取中…', 'danger');
-  } else if (frame.viewerRole === 'ghost' && frame.ghost.captureState === 'cooldown') {
-    showBanner('抓空了 · 冷却中', 'danger');
-  } else if (frame.viewerRole === 'ghost' && captureTargetAvailable(frame)) {
-    showBanner('目标锁定 · 对准后按空格抓取', 'safe');
-  } else if (frame.viewerRole === 'ghost' && childWithinCaptureRange(frame)) {
-    showBanner('已进入抓取距离 · 移动鼠标对准', 'safe');
   } else {
     eventBanner.hidden = true;
   }
+  document.documentElement.dataset.captureScare = String(isCaptureCinematicViewer(frame));
+}
+
+function updateBatteryLocator(frame: ViewerFrame): void {
+  const ownPosition = ownActorPosition(frame);
+  const visible = frame.viewerRole === 'child'
+    && frame.phase !== 'capture-animation'
+    && Boolean(frame.battery)
+    && Boolean(ownPosition);
+  batteryLocator.hidden = !visible;
+  if (!visible || frame.viewerRole !== 'child' || !frame.battery || !ownPosition) return;
+
+  stage.camera.updateMatrixWorld();
+  batteryScreenPoint.set(frame.battery.position.x, 0, frame.battery.position.z).project(stage.camera);
+  ownScreenPoint.set(ownPosition.x, 0, ownPosition.z).project(stage.camera);
+  const bounds = canvas.getBoundingClientRect();
+  const targetX = bounds.left + (batteryScreenPoint.x + 1) * bounds.width * 0.5;
+  const targetY = bounds.top + (1 - batteryScreenPoint.y) * bounds.height * 0.5;
+  const sourceX = bounds.left + (ownScreenPoint.x + 1) * bounds.width * 0.5;
+  const sourceY = bounds.top + (1 - ownScreenPoint.y) * bounds.height * 0.5;
+  const safeArea = {
+    left: bounds.left + 96,
+    right: bounds.right - 96,
+    top: bounds.top + 168,
+    bottom: bounds.bottom - 132,
+  };
+  const onScreen = targetX >= safeArea.left
+    && targetX <= safeArea.right
+    && targetY >= safeArea.top
+    && targetY <= safeArea.bottom;
+  const locatorX = clamp(targetX, safeArea.left, safeArea.right);
+  const locatorY = clamp(targetY - (onScreen ? 42 : 0), safeArea.top, safeArea.bottom);
+  const bearingRadians = Math.atan2(targetY - sourceY, targetX - sourceX);
+  const distance = Math.hypot(
+    frame.battery.position.x - ownPosition.x,
+    frame.battery.position.z - ownPosition.z,
+  );
+  const distanceText = `${distance < 10 ? distance.toFixed(1) : Math.round(distance)}m`;
+
+  batteryLocator.style.left = `${locatorX}px`;
+  batteryLocator.style.top = `${locatorY}px`;
+  batteryLocator.style.setProperty('--battery-bearing', `${bearingRadians}rad`);
+  batteryLocator.dataset.offscreen = String(!onScreen);
+  batteryLocator.dataset.side = locatorX > bounds.left + bounds.width / 2 ? 'right' : 'left';
+  batteryLocator.setAttribute('aria-label', `备用电池，距离 ${distanceText}`);
+  batteryDistance.textContent = distanceText;
 }
 
 function showBanner(text: string, tone: 'danger' | 'safe'): void {
@@ -311,14 +365,52 @@ function showBanner(text: string, tone: 'danger' | 'safe'): void {
 
 function updateCamera(frame: ViewerFrame | null, deltaSeconds: number, immediate = false): void {
   const ownPosition = frame ? ownActorPosition(frame) : null;
-  const targetX = frame?.viewerRole === 'child' && ownPosition ? ownPosition.x : 0;
-  const targetZ = frame?.viewerRole === 'child' && ownPosition ? ownPosition.z : 0;
-  const responsiveness = immediate ? 1 : 1 - Math.exp(-deltaSeconds * 10);
+  const cinematic = frame ? isCaptureCinematicViewer(frame) : false;
+  const capturedChild = frame?.capture
+    ? frame.children.find((child) => child.playerId === frame.capture?.childPlayerId)
+    : undefined;
+  const targetX = cinematic && frame?.ghost && capturedChild
+    ? (frame.ghost.position.x + capturedChild.position.x) / 2
+    : frame?.viewerRole === 'child' && ownPosition
+      ? ownPosition.x
+      : 0;
+  const targetZ = cinematic && frame?.ghost && capturedChild
+    ? (frame.ghost.position.z + capturedChild.position.z) / 2
+    : frame?.viewerRole === 'child' && ownPosition
+      ? ownPosition.z
+      : 0;
+  const followSpeed = cinematic
+    ? runtimeTuning.captureCameraResponsiveness
+    : runtimeTuning.cameraFollowResponsiveness;
+  const responsiveness = immediate ? 1 : 1 - Math.exp(-deltaSeconds * followSpeed);
   cameraCenter.lerp(new THREE.Vector2(targetX, targetZ), responsiveness);
-  stage.setView(cameraCenter.x, cameraCenter.y, frame?.viewerRole === 'child' ? 10.5 : 22.5);
+  const targetHeight = cinematic
+    ? runtimeTuning.captureCameraHeight
+    : frame?.viewerRole === 'child'
+      ? runtimeTuning.childCameraHeight
+      : runtimeTuning.ghostCameraHeight;
+  currentCameraHeight = immediate
+    ? targetHeight
+    : currentCameraHeight + (targetHeight - currentCameraHeight) * responsiveness;
+
+  let shakeX = 0;
+  let shakeZ = 0;
+  if (cinematic && frame?.capture && !immediate && !reducedMotion) {
+    const progress = 1 - frame.capture.ticksRemaining / Math.max(1, frame.capture.durationTicks);
+    const impact = Math.max(0, 1 - progress * 5);
+    shakeX = Math.sin(progress * 130) * 0.18 * impact * impact;
+    shakeZ = Math.sin(progress * 173 + 0.8) * 0.18 * impact * impact;
+  }
+  stage.setView(cameraCenter.x + shakeX, cameraCenter.y + shakeZ, currentCameraHeight);
 }
 
-function calculateFacing(frame: ViewerFrame): number {
+function calculateFacing(frame: ViewerFrame, movement: { x: number; z: number }): number {
+  if (frame.viewerRole === 'ghost') {
+    if (Math.hypot(movement.x, movement.z) > 0) {
+      lastFacingRadians = Math.atan2(movement.z, movement.x);
+    }
+    return lastFacingRadians;
+  }
   const ownPosition = ownActorPosition(frame);
   if (!ownPosition) return lastFacingRadians;
   const pointer = input.pointerClient();
@@ -346,21 +438,64 @@ function ownActorPosition(frame: ViewerFrame): { x: number; z: number } | null {
   return frame.children.find((child) => child.playerId === frame.viewerPlayerId)?.position ?? null;
 }
 
-function childWithinCaptureRange(frame: ViewerFrame): boolean {
-  if (frame.viewerRole !== 'ghost') return false;
-  return frame.children.some((child) => Math.hypot(
-    child.position.x - frame.ghost.position.x,
-    child.position.z - frame.ghost.position.z,
-  ) <= MATCH_RULES.captureRange);
+function isCaptureCinematicViewer(frame: ViewerFrame): boolean {
+  return Boolean(
+    frame.capture
+    && frame.ghost
+    && (frame.viewerRole === 'ghost' || frame.capture.childPlayerId === frame.viewerPlayerId),
+  );
 }
 
-function captureTargetAvailable(frame: ViewerFrame): boolean {
-  if (frame.viewerRole !== 'ghost') return false;
-  return frame.children.some((child) => isCaptureTargetInReach(
-    frame.ghost,
-    child,
-    DEFAULT_HOUSE_MAP.walls,
-  ));
+function updateControlHint(frame: ViewerFrame): void {
+  controlHint.textContent = frame.viewerRole === 'ghost'
+    ? 'ESDF 移动 · 接触孩子自动抓取'
+    : 'ESDF 移动 · 鼠标瞄准 · 空格手电';
+}
+
+async function installDebugGui(): Promise<void> {
+  const { GUI } = await import('lil-gui');
+  if (debugGui || deterministicState) return;
+  const gui = new GUI({ title: '开发调试' });
+  const cameraFolder = gui.addFolder('镜头');
+  cameraFolder.add(runtimeTuning, 'childCameraHeight', 8, 18, 0.1).name('小孩距离');
+  cameraFolder.add(runtimeTuning, 'ghostCameraHeight', 16, 30, 0.1).name('鬼距离');
+  cameraFolder.add(runtimeTuning, 'captureCameraHeight', 3.8, 9, 0.1).name('抓捕特写');
+  cameraFolder.add(runtimeTuning, 'cameraFollowResponsiveness', 2, 24, 0.5).name('跟随速度');
+  cameraFolder.add(runtimeTuning, 'captureCameraResponsiveness', 6, 36, 0.5).name('拉近速度');
+  const movementFolder = gui.addFolder('房间移动（房主）');
+  movementFolder
+    .add(runtimeTuning, 'childMoveSpeed', 1, 8, 0.05)
+    .name('小孩速度')
+    .onChange(queueDebugMovementTuning);
+  movementFolder
+    .add(runtimeTuning, 'ghostMoveSpeed', 1, 8, 0.05)
+    .name('鬼速度')
+    .onChange(queueDebugMovementTuning);
+  debugGui = gui;
+  setDebugUiHidden(debugGuiHidden);
+}
+
+function queueDebugMovementTuning(): void {
+  if (!client.session?.isHost) {
+    const serverTuning = client.roomState?.debugMovementTuning;
+    if (serverTuning) Object.assign(runtimeTuning, serverTuning);
+    debugGui?.controllersRecursive().forEach((controller) => controller.updateDisplay());
+    return;
+  }
+  if (debugTuningTimer) clearTimeout(debugTuningTimer);
+  debugTuningTimer = setTimeout(() => {
+    debugTuningTimer = null;
+    void client.setDebugTuning({
+      childMoveSpeed: runtimeTuning.childMoveSpeed,
+      ghostMoveSpeed: runtimeTuning.ghostMoveSpeed,
+    });
+  }, 80);
+}
+
+function setDebugUiHidden(hidden: boolean): void {
+  debugGuiHidden = hidden;
+  milestone.hidden = hidden;
+  if (debugGui) debugGui.domElement.style.display = hidden ? 'none' : '';
 }
 
 function updateDiagnostics(frame: ViewerFrame | null): void {
@@ -379,9 +514,16 @@ function updateDiagnostics(frame: ViewerFrame | null): void {
     ackSeq: client.latestFrame?.ackSeq ?? null,
     ownPosition: frame ? ownActorPosition(frame) : null,
     viewerFrame: frame,
-    cameraMode: frame?.viewerRole === 'child' ? 'follow' : 'whole-house',
+    cameraMode: frame && isCaptureCinematicViewer(frame)
+      ? 'capture-closeup'
+      : frame?.viewerRole === 'child'
+        ? 'follow'
+        : 'whole-house',
+    cameraViewHeight: currentCameraHeight,
+    capturedChildPlayerId: frame?.capture?.childPlayerId ?? null,
+    tuning: { ...runtimeTuning },
     world: world.metrics(),
-    input: { actionPressesSent },
+    input: { actionHeld: input.actionHeld() },
     network: {
       ...network,
       corrections: presentation.corrections,
@@ -403,6 +545,10 @@ function updateDiagnostics(frame: ViewerFrame | null): void {
 function formatTime(ticks: number): string {
   const seconds = Math.max(0, Math.ceil(ticks / 60));
   return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.max(minimum, Math.min(maximum, value));
 }
 
 function normalizeRoomCode(value: string): string {

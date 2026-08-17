@@ -35,7 +35,6 @@ const DOLLS: readonly VisibleDoll[] = [
 const GHOST: VisibleGhost = {
   position: { x: -9.55, z: -6.7 },
   facingRadians: Math.PI,
-  captureState: 'idle',
 };
 
 export function isDeterministicStateName(value: string | null): value is DeterministicStateName {
@@ -53,6 +52,7 @@ export function createDeterministicViewerFrame(
     captureCount: 1,
     ghostHealth: 62,
     winner: null,
+    capture: null,
   } as const;
 
   if (state === 'ghost-playing' || state === 'ghost-win') {
@@ -65,7 +65,7 @@ export function createDeterministicViewerFrame(
       captureCount: ended ? 3 : common.captureCount,
       viewerRole: 'ghost',
       viewerPlayerId: 'ghost',
-      ghost: { ...GHOST, captureState: 'idle' },
+      ghost: { ...GHOST },
       children: cloneChildren(CHILDREN.slice(0, 1)),
       dolls: cloneDolls(DOLLS),
       battery: { batteryId: 'battery-1', position: { x: 2.2, z: 0 } },
@@ -74,7 +74,7 @@ export function createDeterministicViewerFrame(
   }
 
   const ended = state === 'child-win';
-  const hidden = state === 'child-hidden' || state === 'capture' || state === 'protection';
+  const hidden = state === 'child-hidden' || state === 'protection';
   const phase = state === 'capture'
     ? 'capture-animation'
     : state === 'protection'
@@ -92,6 +92,9 @@ export function createDeterministicViewerFrame(
     winner: ended ? 'children' : null,
     remainingTicks: ended ? 11_520 : common.remainingTicks,
     ghostHealth: ended ? 0 : common.ghostHealth,
+    capture: state === 'capture'
+      ? { childPlayerId: 'child-1', ticksRemaining: 92, durationTicks: 156 }
+      : null,
     viewerRole: 'child',
     viewerPlayerId: 'child-1',
     ownBattery: state === 'low-battery' ? 0.08 : 0.58,
@@ -99,7 +102,7 @@ export function createDeterministicViewerFrame(
     dolls: hidden && children.length === 2 ? cloneDolls(DOLLS.slice(1)) : [],
     ...(!hidden ? { ghost: { ...GHOST, position: { ...GHOST.position } } } : {}),
     ...(state === 'low-battery'
-      ? { battery: { batteryId: 'battery-1', position: { x: -8.2, z: -5.8 } } }
+      ? { battery: { batteryId: 'battery-1', position: { x: 5.8, z: 4.8 } } }
       : {}),
   };
 }

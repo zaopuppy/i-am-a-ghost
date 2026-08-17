@@ -7,6 +7,11 @@ export interface SharedMatchFrame {
   remainingTicks: number;
   captureCount: number;
   ghostHealth: number;
+  capture: {
+    childPlayerId: string;
+    ticksRemaining: number;
+    durationTicks: number;
+  } | null;
 }
 
 export interface VisibleChild {
@@ -28,7 +33,6 @@ export interface VisibleDoll {
 export interface VisibleGhost {
   position: Vec2;
   facingRadians: number;
-  captureState: 'idle' | 'windup' | 'cooldown';
 }
 
 export interface VisibleBattery {
