@@ -36,6 +36,7 @@ export interface PlayerCheckpoint {
   facingRadians: number;
   battery: number | null;
   headlamp: HeadlampBand | null;
+  active: boolean;
 }
 
 export interface DollCheckpoint {
@@ -144,6 +145,7 @@ export class MatchEngine {
         facingRadians: 0,
         battery: null,
         headlamp: null,
+        active: true,
       },
       ...setup.childPlayerIds.map((id, index): PlayerCheckpoint => ({
         id,
@@ -153,6 +155,7 @@ export class MatchEngine {
         facingRadians: 0,
         battery: 1,
         headlamp: 'off',
+        active: true,
       })),
     ];
     this.dolls = setup.map.childSpawns
@@ -191,6 +194,14 @@ export class MatchEngine {
     return { checkpoint: this.checkpoint(), events: [...this.events] };
   }
 
+  setPlayerActive(playerId: string, active: boolean): void {
+    const player = this.players.find((candidate) => candidate.id === playerId);
+    if (!player) throw new Error(`Unknown player: ${playerId}`);
+    if (player.role !== 'child') throw new Error('Only a child can become a sensing doll.');
+    player.active = active;
+    if (!active) this.commands.delete(playerId);
+  }
+
   checkpoint(): MatchCheckpoint {
     this.updateHeadlamps();
     return {
@@ -227,6 +238,7 @@ export class MatchEngine {
     const illuminatedAtStart = this.findFlashlightHitters().length > 0;
     const secondsPerTick = 1 / MATCH_RULES.tickRate;
     for (const player of this.players) {
+      if (!player.active) continue;
       const command = this.commands.get(player.id);
       if (!command) continue;
       player.facingRadians = command.facingRadians;
@@ -327,6 +339,7 @@ export class MatchEngine {
 
     return this.players
       .filter((player) => player.role === 'child')
+      .filter((player) => player.active)
       .filter((child) => {
         const offsetX = child.position.x - ghost.position.x;
         const offsetZ = child.position.z - ghost.position.z;
@@ -380,7 +393,7 @@ export class MatchEngine {
     const hitters: Array<{ player: PlayerCheckpoint; energyRatio: number }> = [];
 
     for (const player of this.players) {
-      if (player.role !== 'child' || player.battery === null) continue;
+      if (player.role !== 'child' || !player.active || player.battery === null) continue;
       const command = this.commands.get(player.id);
       if (!command?.action || player.battery <= 0) continue;
 
@@ -406,7 +419,7 @@ export class MatchEngine {
   private updateBattery(): void {
     if (this.battery) {
       const collector = this.players
-        .filter((player) => player.role === 'child')
+        .filter((player) => player.role === 'child' && player.active)
         .filter(
           (player) =>
             Math.hypot(
@@ -427,6 +440,7 @@ export class MatchEngine {
     const needsBattery = this.players.some(
       (player) =>
         player.role === 'child' &&
+        player.active &&
         player.battery !== null &&
         player.battery < MATCH_RULES.batterySpawnThreshold,
     );
@@ -467,7 +481,12 @@ export class MatchEngine {
 
   private findFlashlightHitters(): PlayerCheckpoint[] {
     return this.players.filter((player) => {
-      if (player.role !== 'child' || player.battery === null || player.battery <= 0) return false;
+      if (
+        player.role !== 'child' ||
+        !player.active ||
+        player.battery === null ||
+        player.battery <= 0
+      ) return false;
       return Boolean(this.commands.get(player.id)?.action && this.flashlightHitsGhost(player));
     });
   }
@@ -509,7 +528,7 @@ export class MatchEngine {
     }
 
     for (const other of this.players) {
-      if (other.id === playerId) continue;
+      if (other.id === playerId || !other.active) continue;
       if (Math.hypot(position.x - other.position.x, position.z - other.position.z) < radius * 2) {
         return false;
       }

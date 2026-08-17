@@ -75,3 +75,18 @@ test('one successful beam reveals the ghost in every child-directed frame', () =
     assert.deepEqual(frame.ghost?.position, { x: 1, z: 0 });
   }
 });
+
+test('a disconnected child is projected as a non-player sensing doll', () => {
+  const engine = new MatchEngine({
+    seed: 17,
+    map: TEST_MAP,
+    ghostPlayerId: 'ghost',
+    childPlayerIds: ['child'],
+  });
+  engine.setPlayerActive('child', false);
+  const ghostFrame = projectViewerFrame(engine.checkpoint(), 'ghost');
+  assert.equal(ghostFrame.viewerRole, 'ghost');
+  assert.equal(ghostFrame.children.length, 0);
+  assert.equal(ghostFrame.dolls.length, 4);
+  assert.ok(ghostFrame.dolls.some((doll) => doll.dollId === 'disconnected-child'));
+});

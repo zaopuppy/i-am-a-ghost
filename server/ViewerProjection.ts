@@ -29,7 +29,7 @@ export function projectViewerFrame(
     ghostHealth: checkpoint.ghostHealth,
   };
   const children: VisibleChild[] = checkpoint.players
-    .filter((player) => player.role === 'child')
+    .filter((player) => player.role === 'child' && player.active)
     .map((child) => ({
       playerId: child.id,
       slot: child.slot ?? 0,
@@ -38,12 +38,22 @@ export function projectViewerFrame(
       headlamp: child.headlamp ?? 'off',
       flashlightOn: options.activeFlashlightPlayerIds?.has(child.id) ?? false,
     }));
-  const dolls = checkpoint.dolls.map((doll) => ({
-    dollId: doll.id,
-    slot: doll.slot,
-    position: { ...doll.position },
-    headlamp: doll.headlamp,
-  }));
+  const dolls = [
+    ...checkpoint.dolls.map((doll) => ({
+      dollId: doll.id,
+      slot: doll.slot,
+      position: { ...doll.position },
+      headlamp: doll.headlamp,
+    })),
+    ...checkpoint.players
+      .filter((player) => player.role === 'child' && !player.active)
+      .map((player) => ({
+        dollId: `disconnected-${player.id}`,
+        slot: player.slot ?? 0,
+        position: { ...player.position },
+        headlamp: player.headlamp ?? 'off',
+      })),
+  ];
   const ghostPlayer = checkpoint.players.find((player) => player.role === 'ghost');
   if (!ghostPlayer) throw new Error('Checkpoint is missing its ghost player.');
   const ghost: VisibleGhost = {
@@ -67,6 +77,8 @@ export function projectViewerFrame(
     };
     return frame;
   }
+
+  if (!viewer.active) throw new Error('An inactive child cannot receive a viewer frame.');
 
   const frame: ChildViewerFrame = {
     ...shared,

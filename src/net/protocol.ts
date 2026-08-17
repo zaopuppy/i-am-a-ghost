@@ -2,9 +2,11 @@ import type { MatchEvent } from '../game/MatchEngine';
 import type { ViewerFrame } from '../game/ViewerFrame';
 
 export const PROTOCOL_VERSION = 1;
-export const BUILD_VERSION = '0.2.0-m2-authoritative-room';
+export const BUILD_VERSION = '0.4.0-resilient-lan';
 export const MIN_PLAYERS = 2;
 export const MAX_PLAYERS = 5;
+export const INPUT_STALE_MS = 250;
+export const RECONNECT_GRACE_MS = 30_000;
 
 export type RoomPhase = 'lobby' | 'playing' | 'ended';
 export type PlayerRole = 'ghost' | 'child' | null;
@@ -26,6 +28,7 @@ export interface RoomState {
   players: RoomPlayerSummary[];
   minimumPlayers: typeof MIN_PLAYERS;
   maximumPlayers: typeof MAX_PLAYERS;
+  notice: 'ghost-disconnected' | null;
 }
 
 export interface RoomSession {

@@ -20,6 +20,15 @@ interface GhostGameDiagnostics {
     rooms: number;
     beams: number;
   };
+  network: {
+    pendingInputs: number;
+    lastAckLatencyMs: number | null;
+    frameAgeMs: number | null;
+    reconnecting: boolean;
+    corrections: number;
+    hardSnaps: number;
+    interpolationAlpha: number;
+  };
   renderer: {
     calls: number;
     triangles: number;

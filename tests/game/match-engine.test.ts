@@ -596,3 +596,32 @@ test('accepted commands cannot be mutated by the caller after submission', () =>
   assert.ok(child);
   assertApproximately(child.position.x, MATCH_RULES.childMoveSpeed);
 });
+
+test('an inactive child becomes nonblocking and cannot be captured or use a flashlight', () => {
+  const map: MatchMap = {
+    ...OPEN_MAP,
+    ghostSpawn: { x: 0, z: 0 },
+    childSpawns: [{ x: 1, z: 0 }, { x: 4, z: 4 }, { x: -4, z: 4 }, { x: 4, z: -4 }],
+  };
+  const engine = new MatchEngine({
+    seed: 47,
+    map,
+    ghostPlayerId: 'ghost',
+    childPlayerIds: ['child'],
+  });
+  engine.setPlayerActive('child', false);
+  engine.advance([
+    { playerId: 'child', move: { x: 0, z: 0 }, facingRadians: Math.PI, action: true },
+    { playerId: 'ghost', move: { x: 1, z: 0 }, facingRadians: 0, action: true },
+  ], MATCH_RULES.captureWindupTicks + 20);
+
+  const checkpoint = engine.checkpoint();
+  const ghost = checkpoint.players.find((player) => player.id === 'ghost');
+  const child = checkpoint.players.find((player) => player.id === 'child');
+  assert.ok(ghost);
+  assert.ok(child);
+  assert.equal(child.active, false);
+  assert.ok(ghost.position.x > 1, 'the inactive child must not block movement');
+  assert.equal(checkpoint.captureCount, 0);
+  assert.equal(checkpoint.ghostHealth, MATCH_RULES.ghostMaxHealth);
+});

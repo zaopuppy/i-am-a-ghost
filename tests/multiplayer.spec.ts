@@ -65,6 +65,24 @@ test('two browser pages join, start, and move through the authoritative input pa
   expect(batteryAfter).not.toBeNull();
   expect(batteryAfter ?? 1).toBeLessThan(batteryBefore ?? 0);
 
+  const childPlayerId = childFrame?.viewerPlayerId;
+  await childPage.reload();
+  await expect
+    .poll(() => childPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.role ?? null))
+    .toBe('child');
+  const restoredPlayerId = await childPage.evaluate(() => {
+    const frame = window.__THREE_GAME_DIAGNOSTICS__?.viewerFrame;
+    return frame?.viewerPlayerId ?? null;
+  });
+  expect(restoredPlayerId).toBe(childPlayerId);
+  await expect
+    .poll(() => childPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.network.reconnecting ?? true))
+    .toBe(false);
+
+  await ghostPage.close();
+  await expect(childPage.getByTestId('lobby-panel')).toBeVisible();
+  await expect(childPage.locator('#error-message')).toContainText('鬼已断线');
+
   expect(errors).toEqual([]);
 });
 

@@ -8,6 +8,7 @@ import {
   type ClientToServerEvents,
   type MatchFrameEnvelope,
   type RoomActionResponse,
+  type RoomState,
   type ServerToClientEvents,
 } from '../../src/net/protocol';
 
@@ -18,9 +19,11 @@ test('two clients start an authoritative match and receive directed frames', asy
   const port = await application.listen(0, '127.0.0.1');
   const first = connect(`http://127.0.0.1:${port}`, { transports: ['websocket'] });
   const second = connect(`http://127.0.0.1:${port}`, { transports: ['websocket'] });
+  let reconnected: TestSocket | null = null;
   context.after(async () => {
     first.disconnect();
     second.disconnect();
+    reconnected?.disconnect();
     await application.close();
   });
   await Promise.all([waitForConnect(first), waitForConnect(second)]);
@@ -88,6 +91,60 @@ test('two clients start an authoritative match and receive directed frames', asy
   const movedChild = moved.frame.children.find((child) => child.playerId === moved.frame.viewerPlayerId);
   assert.ok(movedChild);
   assert.ok(movedChild.position.x > initialChild.position.x, 'stale input must not reverse movement');
+
+  const expired = await waitForFrame(
+    childSocket,
+    (envelope) => envelope.frame.tick >= moved.frame.tick + 24,
+  );
+  const stopped = await waitForFrame(
+    childSocket,
+    (envelope) => envelope.frame.tick >= expired.frame.tick + 12,
+  );
+  assert.equal(expired.frame.viewerRole, 'child');
+  assert.equal(stopped.frame.viewerRole, 'child');
+  const expiredChild = expired.frame.children.find((child) => child.playerId === expired.frame.viewerPlayerId);
+  const stoppedChild = stopped.frame.children.find((child) => child.playerId === stopped.frame.viewerPlayerId);
+  assert.ok(expiredChild && stoppedChild);
+  assert.ok(Math.abs(expiredChild.position.x - stoppedChild.position.x) < 0.001, 'expired input must become neutral');
+
+  const childSession = childFrame.frame.viewerPlayerId === created.session.playerId
+    ? created.session
+    : joined.session;
+  const ghostSocket = childSocket === first ? second : first;
+  const dollFramePromise = waitForFrame(
+    ghostSocket,
+    (envelope) => envelope.frame.viewerRole === 'ghost' && envelope.frame.children.length === 0,
+  );
+  childSocket.disconnect();
+  const dollFrame = await dollFramePromise;
+  assert.equal(dollFrame.frame.viewerRole, 'ghost');
+  assert.equal(dollFrame.frame.dolls.length, 4);
+
+  reconnected = connect(`http://127.0.0.1:${port}`, { transports: ['websocket'] });
+  await waitForConnect(reconnected);
+  const restoredFramePromise = waitForFrame(reconnected, (envelope) => envelope.frame.viewerRole === 'child');
+  const restored = (await reconnected.emitWithAck('join-room', {
+    protocolVersion: PROTOCOL_VERSION,
+    buildVersion: BUILD_VERSION,
+    nickname: '恢复者',
+    roomCode: childSession.roomCode,
+    playerId: childSession.playerId,
+    rejoinToken: childSession.rejoinToken,
+  })) as RoomActionResponse;
+  assert.equal(restored.ok, true);
+  if (!restored.ok) return;
+  assert.equal(restored.session.playerId, childSession.playerId);
+  const restoredFrame = await restoredFramePromise;
+  assert.equal(restoredFrame.frame.viewerRole, 'child');
+
+  const lobbyPromise = waitForRoomState(
+    reconnected,
+    (state) => state.phase === 'lobby' && state.notice === 'ghost-disconnected',
+  );
+  ghostSocket.disconnect();
+  const lobby = await lobbyPromise;
+  assert.equal(lobby.matchId, null);
+  assert.equal(lobby.players.length, 1);
 });
 
 function waitForConnect(socket: TestSocket): Promise<void> {
@@ -98,6 +155,25 @@ function waitForConnect(socket: TestSocket): Promise<void> {
       clearTimeout(timeout);
       resolve();
     });
+  });
+}
+
+function waitForRoomState(
+  socket: TestSocket,
+  predicate: (state: RoomState) => boolean,
+): Promise<RoomState> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      socket.off('room-state', listener);
+      reject(new Error('room state timed out'));
+    }, 3_000);
+    const listener = (state: RoomState): void => {
+      if (!predicate(state)) return;
+      clearTimeout(timeout);
+      socket.off('room-state', listener);
+      resolve(state);
+    };
+    socket.on('room-state', listener);
   });
 }
 

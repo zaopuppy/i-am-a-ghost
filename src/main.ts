@@ -5,6 +5,7 @@ import { createRenderStage } from './core/Renderer';
 import { GameWorld } from './game/GameWorld';
 import type { ViewerFrame } from './game/ViewerFrame';
 import { GameClient } from './net/GameClient';
+import { FramePresenter } from './net/FramePresenter';
 import './styles.css';
 
 const canvas = requireElement<HTMLCanvasElement>('#game-canvas');
@@ -40,6 +41,7 @@ const captureMarks = [...document.querySelectorAll<HTMLElement>('.capture-mark')
 const stage = createRenderStage(canvas);
 const world = new GameWorld();
 const client = new GameClient();
+const presenter = new FramePresenter();
 const input = new GameInput(canvas);
 const raycaster = new THREE.Raycaster();
 const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -49,6 +51,7 @@ const nickname = createTemporaryNickname();
 let renderFrame = 0;
 let lastInputSentAt = 0;
 let measuredFps = 0;
+let lastIngestedFrameKey = '';
 
 const queryRoom = new URLSearchParams(window.location.search).get('room');
 if (queryRoom) roomCodeInput.value = normalizeRoomCode(queryRoom);
@@ -68,13 +71,21 @@ const loop = new Loop(
   (deltaSeconds, elapsedSeconds, fps) => {
     renderFrame += 1;
     measuredFps = fps;
-    const frame = client.latestFrame?.frame ?? null;
+    const envelope = client.latestFrame;
+    if (envelope) {
+      const key = `${envelope.matchId}:${envelope.frame.tick}`;
+      if (key !== lastIngestedFrameKey) {
+        presenter.ingest(envelope.matchId, envelope.frame);
+        lastIngestedFrameKey = key;
+      }
+    }
+    const movement = input.movement();
+    const frame = presenter.present(deltaSeconds, movement);
     world.sync(frame, elapsedSeconds);
     updateCamera(frame, deltaSeconds);
     updateHud(frame);
     if (frame && client.roomState?.phase === 'playing' && elapsedSeconds - lastInputSentAt >= 1 / 30) {
       lastInputSentAt = elapsedSeconds;
-      const movement = input.movement();
       client.sendInput({
         moveX: movement.x,
         moveZ: movement.z,
@@ -119,7 +130,9 @@ function joinRoom(): void {
 function renderClientState(): void {
   connectionRow.dataset.connected = String(client.connected);
   networkStatus.textContent = client.connected ? '局域网房间服务已连接' : '等待局域网房间服务';
-  errorMessage.textContent = client.errorMessage;
+  errorMessage.textContent = client.roomState?.notice === 'ghost-disconnected'
+    ? '鬼已断线，本局取消并返回大厅。'
+    : client.errorMessage;
   const room = client.roomState;
   const session = client.session;
   const inRoom = Boolean(session && room);
@@ -226,6 +239,8 @@ function ownActorPosition(frame: ViewerFrame): { x: number; z: number } | null {
 }
 
 function updateDiagnostics(frame: ViewerFrame | null): void {
+  const network = client.networkStats();
+  const presentation = presenter.stats();
   window.__THREE_GAME_DIAGNOSTICS__ = {
     phase: client.roomState?.phase ?? 'lobby',
     frame: renderFrame,
@@ -239,6 +254,12 @@ function updateDiagnostics(frame: ViewerFrame | null): void {
     viewerFrame: frame,
     cameraMode: frame?.viewerRole === 'child' ? 'follow' : 'whole-house',
     world: world.metrics(),
+    network: {
+      ...network,
+      corrections: presentation.corrections,
+      hardSnaps: presentation.hardSnaps,
+      interpolationAlpha: presentation.interpolationAlpha,
+    },
     renderer: {
       calls: stage.renderer.info.render.calls,
       triangles: stage.renderer.info.render.triangles,

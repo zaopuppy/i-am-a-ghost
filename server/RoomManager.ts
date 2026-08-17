@@ -84,7 +84,10 @@ export class RoomManager {
     const room = this.rooms.get(code);
     if (!room) return this.error('ROOM_NOT_FOUND', '没有找到这个房间。');
     this.leaveCurrentRoom(socket);
-    return room.join(socket, normalizeNickname(request.nickname));
+    const rejoin = typeof request.playerId === 'string' && typeof request.rejoinToken === 'string'
+      ? { playerId: request.playerId, rejoinToken: request.rejoinToken }
+      : undefined;
+    return room.join(socket, normalizeNickname(request.nickname), rejoin);
   }
 
   private validateIdentityRequest(request: Partial<CreateRoomRequest> | undefined): { ok: false; error: RoomError } | null {
@@ -122,6 +125,7 @@ export class RoomManager {
 
   private sweep(): void {
     for (const [code, room] of this.rooms) {
+      room.expireDisconnectedPlayers();
       if (!room.isEmptyFor(EMPTY_ROOM_TTL_MS)) continue;
       room.dispose();
       this.rooms.delete(code);

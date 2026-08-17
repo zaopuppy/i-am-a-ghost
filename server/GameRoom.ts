@@ -2,9 +2,11 @@ import { randomInt, randomUUID } from 'node:crypto';
 import { MatchEngine, type MatchEvent, type PlayerCommand } from '../src/game/MatchEngine';
 import { DEFAULT_HOUSE_MAP } from '../src/game/defaultHouse';
 import {
+  INPUT_STALE_MS,
   MAX_PLAYERS,
   MIN_PLAYERS,
   PROTOCOL_VERSION,
+  RECONNECT_GRACE_MS,
   type BasicActionResponse,
   type ClientInputFrame,
   type PlayerRole,
@@ -31,6 +33,8 @@ interface RoomPlayer {
   lastAcceptedSeq: number;
   latestInput: ClientInputFrame | null;
   ready: boolean;
+  lastInputAtMs: number;
+  disconnectDeadlineMs: number | null;
 }
 
 export class GameRoom {
@@ -42,13 +46,24 @@ export class GameRoom {
   private tickHandle: ReturnType<typeof setInterval> | null = null;
   private lastOccupiedAt = Date.now();
   private lastGhostPlayerId: string | null = null;
+  private notice: RoomState['notice'] = null;
+  private lastLoopAtMs = 0;
+  private accumulatedMs = 0;
 
   constructor(
     private readonly io: GameServer,
     readonly code: string,
   ) {}
 
-  join(socket: GameSocket, nickname: string): RoomActionResponse {
+  join(
+    socket: GameSocket,
+    nickname: string,
+    rejoin?: { playerId: string; rejoinToken: string },
+  ): RoomActionResponse {
+    if (rejoin) {
+      const restored = this.restore(socket, rejoin.playerId, rejoin.rejoinToken);
+      if (restored) return restored;
+    }
     if (this.phase !== 'lobby') return this.error('ROOM_CLOSED', '对局已经开始。');
     if (this.players.size >= MAX_PLAYERS) return this.error('ROOM_FULL', '房间已经满员。');
 
@@ -64,6 +79,8 @@ export class GameRoom {
       lastAcceptedSeq: -1,
       latestInput: null,
       ready: false,
+      lastInputAtMs: 0,
+      disconnectDeadlineMs: null,
     };
     this.players.set(playerId, player);
     socket.data.roomCode = this.code;
@@ -110,6 +127,9 @@ export class GameRoom {
   }
 
   private beginMatch(): void {
+    for (const [playerId, player] of this.players) {
+      if (!player.connected) this.players.delete(playerId);
+    }
     const roster = [...this.players.values()].filter((player) => player.connected);
     const ghostId = chooseNextGhost(
       roster.map((player) => player.playerId),
@@ -135,11 +155,17 @@ export class GameRoom {
       player.lastAcceptedSeq = -1;
       player.latestInput = null;
       player.ready = false;
+      player.lastInputAtMs = 0;
+      player.disconnectDeadlineMs = null;
     }
     this.phase = 'playing';
+    this.notice = null;
     this.broadcastRoomState();
     this.broadcastFrame();
-    this.tickHandle = setInterval(() => this.tick(), 1000 / TICK_RATE);
+    if (this.tickHandle) clearInterval(this.tickHandle);
+    this.lastLoopAtMs = performance.now();
+    this.accumulatedMs = 0;
+    this.tickHandle = setInterval(() => this.pump(), 1000 / (TICK_RATE * 2));
   }
 
   acceptInput(socketId: string, frame: ClientInputFrame): boolean {
@@ -150,13 +176,18 @@ export class GameRoom {
     if (frame.seq <= player.lastAcceptedSeq) return false;
     player.lastAcceptedSeq = frame.seq;
     player.latestInput = { ...frame };
+    player.lastInputAtMs = Date.now();
     return true;
   }
 
   leave(socket: GameSocket): boolean {
     const player = this.playerForSocket(socket.id);
     if (!player) return false;
-    this.players.delete(player.playerId);
+    if (this.phase === 'playing') {
+      this.disconnectDuringMatch(player, false);
+    } else {
+      this.players.delete(player.playerId);
+    }
     socket.data.roomCode = undefined;
     socket.data.playerId = undefined;
     void socket.leave(this.socketRoomName());
@@ -171,11 +202,32 @@ export class GameRoom {
     if (this.phase === 'lobby') {
       this.players.delete(player.playerId);
       this.promoteHost();
+    } else if (this.phase === 'playing') {
+      this.disconnectDuringMatch(player, true);
     } else {
       player.connected = false;
       player.latestInput = null;
+      player.lastInputAtMs = 0;
+      player.disconnectDeadlineMs = Date.now() + RECONNECT_GRACE_MS;
     }
     this.broadcastRoomState();
+  }
+
+  expireDisconnectedPlayers(nowMs = Date.now()): void {
+    let changed = false;
+    for (const [playerId, player] of this.players) {
+      if (player.connected || player.disconnectDeadlineMs === null || player.disconnectDeadlineMs > nowMs) {
+        continue;
+      }
+      player.disconnectDeadlineMs = null;
+      player.rejoinToken = '';
+      changed = true;
+      if (this.phase !== 'playing') this.players.delete(playerId);
+    }
+    if (changed) {
+      this.promoteHost();
+      this.broadcastRoomState();
+    }
   }
 
   connectedPlayerCount(): number {
@@ -212,22 +264,43 @@ export class GameRoom {
       })),
       minimumPlayers: MIN_PLAYERS,
       maximumPlayers: MAX_PLAYERS,
+      notice: this.notice,
     };
+  }
+
+  private pump(): void {
+    const now = performance.now();
+    this.accumulatedMs += Math.min(100, Math.max(0, now - this.lastLoopAtMs));
+    this.lastLoopAtMs = now;
+    const stepMs = 1000 / TICK_RATE;
+    let steps = 0;
+    while (this.accumulatedMs >= stepMs && steps < 5) {
+      this.tick();
+      this.accumulatedMs -= stepMs;
+      steps += 1;
+    }
+    if (steps === 5 && this.accumulatedMs >= stepMs) this.accumulatedMs = 0;
+    this.expireDisconnectedPlayers();
   }
 
   private tick(): void {
     if (!this.engine || !this.matchId || this.phase !== 'playing') return;
+    const now = Date.now();
     const commands: PlayerCommand[] = [...this.players.values()]
       .filter((player) => player.role !== null)
-      .map((player) => ({
-        playerId: player.playerId,
-        move: {
-          x: player.connected ? (player.latestInput?.moveX ?? 0) : 0,
-          z: player.connected ? (player.latestInput?.moveZ ?? 0) : 0,
-        },
-        facingRadians: player.latestInput?.facingRadians ?? 0,
-        action: player.connected ? (player.latestInput?.action ?? false) : false,
-      }));
+      .map((player) => {
+        const inputIsFresh =
+          player.connected && player.latestInput !== null && now - player.lastInputAtMs <= INPUT_STALE_MS;
+        return {
+          playerId: player.playerId,
+          move: {
+            x: inputIsFresh ? (player.latestInput?.moveX ?? 0) : 0,
+            z: inputIsFresh ? (player.latestInput?.moveZ ?? 0) : 0,
+          },
+          facingRadians: player.latestInput?.facingRadians ?? 0,
+          action: inputIsFresh ? (player.latestInput?.action ?? false) : false,
+        };
+      });
     const result = this.engine.advance(commands);
     if (result.events.length > 0) this.broadcastEvents(result.events);
     if (result.checkpoint.tick % FRAME_INTERVAL_TICKS === 0 || result.checkpoint.phase === 'ended') {
@@ -283,6 +356,79 @@ export class GameRoom {
 
   private broadcastRoomState(): void {
     this.io.to(this.socketRoomName()).emit('room-state', this.state());
+  }
+
+  private restore(
+    socket: GameSocket,
+    playerId: string,
+    rejoinToken: string,
+  ): RoomActionResponse | null {
+    const player = this.players.get(playerId);
+    if (
+      !player ||
+      player.connected ||
+      !player.rejoinToken ||
+      player.rejoinToken !== rejoinToken ||
+      player.disconnectDeadlineMs === null ||
+      player.disconnectDeadlineMs < Date.now()
+    ) {
+      return null;
+    }
+    player.socketId = socket.id;
+    player.connected = true;
+    player.disconnectDeadlineMs = null;
+    player.latestInput = null;
+    player.lastInputAtMs = 0;
+    socket.data.roomCode = this.code;
+    socket.data.playerId = player.playerId;
+    void socket.join(this.socketRoomName());
+    if (this.phase === 'playing' && player.role === 'child') {
+      this.engine?.setPlayerActive(player.playerId, true);
+    }
+    this.lastOccupiedAt = Date.now();
+    this.broadcastRoomState();
+    this.broadcastFrame();
+    return {
+      ok: true,
+      session: {
+        roomCode: this.code,
+        playerId: player.playerId,
+        rejoinToken: player.rejoinToken,
+        isHost: player.isHost,
+      },
+    };
+  }
+
+  private disconnectDuringMatch(player: RoomPlayer, allowRejoin: boolean): void {
+    if (player.role === 'ghost') {
+      this.abortMatchForGhostDisconnect(player.playerId);
+      return;
+    }
+    player.connected = false;
+    player.latestInput = null;
+    player.lastInputAtMs = 0;
+    player.disconnectDeadlineMs = allowRejoin ? Date.now() + RECONNECT_GRACE_MS : null;
+    if (!allowRejoin) player.rejoinToken = '';
+    this.engine?.setPlayerActive(player.playerId, false);
+    this.broadcastFrame();
+  }
+
+  private abortMatchForGhostDisconnect(ghostPlayerId: string): void {
+    if (this.tickHandle) clearInterval(this.tickHandle);
+    this.tickHandle = null;
+    this.engine = null;
+    this.matchId = null;
+    this.phase = 'lobby';
+    this.notice = 'ghost-disconnected';
+    this.players.delete(ghostPlayerId);
+    for (const player of this.players.values()) {
+      player.role = null;
+      player.ready = false;
+      player.latestInput = null;
+      player.lastInputAtMs = 0;
+      player.disconnectDeadlineMs = null;
+    }
+    this.promoteHost();
   }
 
   private playerForSocket(socketId: string): RoomPlayer | undefined {
