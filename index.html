@@ -35,8 +35,35 @@
         <p class="error-message" id="error-message" role="alert"></p>
       </section>
       <section class="m2-hud" id="game-hud" hidden>
-        <p id="role-label" data-testid="role-label"></p>
-        <p class="control-hint">ESDF 移动 · 鼠标瞄准 · 空格行动</p>
+        <div class="hud-role-block">
+          <p id="role-label" data-testid="role-label"></p>
+          <p class="control-hint">ESDF · 鼠标 · 空格</p>
+        </div>
+        <div class="hud-objective">
+          <p class="hud-kicker" id="objective-label">撑过这栋房子</p>
+          <p class="hud-timer" id="match-timer" data-testid="match-timer">05:00</p>
+          <div class="health-track" aria-label="鬼的生命值">
+            <span class="health-fill" id="ghost-health-fill"></span>
+          </div>
+          <p class="hud-health-label">鬼 <span id="ghost-health-value">100</span></p>
+        </div>
+        <div class="hud-captures" aria-label="抓取次数">
+          <span class="capture-mark"></span><span class="capture-mark"></span><span class="capture-mark"></span>
+        </div>
+        <div class="battery-meter" id="battery-meter">
+          <span class="battery-icon" aria-hidden="true"></span>
+          <span class="battery-track"><span id="battery-fill"></span></span>
+        </div>
+      </section>
+      <p class="event-banner" id="event-banner" data-testid="event-banner" hidden></p>
+      <section class="result-overlay" id="result-overlay" data-testid="result-overlay" hidden>
+        <div class="result-card">
+          <p class="eyebrow">本局结束</p>
+          <h2 id="result-title">孩子获胜</h2>
+          <p id="result-detail">黑暗暂时退去了。</p>
+          <button id="ready-next" data-testid="ready-next">准备下一局</button>
+          <p class="ready-count" id="ready-count">0 / 0 已准备</p>
+        </div>
       </section>
       <p class="milestone" id="milestone">M2 · 权威房间链路</p>
     </main>

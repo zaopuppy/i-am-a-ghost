@@ -13,6 +13,13 @@ interface GhostGameDiagnostics {
   ackSeq: number | null;
   ownPosition: { x: number; z: number } | null;
   viewerFrame: ViewerFrame | null;
+  cameraMode: 'follow' | 'whole-house';
+  world: {
+    actors: number;
+    walls: number;
+    rooms: number;
+    beams: number;
+  };
   renderer: {
     calls: number;
     triangles: number;

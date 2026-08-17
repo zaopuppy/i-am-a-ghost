@@ -24,6 +24,18 @@ test('two browser pages join, start, and move through the authoritative input pa
     .toEqual(expect.arrayContaining(['ghost', 'child']));
   const hostRole = await readRole(host);
   const childPage = hostRole === 'child' ? host : guest;
+  const ghostPage = hostRole === 'ghost' ? host : guest;
+  await expect(childPage.getByTestId('role-label')).toContainText('小孩');
+  await expect(ghostPage.getByTestId('role-label')).toContainText('鬼');
+  await expect(childPage.getByTestId('match-timer')).toHaveText(/^0[45]:[0-5]\d$/);
+  await expect
+    .poll(() => childPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.cameraMode))
+    .toBe('follow');
+  await expect
+    .poll(() => ghostPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.cameraMode))
+    .toBe('whole-house');
+  const worldMetrics = await ghostPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.world);
+  expect(worldMetrics).toMatchObject({ rooms: 9, walls: 22, actors: 5 });
   const childFrame = await childPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.viewerFrame);
   expect(childFrame?.viewerRole).toBe('child');
   if (childFrame?.viewerRole === 'child') expect(childFrame.ghost).toBeUndefined();
@@ -35,6 +47,23 @@ test('two browser pages join, start, and move through the authoritative input pa
     .poll(async () => childPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.ownPosition?.x ?? null))
     .toBeGreaterThan((initialX ?? 0) + 0.1);
   await childPage.keyboard.up('f');
+
+  const batteryBefore = await childPage.evaluate(() => {
+    const frame = window.__THREE_GAME_DIAGNOSTICS__?.viewerFrame;
+    return frame?.viewerRole === 'child' ? frame.ownBattery : null;
+  });
+  await childPage.keyboard.down(' ');
+  await expect
+    .poll(() => childPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.world.beams ?? 0))
+    .toBe(1);
+  await childPage.waitForTimeout(160);
+  await childPage.keyboard.up(' ');
+  const batteryAfter = await childPage.evaluate(() => {
+    const frame = window.__THREE_GAME_DIAGNOSTICS__?.viewerFrame;
+    return frame?.viewerRole === 'child' ? frame.ownBattery : null;
+  });
+  expect(batteryAfter).not.toBeNull();
+  expect(batteryAfter ?? 1).toBeLessThan(batteryBefore ?? 0);
 
   expect(errors).toEqual([]);
 });

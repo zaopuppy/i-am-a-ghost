@@ -94,6 +94,13 @@ export class GameClient {
     return response;
   }
 
+  async setReady(ready: boolean): Promise<BasicActionResponse> {
+    const response = await this.socket.emitWithAck('set-ready', ready);
+    if (!response.ok) this.errorMessage = response.error.message;
+    this.notify();
+    return response;
+  }
+
   sendInput(input: Omit<ClientInputFrame, 'matchId' | 'seq' | 'clientTick'>): void {
     const matchId = this.roomState?.matchId;
     if (!this.connected || !matchId || this.roomState?.phase !== 'playing') return;

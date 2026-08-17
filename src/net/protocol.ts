@@ -15,6 +15,7 @@ export interface RoomPlayerSummary {
   isHost: boolean;
   connected: boolean;
   role: PlayerRole;
+  ready: boolean;
 }
 
 export interface RoomState {
@@ -97,6 +98,7 @@ export interface ClientToServerEvents {
   'create-room': (request: CreateRoomRequest, acknowledge: Acknowledge<RoomActionResponse>) => void;
   'join-room': (request: JoinRoomRequest, acknowledge: Acknowledge<RoomActionResponse>) => void;
   'start-match': (acknowledge: Acknowledge<BasicActionResponse>) => void;
+  'set-ready': (ready: boolean, acknowledge: Acknowledge<BasicActionResponse>) => void;
   'leave-room': (acknowledge: Acknowledge<BasicActionResponse>) => void;
   'input-frame': (frame: ClientInputFrame) => void;
 }

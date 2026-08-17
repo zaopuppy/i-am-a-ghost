@@ -14,6 +14,7 @@ import {
   type ViewerMatchEvent,
 } from '../src/net/protocol';
 import { projectViewerFrame } from './ViewerProjection';
+import { chooseNextGhost } from './RoleRotation';
 import type { GameServer, GameSocket } from './types';
 
 const TICK_RATE = 60;
@@ -29,6 +30,7 @@ interface RoomPlayer {
   role: PlayerRole;
   lastAcceptedSeq: number;
   latestInput: ClientInputFrame | null;
+  ready: boolean;
 }
 
 export class GameRoom {
@@ -39,6 +41,7 @@ export class GameRoom {
   private engine: MatchEngine | null = null;
   private tickHandle: ReturnType<typeof setInterval> | null = null;
   private lastOccupiedAt = Date.now();
+  private lastGhostPlayerId: string | null = null;
 
   constructor(
     private readonly io: GameServer,
@@ -60,6 +63,7 @@ export class GameRoom {
       role: null,
       lastAcceptedSeq: -1,
       latestInput: null,
+      ready: false,
     };
     this.players.set(playerId, player);
     socket.data.roomCode = this.code;
@@ -87,12 +91,37 @@ export class GameRoom {
     }
     if (this.phase !== 'lobby') return this.error('ROOM_CLOSED', '当前不能开始新对局。');
 
-    const roster = [...this.players.values()];
-    const ghostIndex = randomInt(roster.length);
-    const ghost = roster[ghostIndex];
-    const children = roster.filter((_, index) => index !== ghostIndex);
+    this.beginMatch();
+    return { ok: true };
+  }
+
+  setReady(socketId: string, ready: boolean): BasicActionResponse {
+    const player = this.playerForSocket(socketId);
+    if (!player) return this.error('NOT_IN_ROOM', '尚未加入房间。');
+    if (this.phase !== 'ended') return this.error('ROOM_CLOSED', '只能在结算后准备下一局。');
+    player.ready = ready;
+    const connectedPlayers = [...this.players.values()].filter((candidate) => candidate.connected);
+    if (connectedPlayers.length >= MIN_PLAYERS && connectedPlayers.every((candidate) => candidate.ready)) {
+      this.beginMatch();
+    } else {
+      this.broadcastRoomState();
+    }
+    return { ok: true };
+  }
+
+  private beginMatch(): void {
+    const roster = [...this.players.values()].filter((player) => player.connected);
+    const ghostId = chooseNextGhost(
+      roster.map((player) => player.playerId),
+      this.lastGhostPlayerId,
+      randomInt(roster.length),
+    );
+    const ghost = roster.find((player) => player.playerId === ghostId);
+    if (!ghost) throw new Error('Ghost rotation selected a player outside the room.');
+    const children = roster.filter((player) => player.playerId !== ghostId);
     ghost.role = 'ghost';
     for (const child of children) child.role = 'child';
+    this.lastGhostPlayerId = ghost.playerId;
 
     this.round += 1;
     this.matchId = randomUUID();
@@ -105,12 +134,12 @@ export class GameRoom {
     for (const player of roster) {
       player.lastAcceptedSeq = -1;
       player.latestInput = null;
+      player.ready = false;
     }
     this.phase = 'playing';
     this.broadcastRoomState();
     this.broadcastFrame();
     this.tickHandle = setInterval(() => this.tick(), 1000 / TICK_RATE);
-    return { ok: true };
   }
 
   acceptInput(socketId: string, frame: ClientInputFrame): boolean {
@@ -179,6 +208,7 @@ export class GameRoom {
         isHost: player.isHost,
         connected: player.connected,
         role: player.role,
+        ready: player.ready,
       })),
       minimumPlayers: MIN_PLAYERS,
       maximumPlayers: MAX_PLAYERS,
@@ -205,6 +235,7 @@ export class GameRoom {
     }
     if (result.checkpoint.phase === 'ended') {
       this.phase = 'ended';
+      for (const player of this.players.values()) player.ready = false;
       if (this.tickHandle) clearInterval(this.tickHandle);
       this.tickHandle = null;
       this.broadcastRoomState();
@@ -216,7 +247,11 @@ export class GameRoom {
     const checkpoint = this.engine.checkpoint();
     const activeFlashlights = new Set(
       [...this.players.values()]
-        .filter((player) => player.role === 'child' && player.latestInput?.action)
+        .filter((player) => {
+          if (player.role !== 'child' || !player.latestInput?.action) return false;
+          const checkpointPlayer = checkpoint.players.find((candidate) => candidate.id === player.playerId);
+          return (checkpointPlayer?.battery ?? 0) > 0;
+        })
         .map((player) => player.playerId),
     );
     for (const player of this.players.values()) {

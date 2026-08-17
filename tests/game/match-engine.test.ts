@@ -537,6 +537,8 @@ test('the default greybox house supplies four peripheral slots and legal battery
   assert.equal(DEFAULT_HOUSE_MAP.childSpawns.length, 4);
   assert.ok(DEFAULT_HOUSE_MAP.walls.length >= 8);
   assert.ok(DEFAULT_HOUSE_MAP.batterySpawns.length >= 6);
+  assert.ok(DEFAULT_HOUSE_MAP.bounds.maxX - DEFAULT_HOUSE_MAP.bounds.minX >= 30);
+  assert.ok(DEFAULT_HOUSE_MAP.bounds.maxZ - DEFAULT_HOUSE_MAP.bounds.minZ >= 18);
   assert.equal(checkpoint.dolls.length, 3);
 });
 

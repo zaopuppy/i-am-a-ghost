@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GameInput } from './core/GameInput';
 import { Loop } from './core/Loop';
 import { createRenderStage } from './core/Renderer';
-import { DEFAULT_HOUSE_MAP } from './game/defaultHouse';
+import { GameWorld } from './game/GameWorld';
 import type { ViewerFrame } from './game/ViewerFrame';
 import { GameClient } from './net/GameClient';
 import './styles.css';
@@ -21,17 +21,30 @@ const waitingMessage = requireElement<HTMLElement>('#waiting-message');
 const errorMessage = requireElement<HTMLElement>('#error-message');
 const gameHud = requireElement<HTMLElement>('#game-hud');
 const roleLabel = requireElement<HTMLElement>('#role-label');
+const objectiveLabel = requireElement<HTMLElement>('#objective-label');
+const timerLabel = requireElement<HTMLElement>('#match-timer');
+const healthFill = requireElement<HTMLElement>('#ghost-health-fill');
+const healthValue = requireElement<HTMLElement>('#ghost-health-value');
+const batteryMeter = requireElement<HTMLElement>('#battery-meter');
+const batteryFill = requireElement<HTMLElement>('#battery-fill');
+const eventBanner = requireElement<HTMLElement>('#event-banner');
+const resultOverlay = requireElement<HTMLElement>('#result-overlay');
+const resultTitle = requireElement<HTMLElement>('#result-title');
+const resultDetail = requireElement<HTMLElement>('#result-detail');
+const readyButton = requireElement<HTMLButtonElement>('#ready-next');
+const readyCount = requireElement<HTMLElement>('#ready-count');
 const createButton = requireElement<HTMLButtonElement>('#create-room');
 const joinButton = requireElement<HTMLButtonElement>('#join-room');
+const captureMarks = [...document.querySelectorAll<HTMLElement>('.capture-mark')];
 
 const stage = createRenderStage(canvas);
-const scene = createScene();
+const world = new GameWorld();
 const client = new GameClient();
 const input = new GameInput(canvas);
-const actorMeshes = new Map<string, THREE.Object3D>();
 const raycaster = new THREE.Raycaster();
 const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const pointerTarget = new THREE.Vector3();
+const cameraCenter = new THREE.Vector2();
 const nickname = createTemporaryNickname();
 let renderFrame = 0;
 let lastInputSentAt = 0;
@@ -39,41 +52,39 @@ let measuredFps = 0;
 
 const queryRoom = new URLSearchParams(window.location.search).get('room');
 if (queryRoom) roomCodeInput.value = normalizeRoomCode(queryRoom);
-
 createButton.addEventListener('click', () => void client.createRoom(nickname));
-joinButton.addEventListener('click', () => {
-  const code = normalizeRoomCode(roomCodeInput.value);
-  roomCodeInput.value = code;
-  if (code.length === 6) void client.joinRoom(code, nickname);
-});
+joinButton.addEventListener('click', joinRoom);
 roomCodeInput.addEventListener('input', () => {
   roomCodeInput.value = normalizeRoomCode(roomCodeInput.value);
 });
 roomCodeInput.addEventListener('keydown', (event) => {
-  if (event.key === 'Enter') joinButton.click();
+  if (event.key === 'Enter') joinRoom();
 });
 startButton.addEventListener('click', () => void client.startMatch());
-
+readyButton.addEventListener('click', () => void client.setReady(true));
 const unsubscribeClient = client.subscribe(renderClientState);
 
 const loop = new Loop(
-  (_deltaSeconds, elapsedSeconds, fps) => {
+  (deltaSeconds, elapsedSeconds, fps) => {
     renderFrame += 1;
     measuredFps = fps;
     const frame = client.latestFrame?.frame ?? null;
-    syncActors(frame);
+    world.sync(frame, elapsedSeconds);
+    updateCamera(frame, deltaSeconds);
+    updateHud(frame);
     if (frame && client.roomState?.phase === 'playing' && elapsedSeconds - lastInputSentAt >= 1 / 30) {
       lastInputSentAt = elapsedSeconds;
+      const movement = input.movement();
       client.sendInput({
-        moveX: input.movement().x,
-        moveZ: input.movement().z,
+        moveX: movement.x,
+        moveZ: movement.z,
         facingRadians: calculateFacing(frame),
         action: input.actionHeld(),
       });
     }
     updateDiagnostics(frame);
   },
-  () => stage.renderer.render(scene, stage.camera),
+  () => stage.renderer.render(world.scene, stage.camera),
 );
 
 const resizeObserver = new ResizeObserver(stage.resize);
@@ -92,10 +103,17 @@ if (import.meta.hot) {
     client.dispose();
     unsubscribeClient();
     resizeObserver.disconnect();
+    world.dispose();
     stage.dispose();
     delete window.__THREE_GAME_DIAGNOSTICS__;
     delete window.__THREE_GAME_TEST_HOOKS__;
   });
+}
+
+function joinRoom(): void {
+  const code = normalizeRoomCode(roomCodeInput.value);
+  roomCodeInput.value = code;
+  if (code.length === 6) void client.joinRoom(code, nickname);
 }
 
 function renderClientState(): void {
@@ -103,10 +121,11 @@ function renderClientState(): void {
   networkStatus.textContent = client.connected ? '局域网房间服务已连接' : '等待局域网房间服务';
   errorMessage.textContent = client.errorMessage;
   const room = client.roomState;
-  const inRoom = Boolean(client.session && room);
+  const session = client.session;
+  const inRoom = Boolean(session && room);
   lobbyActions.hidden = inRoom;
   roomPanel.hidden = !inRoom;
-  if (room && client.session) {
+  if (room && session) {
     roomCodeLabel.textContent = room.roomCode;
     roster.replaceChildren(
       ...room.players.map((player) => {
@@ -117,58 +136,70 @@ function renderClientState(): void {
         return item;
       }),
     );
-    const canStart = room.phase === 'lobby' && client.session.isHost && room.players.length >= 2;
-    startButton.hidden = !client.session.isHost || room.phase !== 'lobby';
+    const canStart = room.phase === 'lobby' && session.isHost && room.players.length >= 2;
+    startButton.hidden = !session.isHost || room.phase !== 'lobby';
     startButton.disabled = !canStart;
-    waitingMessage.hidden = client.session.isHost || room.phase !== 'lobby';
+    waitingMessage.hidden = session.isHost || room.phase !== 'lobby';
+    const ownPlayer = room.players.find((player) => player.playerId === session.playerId);
+    readyButton.disabled = ownPlayer?.ready ?? false;
+    readyButton.textContent = ownPlayer?.ready ? '已准备，等待其他人' : '准备下一局';
+    readyCount.textContent = `${room.players.filter((player) => player.ready).length} / ${room.players.length} 已准备`;
   }
   const playing = room?.phase === 'playing';
-  lobbyPanel.hidden = playing;
+  const ended = room?.phase === 'ended';
+  lobbyPanel.hidden = Boolean(playing || ended);
   gameHud.hidden = !playing;
+  resultOverlay.hidden = !ended;
   if (client.latestFrame) {
-    roleLabel.textContent = client.latestFrame.frame.viewerRole === 'ghost' ? '你是鬼 · 空格抓取' : '你是小孩 · 按住空格照射';
+    const frame = client.latestFrame.frame;
+    roleLabel.textContent = frame.viewerRole === 'ghost' ? '你是鬼' : '你是小孩';
+    objectiveLabel.textContent = frame.viewerRole === 'ghost' ? '抓住孩子三次' : '照亮鬼或撑到天亮';
+    if (ended) {
+      const won = (frame.viewerRole === 'ghost' && frame.winner === 'ghost') ||
+        (frame.viewerRole === 'child' && frame.winner === 'children');
+      resultTitle.textContent = won ? '你们赢了' : '这次输了';
+      resultDetail.textContent = frame.winner === 'children'
+        ? '鬼的力量耗尽，或五分钟已经过去。'
+        : '第三次抓取完成，房子归于寂静。';
+    }
   }
 }
 
-function syncActors(frame: ViewerFrame | null): void {
-  for (const mesh of actorMeshes.values()) mesh.visible = false;
+function updateHud(frame: ViewerFrame | null): void {
   if (!frame) return;
-  for (const child of frame.children) {
-    const mesh = getActorMesh(`child:${child.playerId}`, 'child');
-    mesh.visible = true;
-    mesh.position.set(child.position.x, 0.48, child.position.z);
-    mesh.rotation.y = -child.facingRadians;
+  timerLabel.textContent = formatTime(frame.remainingTicks);
+  healthValue.textContent = String(Math.ceil(frame.ghostHealth));
+  healthFill.style.transform = `scaleX(${Math.max(0, frame.ghostHealth / 100)})`;
+  captureMarks.forEach((mark, index) => mark.classList.toggle('filled', index < frame.captureCount));
+  batteryMeter.hidden = frame.viewerRole !== 'child';
+  if (frame.viewerRole === 'child') {
+    batteryFill.style.transform = `scaleX(${frame.ownBattery})`;
+    batteryMeter.classList.toggle('low', frame.ownBattery < 0.15);
   }
-  for (const doll of frame.dolls) {
-    const mesh = getActorMesh(`doll:${doll.dollId}`, 'doll');
-    mesh.visible = true;
-    mesh.position.set(doll.position.x, 0.42, doll.position.z);
-  }
-  if (frame.ghost) {
-    const mesh = getActorMesh('ghost', 'ghost');
-    mesh.visible = true;
-    mesh.position.set(frame.ghost.position.x, 0.48, frame.ghost.position.z);
-    mesh.rotation.y = -frame.ghost.facingRadians;
+  if (frame.phase === 'capture-animation') {
+    showBanner('被抓到了 · 位置即将重置', 'danger');
+  } else if (frame.phase === 'protection') {
+    showBanner('保护时间 · 计时暂停', 'safe');
+  } else if (frame.viewerRole === 'ghost' && frame.ghost.captureState === 'windup') {
+    showBanner('抓取中…', 'danger');
+  } else {
+    eventBanner.hidden = true;
   }
 }
 
-function getActorMesh(id: string, kind: 'child' | 'ghost' | 'doll'): THREE.Object3D {
-  const existing = actorMeshes.get(id);
-  if (existing) return existing;
-  const color = kind === 'ghost' ? 0xc9cedf : kind === 'doll' ? 0x7d6852 : 0xe0aa54;
-  const geometry = kind === 'doll' ? new THREE.BoxGeometry(0.62, 0.8, 0.62) : new THREE.CapsuleGeometry(0.32, 0.48, 5, 10);
-  const material = new THREE.MeshStandardMaterial({
-    color,
-    emissive: kind === 'ghost' ? 0x353c55 : 0x291d0c,
-    emissiveIntensity: 0.8,
-    roughness: 0.72,
-  });
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.castShadow = true;
-  mesh.visible = false;
-  scene.add(mesh);
-  actorMeshes.set(id, mesh);
-  return mesh;
+function showBanner(text: string, tone: 'danger' | 'safe'): void {
+  eventBanner.textContent = text;
+  eventBanner.dataset.tone = tone;
+  eventBanner.hidden = false;
+}
+
+function updateCamera(frame: ViewerFrame | null, deltaSeconds: number): void {
+  const ownPosition = frame ? ownActorPosition(frame) : null;
+  const targetX = frame?.viewerRole === 'child' && ownPosition ? ownPosition.x : 0;
+  const targetZ = frame?.viewerRole === 'child' && ownPosition ? ownPosition.z : 0;
+  const responsiveness = 1 - Math.exp(-deltaSeconds * 10);
+  cameraCenter.lerp(new THREE.Vector2(targetX, targetZ), responsiveness);
+  stage.setView(cameraCenter.x, cameraCenter.y, frame?.viewerRole === 'child' ? 10.5 : 22.5);
 }
 
 function calculateFacing(frame: ViewerFrame): number {
@@ -176,11 +207,15 @@ function calculateFacing(frame: ViewerFrame): number {
   if (!ownPosition) return 0;
   const pointer = input.pointerClient();
   const bounds = canvas.getBoundingClientRect();
-  const pointerNdc = new THREE.Vector2(
-    ((pointer.x || bounds.left + bounds.width / 2) - bounds.left) / bounds.width * 2 - 1,
-    -(((pointer.y || bounds.top + bounds.height / 2) - bounds.top) / bounds.height) * 2 + 1,
+  const pointerX = pointer.x || bounds.left + bounds.width / 2;
+  const pointerY = pointer.y || bounds.top + bounds.height / 2;
+  raycaster.setFromCamera(
+    new THREE.Vector2(
+      ((pointerX - bounds.left) / bounds.width) * 2 - 1,
+      -((pointerY - bounds.top) / bounds.height) * 2 + 1,
+    ),
+    stage.camera,
   );
-  raycaster.setFromCamera(pointerNdc, stage.camera);
   if (!raycaster.ray.intersectPlane(groundPlane, pointerTarget)) return 0;
   return Math.atan2(pointerTarget.z - ownPosition.z, pointerTarget.x - ownPosition.x);
 }
@@ -202,6 +237,8 @@ function updateDiagnostics(frame: ViewerFrame | null): void {
     ackSeq: client.latestFrame?.ackSeq ?? null,
     ownPosition: frame ? ownActorPosition(frame) : null,
     viewerFrame: frame,
+    cameraMode: frame?.viewerRole === 'child' ? 'follow' : 'whole-house',
+    world: world.metrics(),
     renderer: {
       calls: stage.renderer.info.render.calls,
       triangles: stage.renderer.info.render.triangles,
@@ -211,39 +248,9 @@ function updateDiagnostics(frame: ViewerFrame | null): void {
   };
 }
 
-function createScene(): THREE.Scene {
-  const nextScene = new THREE.Scene();
-  nextScene.background = new THREE.Color(0x08090d);
-  nextScene.fog = new THREE.FogExp2(0x08090d, 0.03);
-  nextScene.add(new THREE.HemisphereLight(0x8592b8, 0x161318, 1.45));
-  const keyLight = new THREE.DirectionalLight(0xe8d5a4, 2.7);
-  keyLight.position.set(-7, 12, 8);
-  nextScene.add(keyLight);
-  const floor = new THREE.Mesh(
-    new THREE.PlaneGeometry(
-      DEFAULT_HOUSE_MAP.bounds.maxX - DEFAULT_HOUSE_MAP.bounds.minX,
-      DEFAULT_HOUSE_MAP.bounds.maxZ - DEFAULT_HOUSE_MAP.bounds.minZ,
-    ),
-    new THREE.MeshStandardMaterial({ color: 0x11131a, roughness: 0.95, metalness: 0.04 }),
-  );
-  floor.rotation.x = -Math.PI / 2;
-  nextScene.add(floor);
-  const wallMaterial = new THREE.MeshStandardMaterial({ color: 0x4b4d56, roughness: 0.72 });
-  const walls = [
-    ...DEFAULT_HOUSE_MAP.walls,
-    { id: 'north-boundary', minX: -11, maxX: 11, minZ: 6.8, maxZ: 7 },
-    { id: 'south-boundary', minX: -11, maxX: 11, minZ: -7, maxZ: -6.8 },
-    { id: 'west-boundary', minX: -11, maxX: -10.8, minZ: -7, maxZ: 7 },
-    { id: 'east-boundary', minX: 10.8, maxX: 11, minZ: -7, maxZ: 7 },
-  ];
-  for (const wall of walls) {
-    const width = wall.maxX - wall.minX;
-    const depth = wall.maxZ - wall.minZ;
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, 0.5, depth), wallMaterial);
-    mesh.position.set((wall.minX + wall.maxX) / 2, 0.25, (wall.minZ + wall.maxZ) / 2);
-    nextScene.add(mesh);
-  }
-  return nextScene;
+function formatTime(ticks: number): string {
+  const seconds = Math.max(0, Math.ceil(ticks / 60));
+  return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
 }
 
 function normalizeRoomCode(value: string): string {
@@ -252,8 +259,7 @@ function normalizeRoomCode(value: string): string {
 
 function createTemporaryNickname(): string {
   const adjectives = ['安静', '勇敢', '机灵', '迷路', '警觉', '发光'];
-  const number = Math.floor(Math.random() * 900 + 100);
-  return `${adjectives[Math.floor(Math.random() * adjectives.length)]}访客${number}`;
+  return `${adjectives[Math.floor(Math.random() * adjectives.length)]}访客${Math.floor(Math.random() * 900 + 100)}`;
 }
 
 function requireElement<T extends Element>(selector: string): T {
