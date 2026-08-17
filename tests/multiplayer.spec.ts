@@ -45,6 +45,18 @@ test('two browser pages join, start, and move through the authoritative input pa
     .poll(() => ghostPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.cameraMode))
     .toBe('whole-house');
   await expect(ghostPage.locator('#control-hint')).toContainText('接触孩子自动抓取');
+  const flashlightLengthInput = host
+    .locator('.lil-gui .lil-controller')
+    .filter({ hasText: '手电距离' })
+    .locator('input');
+  await flashlightLengthInput.fill('3.5');
+  await flashlightLengthInput.press('Enter');
+  await expect
+    .poll(
+      () => guest.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.tuning.flashlightLength ?? 0),
+      { timeout: 2_000 },
+    )
+    .toBe(3.5);
   await ghostPage.evaluate(() => {
     window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space' }));
     window.dispatchEvent(new KeyboardEvent('keyup', { code: 'Space' }));

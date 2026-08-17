@@ -4,6 +4,7 @@ import { GameInput } from './core/GameInput';
 import { Loop } from './core/Loop';
 import { createRenderStage } from './core/Renderer';
 import { GameWorld } from './game/GameWorld';
+import type { GameplayTuning } from './game/MatchEngine';
 import { createRuntimeTuning } from './game/RuntimeTuning';
 import { aimFacingWithDeadzone } from './game/VisualFacing';
 import type { ViewerFrame } from './game/ViewerFrame';
@@ -76,6 +77,7 @@ let currentCameraHeight = runtimeTuning.ghostCameraHeight;
 let debugGui: import('lil-gui').GUI | null = null;
 let debugGuiHidden = false;
 let debugTuningTimer: ReturnType<typeof setTimeout> | null = null;
+let lastSyncedDebugGameplayTuning: GameplayTuning | null = null;
 const query = new URLSearchParams(window.location.search);
 const requestedTestState = query.get('testState');
 let deterministicState: DeterministicStateName | null = import.meta.env.DEV
@@ -244,10 +246,16 @@ function renderClientState(): void {
     readyButton.disabled = ownPlayer?.ready ?? false;
     readyButton.textContent = ownPlayer?.ready ? '已准备，等待其他人' : '准备下一局';
     readyCount.textContent = `${room.players.filter((player) => player.ready).length} / ${room.players.length} 已准备`;
-    if (room.debugGameplayTuning) {
+    if (
+      room.debugGameplayTuning
+      && room.debugGameplayTuning !== lastSyncedDebugGameplayTuning
+    ) {
+      lastSyncedDebugGameplayTuning = room.debugGameplayTuning;
       Object.assign(runtimeTuning, room.debugGameplayTuning);
       debugGui?.controllersRecursive().forEach((controller) => controller.updateDisplay());
     }
+  } else {
+    lastSyncedDebugGameplayTuning = null;
   }
   const playing = room?.phase === 'playing';
   const ended = room?.phase === 'ended';
