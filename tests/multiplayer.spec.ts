@@ -36,6 +36,18 @@ test('two browser pages join, start, and move through the authoritative input pa
     .toBe('whole-house');
   const worldMetrics = await ghostPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.world);
   expect(worldMetrics).toMatchObject({ rooms: 9, walls: 22, actors: 5 });
+  await expect
+    .poll(() => ghostPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.world.assets.kid.status))
+    .toBe('ready');
+  await expect
+    .poll(() => ghostPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.world.assets.wall.status))
+    .toBe('ready');
+  await host.locator('#audio-toggle').click();
+  await host.locator('#audio-toggle').click();
+  await expect
+    .poll(() => host.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.audio.loaded ?? 0))
+    .toBe(5);
+  expect(await host.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.audio.failed)).toBe(0);
   const childFrame = await childPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.viewerFrame);
   expect(childFrame?.viewerRole).toBe('child');
   if (childFrame?.viewerRole === 'child') expect(childFrame.ghost).toBeUndefined();

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { GameAudio } from './audio/GameAudio';
 import { GameInput } from './core/GameInput';
 import { Loop } from './core/Loop';
 import { createRenderStage } from './core/Renderer';
@@ -37,12 +38,14 @@ const readyCount = requireElement<HTMLElement>('#ready-count');
 const createButton = requireElement<HTMLButtonElement>('#create-room');
 const joinButton = requireElement<HTMLButtonElement>('#join-room');
 const captureMarks = [...document.querySelectorAll<HTMLElement>('.capture-mark')];
+const audioButton = requireElement<HTMLButtonElement>('#audio-toggle');
 
 const stage = createRenderStage(canvas);
 const world = new GameWorld();
 const client = new GameClient();
 const presenter = new FramePresenter();
 const input = new GameInput(canvas);
+const audio = new GameAudio();
 const raycaster = new THREE.Raycaster();
 const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const pointerTarget = new THREE.Vector3();
@@ -52,6 +55,8 @@ let renderFrame = 0;
 let lastInputSentAt = 0;
 let measuredFps = 0;
 let lastIngestedFrameKey = '';
+let lastAudioEvents: typeof client.latestEvents = null;
+let lastActionHeld = false;
 
 const queryRoom = new URLSearchParams(window.location.search).get('room');
 if (queryRoom) roomCodeInput.value = normalizeRoomCode(queryRoom);
@@ -65,6 +70,16 @@ roomCodeInput.addEventListener('keydown', (event) => {
 });
 startButton.addEventListener('click', () => void client.startMatch());
 readyButton.addEventListener('click', () => void client.setReady(true));
+audioButton.addEventListener('click', () => {
+  void audio.unlock();
+  const muted = audio.toggleMuted();
+  audioButton.textContent = muted ? '声音：关' : '声音：开';
+});
+const unlockAudio = (): void => {
+  void audio.unlock();
+};
+window.addEventListener('pointerdown', unlockAudio, { once: true });
+window.addEventListener('keydown', unlockAudio, { once: true });
 const unsubscribeClient = client.subscribe(renderClientState);
 
 const loop = new Loop(
@@ -81,6 +96,13 @@ const loop = new Loop(
     }
     const movement = input.movement();
     const frame = presenter.present(deltaSeconds, movement);
+    if (client.latestEvents && client.latestEvents !== lastAudioEvents) {
+      lastAudioEvents = client.latestEvents;
+      audio.handleEvents(client.latestEvents.events);
+    }
+    const actionHeld = input.actionHeld();
+    if (actionHeld && !lastActionHeld && frame?.viewerRole === 'child') audio.play('flashlight', 0.52);
+    lastActionHeld = actionHeld;
     world.sync(frame, elapsedSeconds);
     updateCamera(frame, deltaSeconds);
     updateHud(frame);
@@ -90,7 +112,7 @@ const loop = new Loop(
         moveX: movement.x,
         moveZ: movement.z,
         facingRadians: calculateFacing(frame),
-        action: input.actionHeld(),
+        action: actionHeld,
       });
     }
     updateDiagnostics(frame);
@@ -111,6 +133,9 @@ if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     loop.stop();
     input.dispose();
+    audio.dispose();
+    window.removeEventListener('pointerdown', unlockAudio);
+    window.removeEventListener('keydown', unlockAudio);
     client.dispose();
     unsubscribeClient();
     resizeObserver.disconnect();
@@ -260,6 +285,7 @@ function updateDiagnostics(frame: ViewerFrame | null): void {
       hardSnaps: presentation.hardSnaps,
       interpolationAlpha: presentation.interpolationAlpha,
     },
+    audio: audio.metrics(),
     renderer: {
       calls: stage.renderer.info.render.calls,
       triangles: stage.renderer.info.render.triangles,

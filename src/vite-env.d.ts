@@ -19,6 +19,32 @@ interface GhostGameDiagnostics {
     walls: number;
     rooms: number;
     beams: number;
+    assets: {
+      kid: {
+        status: 'not-requested' | 'loading' | 'ready' | 'failed';
+        fileBytes: number;
+        triangles: number;
+        meshes: number;
+        materials: number;
+        textures: number;
+        clips: string[];
+      };
+      wall: {
+        status: 'not-requested' | 'loading' | 'ready' | 'failed';
+        fileBytes: number;
+        triangles: number;
+        meshes: number;
+        materials: number;
+        textures: number;
+        clips: string[];
+      };
+    };
+  };
+  audio: {
+    unlocked: boolean;
+    muted: boolean;
+    loaded: number;
+    failed: number;
   };
   network: {
     pendingInputs: number;
