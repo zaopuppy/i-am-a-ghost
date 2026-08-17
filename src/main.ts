@@ -136,6 +136,10 @@ const loop = new Loop(
     const presentationSeconds = deterministicState && (screenshotPaused || reducedMotion)
       ? 2.75
       : elapsedSeconds;
+    world.setFlashlightTuning(
+      runtimeTuning.flashlightLength,
+      runtimeTuning.flashlightConeDegrees,
+    );
     world.sync(frame, presentationSeconds);
     updateCamera(frame, deltaSeconds, Boolean(deterministicState));
     updateHud(frame);
@@ -240,9 +244,8 @@ function renderClientState(): void {
     readyButton.disabled = ownPlayer?.ready ?? false;
     readyButton.textContent = ownPlayer?.ready ? '已准备，等待其他人' : '准备下一局';
     readyCount.textContent = `${room.players.filter((player) => player.ready).length} / ${room.players.length} 已准备`;
-    if (room.debugMovementTuning) {
-      runtimeTuning.childMoveSpeed = room.debugMovementTuning.childMoveSpeed;
-      runtimeTuning.ghostMoveSpeed = room.debugMovementTuning.ghostMoveSpeed;
+    if (room.debugGameplayTuning) {
+      Object.assign(runtimeTuning, room.debugGameplayTuning);
       debugGui?.controllersRecursive().forEach((controller) => controller.updateDisplay());
     }
   }
@@ -448,7 +451,9 @@ function isCaptureCinematicViewer(frame: ViewerFrame): boolean {
 
 function updateControlHint(frame: ViewerFrame): void {
   controlHint.textContent = frame.viewerRole === 'ghost'
-    ? 'ESDF 移动 · 接触孩子自动抓取'
+    ? frame.ghost.burning
+      ? '灼烧中 · 无法抓取 · ESDF 逃离光束'
+      : 'ESDF 移动 · 接触孩子自动抓取'
     : 'ESDF 移动 · 鼠标瞄准 · 空格手电';
 }
 
@@ -462,22 +467,36 @@ async function installDebugGui(): Promise<void> {
   cameraFolder.add(runtimeTuning, 'captureCameraHeight', 3.8, 9, 0.1).name('抓捕特写');
   cameraFolder.add(runtimeTuning, 'cameraFollowResponsiveness', 2, 24, 0.5).name('跟随速度');
   cameraFolder.add(runtimeTuning, 'captureCameraResponsiveness', 6, 36, 0.5).name('拉近速度');
+  cameraFolder.close();
   const movementFolder = gui.addFolder('房间移动（房主）');
   movementFolder
     .add(runtimeTuning, 'childMoveSpeed', 1, 8, 0.05)
     .name('小孩速度')
-    .onChange(queueDebugMovementTuning);
+    .onChange(queueDebugGameplayTuning);
   movementFolder
     .add(runtimeTuning, 'ghostMoveSpeed', 1, 8, 0.05)
     .name('鬼速度')
-    .onChange(queueDebugMovementTuning);
+    .onChange(queueDebugGameplayTuning);
+  const sensingFolder = gui.addFolder('感应与手电（房主）');
+  sensingFolder
+    .add(runtimeTuning, 'headlampDetectionRange', 1, 20, 0.1)
+    .name('灯感应范围')
+    .onChange(queueDebugGameplayTuning);
+  sensingFolder
+    .add(runtimeTuning, 'flashlightLength', 0.5, 12, 0.1)
+    .name('手电距离')
+    .onChange(queueDebugGameplayTuning);
+  sensingFolder
+    .add(runtimeTuning, 'flashlightConeDegrees', 5, 90, 1)
+    .name('手电宽度°')
+    .onChange(queueDebugGameplayTuning);
   debugGui = gui;
   setDebugUiHidden(debugGuiHidden);
 }
 
-function queueDebugMovementTuning(): void {
+function queueDebugGameplayTuning(): void {
   if (!client.session?.isHost) {
-    const serverTuning = client.roomState?.debugMovementTuning;
+    const serverTuning = client.roomState?.debugGameplayTuning;
     if (serverTuning) Object.assign(runtimeTuning, serverTuning);
     debugGui?.controllersRecursive().forEach((controller) => controller.updateDisplay());
     return;
@@ -488,6 +507,9 @@ function queueDebugMovementTuning(): void {
     void client.setDebugTuning({
       childMoveSpeed: runtimeTuning.childMoveSpeed,
       ghostMoveSpeed: runtimeTuning.ghostMoveSpeed,
+      headlampDetectionRange: runtimeTuning.headlampDetectionRange,
+      flashlightLength: runtimeTuning.flashlightLength,
+      flashlightConeDegrees: runtimeTuning.flashlightConeDegrees,
     });
   }, 80);
 }

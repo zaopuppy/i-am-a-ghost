@@ -1,10 +1,10 @@
-import type { MatchEvent, MovementTuning } from '../game/MatchEngine';
+import type { GameplayTuning, MatchEvent } from '../game/MatchEngine';
 import type { ViewerFrame } from '../game/ViewerFrame';
 
-export type { MovementTuning } from '../game/MatchEngine';
+export type { GameplayTuning } from '../game/MatchEngine';
 
-export const PROTOCOL_VERSION = 2;
-export const BUILD_VERSION = '0.5.0-contact-capture';
+export const PROTOCOL_VERSION = 3;
+export const BUILD_VERSION = '0.6.0-burning-tuning';
 export const MIN_PLAYERS = 2;
 export const MAX_PLAYERS = 5;
 export const INPUT_STALE_MS = 250;
@@ -31,7 +31,7 @@ export interface RoomState {
   minimumPlayers: typeof MIN_PLAYERS;
   maximumPlayers: typeof MAX_PLAYERS;
   notice: 'ghost-disconnected' | null;
-  debugMovementTuning: MovementTuning | null;
+  debugGameplayTuning: GameplayTuning | null;
 }
 
 export interface RoomSession {
@@ -108,7 +108,7 @@ export interface ClientToServerEvents {
   'set-ready': (ready: boolean, acknowledge: Acknowledge<BasicActionResponse>) => void;
   'leave-room': (acknowledge: Acknowledge<BasicActionResponse>) => void;
   'set-debug-tuning': (
-    tuning: MovementTuning,
+    tuning: GameplayTuning,
     acknowledge: Acknowledge<BasicActionResponse>,
   ) => void;
   'input-frame': (frame: ClientInputFrame) => void;
@@ -154,19 +154,31 @@ export function parseClientInputFrame(value: unknown): ClientInputFrame | null {
   return frame as ClientInputFrame;
 }
 
-export function parseMovementTuning(value: unknown): MovementTuning | null {
+export function parseGameplayTuning(value: unknown): GameplayTuning | null {
   if (!value || typeof value !== 'object') return null;
-  const tuning = value as Partial<MovementTuning>;
+  const tuning = value as Partial<GameplayTuning>;
   if (
     !Number.isFinite(tuning.childMoveSpeed)
     || !Number.isFinite(tuning.ghostMoveSpeed)
+    || !Number.isFinite(tuning.headlampDetectionRange)
+    || !Number.isFinite(tuning.flashlightLength)
+    || !Number.isFinite(tuning.flashlightConeDegrees)
     || (tuning.childMoveSpeed ?? 0) < 1
     || (tuning.childMoveSpeed ?? 9) > 8
     || (tuning.ghostMoveSpeed ?? 0) < 1
     || (tuning.ghostMoveSpeed ?? 9) > 8
+    || (tuning.headlampDetectionRange ?? 0) < 1
+    || (tuning.headlampDetectionRange ?? 21) > 20
+    || (tuning.flashlightLength ?? 0) < 0.5
+    || (tuning.flashlightLength ?? 13) > 12
+    || (tuning.flashlightConeDegrees ?? 0) < 5
+    || (tuning.flashlightConeDegrees ?? 91) > 90
   ) return null;
   return {
     childMoveSpeed: tuning.childMoveSpeed as number,
     ghostMoveSpeed: tuning.ghostMoveSpeed as number,
+    headlampDetectionRange: tuning.headlampDetectionRange as number,
+    flashlightLength: tuning.flashlightLength as number,
+    flashlightConeDegrees: tuning.flashlightConeDegrees as number,
   };
 }

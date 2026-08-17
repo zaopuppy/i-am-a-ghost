@@ -4,7 +4,7 @@ import {
   PROTOCOL_VERSION,
   isCompatibleClient,
   parseClientInputFrame,
-  parseMovementTuning,
+  parseGameplayTuning,
   type CreateRoomRequest,
   type JoinRoomRequest,
   type RoomActionResponse,
@@ -63,7 +63,7 @@ export class RoomManager {
       acknowledge(room?.leave(socket) ? { ok: true } : this.error('NOT_IN_ROOM', '尚未加入房间。'));
     });
     socket.on('set-debug-tuning', (rawTuning, acknowledge) => {
-      const tuning = parseMovementTuning(rawTuning);
+      const tuning = parseGameplayTuning(rawTuning);
       const room = this.roomForSocket(socket);
       if (!tuning) {
         acknowledge(this.error('BAD_REQUEST', '调试参数无效。'));

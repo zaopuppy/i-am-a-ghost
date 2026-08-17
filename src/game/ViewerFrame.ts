@@ -33,6 +33,8 @@ export interface VisibleDoll {
 export interface VisibleGhost {
   position: Vec2;
   facingRadians: number;
+  burning: boolean;
+  burnTicksRemaining: number;
 }
 
 export interface VisibleBattery {

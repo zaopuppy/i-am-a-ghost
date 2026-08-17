@@ -7,7 +7,7 @@ import {
   type ClientToServerEvents,
   type MatchEventEnvelope,
   type MatchFrameEnvelope,
-  type MovementTuning,
+  type GameplayTuning,
   type RoomActionResponse,
   type RoomSession,
   type RoomState,
@@ -133,7 +133,7 @@ export class GameClient {
     return response;
   }
 
-  async setDebugTuning(tuning: MovementTuning): Promise<BasicActionResponse> {
+  async setDebugTuning(tuning: GameplayTuning): Promise<BasicActionResponse> {
     const response = await this.socket.emitWithAck('set-debug-tuning', tuning);
     if (!response.ok) this.errorMessage = response.error.message;
     this.notify();

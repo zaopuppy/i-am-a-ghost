@@ -45,14 +45,14 @@ test('a child moves at the fixed 60 Hz rules speed', () => {
   assert.equal(child.position.z, 0);
 });
 
-test('development movement tuning changes the authoritative simulation speed', () => {
+test('development gameplay tuning changes the authoritative simulation speed', () => {
   const engine = new MatchEngine({
     seed: 7,
     map: OPEN_MAP,
     ghostPlayerId: 'ghost',
     childPlayerIds: ['child'],
   });
-  engine.setMovementTuning({ childMoveSpeed: 5.25, ghostMoveSpeed: 5.8 });
+  engine.setGameplayTuning({ childMoveSpeed: 5.25, ghostMoveSpeed: 5.8 });
 
   engine.advance(
     [{ playerId: 'child', move: { x: 1, z: 0 }, facingRadians: 0, action: false }],
@@ -250,6 +250,76 @@ test('an illuminated ghost moves twenty percent slower', () => {
     ghost.position.z,
     (MATCH_RULES.ghostMoveSpeed * MATCH_RULES.illuminatedGhostSpeedMultiplier) / MATCH_RULES.tickRate,
   );
+});
+
+test('a burning ghost can flee but cannot capture until the burn lock expires', () => {
+  const engine = new MatchEngine({
+    seed: 9,
+    map: {
+      ...OPEN_MAP,
+      ghostSpawn: { x: 0, z: 0 },
+      childSpawns: [
+        { x: 0.95, z: 0 },
+        OPEN_MAP.childSpawns[1],
+        OPEN_MAP.childSpawns[2],
+        OPEN_MAP.childSpawns[3],
+      ],
+    },
+    ghostPlayerId: 'ghost',
+    childPlayerIds: ['child'],
+  });
+
+  const ignited = engine.advance([
+    { playerId: 'child', move: { x: 0, z: 0 }, facingRadians: Math.PI, action: true },
+    { playerId: 'ghost', move: { x: 0, z: 1 }, facingRadians: 0, action: false },
+  ]);
+  const fleeingGhost = ignited.checkpoint.players.find((player) => player.id === 'ghost');
+  assert.ok(fleeingGhost);
+  assert.ok(fleeingGhost.position.z > 0, 'burning must not prevent the ghost from fleeing');
+  assert.equal(ignited.checkpoint.ghostBurnTicksRemaining, MATCH_RULES.ghostBurnDurationTicks);
+  assert.equal(ignited.checkpoint.captureCount, 0);
+
+  const almostRecovered = engine.advance(
+    [
+      { playerId: 'child', move: { x: 0, z: 0 }, facingRadians: Math.PI, action: false },
+      { playerId: 'ghost', move: { x: 0, z: 0 }, facingRadians: 0, action: false },
+    ],
+    MATCH_RULES.ghostBurnDurationTicks - 1,
+  );
+  assert.equal(almostRecovered.checkpoint.ghostBurnTicksRemaining, 1);
+  assert.equal(almostRecovered.checkpoint.captureCount, 0);
+
+  const recovered = engine.advance();
+  assert.equal(recovered.checkpoint.ghostBurnTicksRemaining, 0);
+  assert.equal(recovered.checkpoint.captureCount, 1);
+});
+
+test('gameplay tuning controls headlamp range and flashlight cone reach', () => {
+  const engine = new MatchEngine({
+    seed: 10,
+    map: {
+      ...OPEN_MAP,
+      ghostSpawn: { x: 3, z: Math.sqrt(3) },
+    },
+    ghostPlayerId: 'ghost',
+    childPlayerIds: ['child'],
+  });
+  engine.setGameplayTuning({
+    headlampDetectionRange: 3,
+    flashlightLength: 4,
+    flashlightConeDegrees: 60,
+  });
+
+  const before = engine.checkpoint();
+  const child = before.players.find((player) => player.id === 'child');
+  assert.ok(child);
+  assert.equal(child.headlamp, 'off');
+
+  const illuminated = engine.advance([
+    { playerId: 'child', move: { x: 0, z: 0 }, facingRadians: 0, action: true },
+  ]);
+  assert.ok(illuminated.checkpoint.ghostHealth < MATCH_RULES.ghostMaxHealth);
+  assert.equal(illuminated.checkpoint.ghostBurnTicksRemaining, MATCH_RULES.ghostBurnDurationTicks);
 });
 
 function createCaptureEngine(): MatchEngine {

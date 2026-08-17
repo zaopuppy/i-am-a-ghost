@@ -7,7 +7,7 @@ import {
 } from '../assets/ImportedAssets';
 import { createHouseMaterialKit, type HouseMaterialKit } from '../assets/MaterialLibrary';
 import { DEFAULT_HOUSE_MAP, HOUSE_ROOMS } from './defaultHouse';
-import type { HeadlampBand, Vec2 } from './MatchEngine';
+import { DEFAULT_GAMEPLAY_TUNING, type HeadlampBand, type Vec2 } from './MatchEngine';
 import {
   advanceChildBodyFacing,
   advanceChildLookFacing,
@@ -51,6 +51,8 @@ interface GhostRig {
   rightElbow: THREE.Group;
   captureAura: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
   captureLight: THREE.PointLight;
+  burnAura: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
+  burnLight: THREE.PointLight;
 }
 
 const HOUSE_WALLS = [
@@ -67,6 +69,8 @@ export class GameWorld {
   private readonly materials: HouseMaterialKit = createHouseMaterialKit();
   private readonly battery = createBattery(this.materials);
   private readonly fallbackWalls = new THREE.Group();
+  private flashlightLength = DEFAULT_GAMEPLAY_TUNING.flashlightLength;
+  private flashlightConeDegrees = DEFAULT_GAMEPLAY_TUNING.flashlightConeDegrees;
 
   constructor() {
     this.scene.background = new THREE.Color(0x050608);
@@ -115,7 +119,13 @@ export class GameWorld {
     }
     if (frame.ghost) {
       const actor = this.actor('ghost', 'ghost', 0);
-      syncGhostActor(actor, frame.ghost.position, frame.ghost.facingRadians, elapsedSeconds);
+      syncGhostActor(
+        actor,
+        frame.ghost.position,
+        frame.ghost.facingRadians,
+        frame.ghost.burning,
+        elapsedSeconds,
+      );
       actor.body.scale.setScalar(1);
       if (actor.ghostRig) poseGhostRig(actor.ghostRig, 0, 0, elapsedSeconds);
     }
@@ -131,6 +141,17 @@ export class GameWorld {
       this.battery.root.rotation.y = elapsedSeconds * 1.4;
     }
     this.animateHeadlamps(elapsedSeconds);
+  }
+
+  setFlashlightTuning(length: number, coneDegrees: number): void {
+    if (length === this.flashlightLength && coneDegrees === this.flashlightConeDegrees) return;
+    this.flashlightLength = length;
+    this.flashlightConeDegrees = coneDegrees;
+    for (const actor of this.actors.values()) {
+      if (!actor.beam) continue;
+      actor.beam.geometry.dispose();
+      actor.beam.geometry = createBeamGeometry(length, coneDegrees);
+    }
   }
 
   metrics(): {
@@ -230,7 +251,13 @@ export class GameWorld {
   private actor(id: string, kind: 'child' | 'ghost' | 'doll', slot: number): ActorVisual {
     const existing = this.actors.get(id);
     if (existing) return existing;
-    const visual = createActor(kind, slot, this.materials);
+    const visual = createActor(
+      kind,
+      slot,
+      this.materials,
+      this.flashlightLength,
+      this.flashlightConeDegrees,
+    );
     this.actors.set(id, visual);
     this.scene.add(visual.root);
     if (kind !== 'ghost') void this.upgradeActor(visual, kind, slot);
@@ -303,6 +330,8 @@ function createActor(
   kind: 'child' | 'ghost' | 'doll',
   slot: number,
   materials: HouseMaterialKit,
+  flashlightLength: number,
+  flashlightConeDegrees: number,
 ): ActorVisual {
   const root = new THREE.Group();
   const bodyPivot = new THREE.Group();
@@ -336,7 +365,7 @@ function createActor(
     body = mesh;
     bodyPivot.add(mesh);
     if (kind === 'child') {
-      beam = createBeam();
+      beam = createBeam(flashlightLength, flashlightConeDegrees);
       beam.visible = false;
       aimPivot.add(beam);
     }
@@ -474,12 +503,14 @@ function syncGhostActor(
   actor: ActorVisual,
   position: Vec2,
   facingRadians: number,
+  burning: boolean,
   elapsedSeconds: number,
 ): void {
   actor.root.visible = true;
   actor.root.position.set(position.x, Math.sin(elapsedSeconds * 2.1) * 0.035, position.z);
   advanceGhostBodyFacing(actor.facing, facingRadians, actorDeltaSeconds(actor, elapsedSeconds));
   actor.bodyPivot.rotation.y = -actor.facing.bodyRadians;
+  if (actor.ghostRig) applyGhostBurnPresentation(actor.ghostRig, burning, elapsedSeconds);
   actor.lastUpdateSeconds = elapsedSeconds;
 }
 
@@ -545,7 +576,23 @@ function createGhost(materials: HouseMaterialKit): { root: THREE.Group; rig: Gho
   captureAura.position.y = 0.035;
   const captureLight = new THREE.PointLight(0xaebfff, 0, 3.2, 2);
   captureLight.position.set(0.4, 0.9, 0);
-  ghost.add(leftArm.shoulder, rightArm.shoulder, captureAura, captureLight);
+  const burnAura = new THREE.Mesh(
+    new THREE.SphereGeometry(0.78, 20, 14),
+    new THREE.MeshBasicMaterial({
+      color: 0xff6b1a,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.BackSide,
+    }),
+  );
+  burnAura.position.y = 0.5;
+  burnAura.scale.y = 1.16;
+  burnAura.visible = false;
+  const burnLight = new THREE.PointLight(0xff5a18, 0, 4.2, 2);
+  burnLight.position.y = 0.72;
+  ghost.add(leftArm.shoulder, rightArm.shoulder, captureAura, captureLight, burnAura, burnLight);
   ghost.add(hood, robe, collar, leftEye, rightEye);
   return {
     root: ghost,
@@ -556,6 +603,8 @@ function createGhost(materials: HouseMaterialKit): { root: THREE.Group; rig: Gho
       rightElbow: rightArm.elbow,
       captureAura,
       captureLight,
+      burnAura,
+      burnLight,
     },
   };
 }
@@ -593,21 +642,24 @@ function poseGhostRig(rig: GhostRig, grip: number, progress: number, elapsedSeco
   rig.captureLight.intensity = grip * (1.5 + Math.sin(elapsedSeconds * 30) * 0.35);
 }
 
+function applyGhostBurnPresentation(rig: GhostRig, burning: boolean, elapsedSeconds: number): void {
+  rig.burnAura.visible = burning;
+  rig.burnAura.material.opacity = burning ? 0.16 + Math.sin(elapsedSeconds * 18) * 0.055 : 0;
+  const pulse = 1 + Math.sin(elapsedSeconds * 13) * 0.07;
+  rig.burnAura.scale.set(pulse, 1.16 * pulse, pulse);
+  rig.burnLight.intensity = burning ? 2.1 + Math.sin(elapsedSeconds * 21) * 0.45 : 0;
+}
+
 function smoothstep(value: number): number {
   return value * value * (3 - 2 * value);
 }
 
-function createBeam(): THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial> {
-  const length = 2;
-  const halfWidth = Math.tan((20 * Math.PI) / 360) * length;
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute(
-    'position',
-    new THREE.Float32BufferAttribute([0.28, 0.25, 0, length, 0.05, -halfWidth, length, 0.05, halfWidth], 3),
-  );
-  geometry.computeVertexNormals();
+function createBeam(
+  length: number,
+  coneDegrees: number,
+): THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial> {
   return new THREE.Mesh(
-    geometry,
+    createBeamGeometry(length, coneDegrees),
     new THREE.MeshBasicMaterial({
       color: 0xffdc72,
       transparent: true,
@@ -617,6 +669,17 @@ function createBeam(): THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>
       depthWrite: false,
     }),
   );
+}
+
+function createBeamGeometry(length: number, coneDegrees: number): THREE.BufferGeometry {
+  const halfWidth = Math.tan((coneDegrees * Math.PI) / 360) * length;
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute(
+    'position',
+    new THREE.Float32BufferAttribute([0.28, 0.25, 0, length, 0.05, -halfWidth, length, 0.05, halfWidth], 3),
+  );
+  geometry.computeVertexNormals();
+  return geometry;
 }
 
 function createBattery(materials: HouseMaterialKit): { root: THREE.Group } {

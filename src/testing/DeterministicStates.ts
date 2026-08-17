@@ -35,6 +35,8 @@ const DOLLS: readonly VisibleDoll[] = [
 const GHOST: VisibleGhost = {
   position: { x: -9.55, z: -6.7 },
   facingRadians: Math.PI,
+  burning: false,
+  burnTicksRemaining: 0,
 };
 
 export function isDeterministicStateName(value: string | null): value is DeterministicStateName {

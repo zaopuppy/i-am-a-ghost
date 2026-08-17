@@ -1,8 +1,8 @@
 import { DEFAULT_HOUSE_MAP } from '../game/defaultHouse';
 import {
-  DEFAULT_MOVEMENT_TUNING,
+  DEFAULT_GAMEPLAY_TUNING,
   MATCH_RULES,
-  type MovementTuning,
+  type GameplayTuning,
   type Vec2,
 } from '../game/MatchEngine';
 import type { ViewerFrame } from '../game/ViewerFrame';
@@ -64,7 +64,7 @@ export class FramePresenter {
   present(
     deltaSeconds: number,
     movement: Vec2,
-    movementTuning: Readonly<MovementTuning> = DEFAULT_MOVEMENT_TUNING,
+    movementTuning: Pick<GameplayTuning, 'childMoveSpeed' | 'ghostMoveSpeed'> = DEFAULT_GAMEPLAY_TUNING,
   ): ViewerFrame | null {
     if (!this.current) return null;
     this.transitionElapsed += Math.max(0, deltaSeconds);
@@ -79,6 +79,7 @@ export class FramePresenter {
         if (magnitude > 0) {
           const speed = frame.viewerRole === 'ghost'
             ? movementTuning.ghostMoveSpeed
+              * (frame.ghost.burning ? MATCH_RULES.illuminatedGhostSpeedMultiplier : 1)
             : movementTuning.childMoveSpeed;
           this.predictedPosition = movePredictedPosition(
             this.predictedPosition,

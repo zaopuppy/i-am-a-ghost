@@ -66,6 +66,8 @@ export function projectViewerFrame(
   const ghost: VisibleGhost = {
     position: { ...ghostPlayer.position },
     facingRadians: ghostPlayer.facingRadians,
+    burning: checkpoint.ghostBurnTicksRemaining > 0,
+    burnTicksRemaining: checkpoint.ghostBurnTicksRemaining,
   };
   const battery = checkpoint.battery
     ? { batteryId: checkpoint.battery.id, position: { ...checkpoint.battery.position } }
@@ -93,7 +95,11 @@ export function projectViewerFrame(
     ownBattery: viewer.battery ?? 0,
     children,
     dolls,
-    ...(checkpoint.ghostRevealed || checkpoint.capturedChildPlayerId === viewerPlayerId ? { ghost } : {}),
+    ...(checkpoint.ghostRevealed
+      || checkpoint.ghostBurnTicksRemaining > 0
+      || checkpoint.capturedChildPlayerId === viewerPlayerId
+      ? { ghost }
+      : {}),
     ...(battery ? { battery } : {}),
   };
   return frame;

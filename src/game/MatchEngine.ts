@@ -19,12 +19,15 @@ export interface MatchSetup {
   map: MatchMap;
   ghostPlayerId: string;
   childPlayerIds: readonly string[];
-  movementTuning?: Partial<MovementTuning>;
+  gameplayTuning?: Partial<GameplayTuning>;
 }
 
-export interface MovementTuning {
+export interface GameplayTuning {
   childMoveSpeed: number;
   ghostMoveSpeed: number;
+  headlampDetectionRange: number;
+  flashlightLength: number;
+  flashlightConeDegrees: number;
 }
 
 export interface PlayerCommand {
@@ -68,6 +71,7 @@ export interface MatchCheckpoint {
   capturedChildPlayerId: string | null;
   ghostHealth: number;
   ghostRevealed: boolean;
+  ghostBurnTicksRemaining: number;
   randomState: number;
   players: PlayerCheckpoint[];
   dolls: DollCheckpoint[];
@@ -95,26 +99,28 @@ export const MATCH_RULES = Object.freeze({
   playerRadius: 0.45,
   flashlightSecondsAtFullCharge: 8,
   flashlightLength: 2,
-  flashlightConeRadians: (20 * Math.PI) / 180,
+  flashlightConeDegrees: 20,
   flashlightDamagePerSecond: 12.5,
   beamDamageMultipliers: [1, 0.65, 0.45, 0.3] as const,
   ghostMaxHealth: 100,
   illuminatedGhostSpeedMultiplier: 0.8,
+  ghostBurnDurationTicks: 90,
   matchDurationTicks: 18_000,
   captureAnimationTicks: 156,
   protectionTicks: 120,
   captureContactRange: 0.98,
   capturesToWin: 3,
-  headlampSlowDistance: 6,
-  headlampFastDistance: 4,
-  headlampSolidDistance: 2,
+  headlampDetectionRange: 6,
   batterySpawnThreshold: 0.15,
   batteryPickupRadius: 0.75,
 });
 
-export const DEFAULT_MOVEMENT_TUNING: Readonly<MovementTuning> = Object.freeze({
+export const DEFAULT_GAMEPLAY_TUNING: Readonly<GameplayTuning> = Object.freeze({
   childMoveSpeed: MATCH_RULES.childMoveSpeed,
   ghostMoveSpeed: MATCH_RULES.ghostMoveSpeed,
+  headlampDetectionRange: MATCH_RULES.headlampDetectionRange,
+  flashlightLength: MATCH_RULES.flashlightLength,
+  flashlightConeDegrees: MATCH_RULES.flashlightConeDegrees,
 });
 
 export function isCaptureTargetInContact(
@@ -131,6 +137,7 @@ export class MatchEngine {
   private readonly commands = new Map<string, PlayerCommand>();
   private ghostHealth: number = MATCH_RULES.ghostMaxHealth;
   private ghostRevealed = false;
+  private ghostBurnTicksRemaining = 0;
   private phase: MatchCheckpoint['phase'] = 'playing';
   private winner: MatchCheckpoint['winner'] = null;
   private remainingTicks: number = MATCH_RULES.matchDurationTicks;
@@ -142,11 +149,11 @@ export class MatchEngine {
   private randomState: number;
   private batterySerial = 0;
   private battery: BatteryCheckpoint | null = null;
-  private movementTuning: MovementTuning;
+  private gameplayTuning: GameplayTuning;
 
   constructor(private readonly setup: MatchSetup) {
     validateSetup(setup);
-    this.movementTuning = normalizeMovementTuning(setup.movementTuning);
+    this.gameplayTuning = normalizeGameplayTuning(setup.gameplayTuning);
     this.randomState = setup.seed >>> 0;
     this.players = [
       {
@@ -210,8 +217,8 @@ export class MatchEngine {
     if (!active) this.commands.delete(playerId);
   }
 
-  setMovementTuning(tuning: Partial<MovementTuning>): void {
-    this.movementTuning = normalizeMovementTuning({ ...this.movementTuning, ...tuning });
+  setGameplayTuning(tuning: Partial<GameplayTuning>): void {
+    this.gameplayTuning = normalizeGameplayTuning({ ...this.gameplayTuning, ...tuning });
   }
 
   checkpoint(): MatchCheckpoint {
@@ -226,6 +233,7 @@ export class MatchEngine {
       capturedChildPlayerId: this.capturedChildPlayerId,
       ghostHealth: this.ghostHealth,
       ghostRevealed: this.ghostRevealed,
+      ghostBurnTicksRemaining: this.ghostBurnTicksRemaining,
       randomState: this.randomState,
       players: this.players.map((player) => ({
         ...player,
@@ -245,6 +253,7 @@ export class MatchEngine {
     }
 
     const illuminatedAtStart = this.findFlashlightHitters().length > 0;
+    const burningAtStart = illuminatedAtStart || this.ghostBurnTicksRemaining > 0;
     const secondsPerTick = 1 / MATCH_RULES.tickRate;
     for (const player of this.players) {
       if (!player.active) continue;
@@ -259,9 +268,9 @@ export class MatchEngine {
       if (magnitude === 0) continue;
       const speed =
         player.role === 'ghost'
-          ? this.movementTuning.ghostMoveSpeed *
-            (illuminatedAtStart ? MATCH_RULES.illuminatedGhostSpeedMultiplier : 1)
-          : this.movementTuning.childMoveSpeed;
+          ? this.gameplayTuning.ghostMoveSpeed *
+            (burningAtStart ? MATCH_RULES.illuminatedGhostSpeedMultiplier : 1)
+          : this.gameplayTuning.childMoveSpeed;
       const distance = speed * secondsPerTick;
       const xCandidate = {
         x: player.position.x + (command.move.x / magnitude) * distance,
@@ -283,8 +292,10 @@ export class MatchEngine {
       this.tick += 1;
       return;
     }
-    const contactTarget = this.findCaptureTarget();
-    if (contactTarget) this.completeCapture(contactTarget);
+    if (this.ghostBurnTicksRemaining === 0) {
+      const contactTarget = this.findCaptureTarget();
+      if (contactTarget) this.completeCapture(contactTarget);
+    }
     this.tick += 1;
   }
 
@@ -378,6 +389,9 @@ export class MatchEngine {
     }
 
     this.ghostRevealed = hitters.length > 0;
+    this.ghostBurnTicksRemaining = hitters.length > 0
+      ? MATCH_RULES.ghostBurnDurationTicks
+      : Math.max(0, this.ghostBurnTicksRemaining - 1);
     let damage = 0;
     for (let index = 0; index < hitters.length; index += 1) {
       const multiplier = MATCH_RULES.beamDamageMultipliers[index] ?? 0;
@@ -436,10 +450,15 @@ export class MatchEngine {
     const ghost = this.players.find((player) => player.role === 'ghost');
     if (!ghost) return;
     for (const player of this.players) {
-      player.headlamp = player.role === 'child' ? headlampForDistance(distanceBetween(player, ghost)) : null;
+      player.headlamp = player.role === 'child'
+        ? headlampForDistance(distanceBetween(player, ghost), this.gameplayTuning.headlampDetectionRange)
+        : null;
     }
     for (const doll of this.dolls) {
-      doll.headlamp = headlampForDistance(distanceBetween(doll, ghost));
+      doll.headlamp = headlampForDistance(
+        distanceBetween(doll, ghost),
+        this.gameplayTuning.headlampDetectionRange,
+      );
     }
   }
 
@@ -470,12 +489,13 @@ export class MatchEngine {
     const offsetX = ghost.position.x - child.position.x;
     const offsetZ = ghost.position.z - child.position.z;
     const distance = Math.hypot(offsetX, offsetZ);
-    if (distance === 0 || distance > MATCH_RULES.flashlightLength) return false;
+    if (distance === 0 || distance > this.gameplayTuning.flashlightLength) return false;
 
     const forwardX = Math.cos(child.facingRadians);
     const forwardZ = Math.sin(child.facingRadians);
     const alignment = (forwardX * offsetX + forwardZ * offsetZ) / distance;
-    if (alignment < Math.cos(MATCH_RULES.flashlightConeRadians / 2)) return false;
+    const halfConeRadians = (this.gameplayTuning.flashlightConeDegrees * Math.PI) / 360;
+    if (alignment < Math.cos(halfConeRadians)) return false;
 
     return !this.setup.map.walls.some((wall) =>
       segmentIntersectsRectangle(child.position, ghost.position, wall),
@@ -527,17 +547,56 @@ function validateSetup(setup: MatchSetup): void {
   if (setup.map.batterySpawns.length === 0) throw new Error('A match map must define battery spawns.');
 }
 
-function normalizeMovementTuning(tuning: Partial<MovementTuning> | undefined): MovementTuning {
+function normalizeGameplayTuning(tuning: Partial<GameplayTuning> | undefined): GameplayTuning {
   return {
-    childMoveSpeed: finiteSpeed(tuning?.childMoveSpeed, DEFAULT_MOVEMENT_TUNING.childMoveSpeed),
-    ghostMoveSpeed: finiteSpeed(tuning?.ghostMoveSpeed, DEFAULT_MOVEMENT_TUNING.ghostMoveSpeed),
+    childMoveSpeed: finiteTuningValue(
+      tuning?.childMoveSpeed,
+      DEFAULT_GAMEPLAY_TUNING.childMoveSpeed,
+      1,
+      8,
+      'Movement speed',
+    ),
+    ghostMoveSpeed: finiteTuningValue(
+      tuning?.ghostMoveSpeed,
+      DEFAULT_GAMEPLAY_TUNING.ghostMoveSpeed,
+      1,
+      8,
+      'Movement speed',
+    ),
+    headlampDetectionRange: finiteTuningValue(
+      tuning?.headlampDetectionRange,
+      DEFAULT_GAMEPLAY_TUNING.headlampDetectionRange,
+      1,
+      20,
+      'Headlamp detection range',
+    ),
+    flashlightLength: finiteTuningValue(
+      tuning?.flashlightLength,
+      DEFAULT_GAMEPLAY_TUNING.flashlightLength,
+      0.5,
+      12,
+      'Flashlight length',
+    ),
+    flashlightConeDegrees: finiteTuningValue(
+      tuning?.flashlightConeDegrees,
+      DEFAULT_GAMEPLAY_TUNING.flashlightConeDegrees,
+      5,
+      90,
+      'Flashlight cone width',
+    ),
   };
 }
 
-function finiteSpeed(value: number | undefined, fallback: number): number {
+function finiteTuningValue(
+  value: number | undefined,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+  label: string,
+): number {
   if (value === undefined) return fallback;
-  if (!Number.isFinite(value) || value < 1 || value > 8) {
-    throw new RangeError('Movement speed must be between 1 and 8 world units per second.');
+  if (!Number.isFinite(value) || value < minimum || value > maximum) {
+    throw new RangeError(`${label} must be between ${minimum} and ${maximum}.`);
   }
   return value;
 }
@@ -546,10 +605,10 @@ function distanceBetween(left: { position: Vec2 }, right: { position: Vec2 }): n
   return Math.hypot(left.position.x - right.position.x, left.position.z - right.position.z);
 }
 
-function headlampForDistance(distance: number): HeadlampBand {
-  if (distance <= MATCH_RULES.headlampSolidDistance) return 'solid';
-  if (distance <= MATCH_RULES.headlampFastDistance) return 'fast';
-  if (distance <= MATCH_RULES.headlampSlowDistance) return 'slow';
+function headlampForDistance(distance: number, detectionRange: number): HeadlampBand {
+  if (distance <= detectionRange / 3) return 'solid';
+  if (distance <= (detectionRange * 2) / 3) return 'fast';
+  if (distance <= detectionRange) return 'slow';
   return 'off';
 }
 

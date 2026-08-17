@@ -1,9 +1,9 @@
 import { randomInt, randomUUID } from 'node:crypto';
 import {
-  DEFAULT_MOVEMENT_TUNING,
+  DEFAULT_GAMEPLAY_TUNING,
   MatchEngine,
+  type GameplayTuning,
   type MatchEvent,
-  type MovementTuning,
   type PlayerCommand,
 } from '../src/game/MatchEngine';
 import { DEFAULT_HOUSE_MAP } from '../src/game/defaultHouse';
@@ -55,7 +55,7 @@ export class GameRoom {
   private notice: RoomState['notice'] = null;
   private lastLoopAtMs = 0;
   private accumulatedMs = 0;
-  private movementTuning: MovementTuning = { ...DEFAULT_MOVEMENT_TUNING };
+  private gameplayTuning: GameplayTuning = { ...DEFAULT_GAMEPLAY_TUNING };
 
   constructor(
     private readonly io: GameServer,
@@ -134,13 +134,13 @@ export class GameRoom {
     return { ok: true };
   }
 
-  setDebugTuning(socketId: string, tuning: MovementTuning): BasicActionResponse {
+  setDebugTuning(socketId: string, tuning: GameplayTuning): BasicActionResponse {
     if (!this.debugTuningEnabled) return this.error('BAD_REQUEST', '调试参数仅在开发服务器中开放。');
     const requester = this.playerForSocket(socketId);
     if (!requester) return this.error('NOT_IN_ROOM', '尚未加入房间。');
     if (!requester.isHost) return this.error('NOT_HOST', '只有房主可以调整房间参数。');
-    this.movementTuning = { ...tuning };
-    this.engine?.setMovementTuning(tuning);
+    this.gameplayTuning = { ...tuning };
+    this.engine?.setGameplayTuning(tuning);
     this.broadcastRoomState();
     this.broadcastFrame();
     return { ok: true };
@@ -170,7 +170,7 @@ export class GameRoom {
       map: DEFAULT_HOUSE_MAP,
       ghostPlayerId: ghost.playerId,
       childPlayerIds: children.map((child) => child.playerId),
-      movementTuning: this.movementTuning,
+      gameplayTuning: this.gameplayTuning,
     });
     for (const player of roster) {
       player.lastAcceptedSeq = -1;
@@ -286,7 +286,7 @@ export class GameRoom {
       minimumPlayers: MIN_PLAYERS,
       maximumPlayers: MAX_PLAYERS,
       notice: this.notice,
-      debugMovementTuning: this.debugTuningEnabled ? { ...this.movementTuning } : null,
+      debugGameplayTuning: this.debugTuningEnabled ? { ...this.gameplayTuning } : null,
     };
   }
 
