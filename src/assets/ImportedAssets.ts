@@ -24,6 +24,10 @@ export interface KidAssetInstance {
   root: THREE.Group;
   mixer: THREE.AnimationMixer;
   actions: Map<string, THREE.AnimationAction>;
+  lookJoints: {
+    chest: THREE.Object3D | null;
+    head: THREE.Object3D | null;
+  };
 }
 
 const diagnostics: { kid: ImportedAssetMetrics; wall: ImportedAssetMetrics } = {
@@ -83,7 +87,23 @@ export async function createKidAssetInstance(slot: number, doll: boolean): Promi
     actions.set(name, action);
   }
   actions.get('Idle_A')?.play();
-  return { root, mixer, actions };
+  return {
+    root,
+    mixer,
+    actions,
+    lookJoints: {
+      chest: findObjectByName(scene, 'chest'),
+      head: findObjectByName(scene, 'head'),
+    },
+  };
+}
+
+function findObjectByName(root: THREE.Object3D, name: string): THREE.Object3D | null {
+  let match: THREE.Object3D | null = null;
+  root.traverse((object) => {
+    if (!match && object.name.toLowerCase() === name) match = object;
+  });
+  return match;
 }
 
 export async function createWallVisuals(

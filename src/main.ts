@@ -6,6 +6,7 @@ import { createRenderStage } from './core/Renderer';
 import { GameWorld } from './game/GameWorld';
 import { DEFAULT_HOUSE_MAP } from './game/defaultHouse';
 import { isCaptureTargetInReach, MATCH_RULES } from './game/MatchEngine';
+import { aimFacingWithDeadzone } from './game/VisualFacing';
 import type { ViewerFrame } from './game/ViewerFrame';
 import { GameClient } from './net/GameClient';
 import { FramePresenter } from './net/FramePresenter';
@@ -61,6 +62,7 @@ const cameraCenter = new THREE.Vector2();
 const nickname = createTemporaryNickname();
 let renderFrame = 0;
 let lastInputSentAt = 0;
+let lastFacingRadians = 0;
 let measuredFps = 0;
 let lastIngestedFrameKey = '';
 let lastAudioEvents: typeof client.latestEvents = null;
@@ -318,7 +320,7 @@ function updateCamera(frame: ViewerFrame | null, deltaSeconds: number, immediate
 
 function calculateFacing(frame: ViewerFrame): number {
   const ownPosition = ownActorPosition(frame);
-  if (!ownPosition) return 0;
+  if (!ownPosition) return lastFacingRadians;
   const pointer = input.pointerClient();
   const bounds = canvas.getBoundingClientRect();
   const pointerX = pointer.x || bounds.left + bounds.width / 2;
@@ -330,8 +332,13 @@ function calculateFacing(frame: ViewerFrame): number {
     ),
     stage.camera,
   );
-  if (!raycaster.ray.intersectPlane(groundPlane, pointerTarget)) return 0;
-  return Math.atan2(pointerTarget.z - ownPosition.z, pointerTarget.x - ownPosition.x);
+  if (!raycaster.ray.intersectPlane(groundPlane, pointerTarget)) return lastFacingRadians;
+  lastFacingRadians = aimFacingWithDeadzone(
+    ownPosition,
+    { x: pointerTarget.x, z: pointerTarget.z },
+    lastFacingRadians,
+  );
+  return lastFacingRadians;
 }
 
 function ownActorPosition(frame: ViewerFrame): { x: number; z: number } | null {

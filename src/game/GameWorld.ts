@@ -8,15 +8,28 @@ import {
 import { createHouseMaterialKit, type HouseMaterialKit } from '../assets/MaterialLibrary';
 import { DEFAULT_HOUSE_MAP, HOUSE_ROOMS } from './defaultHouse';
 import type { HeadlampBand, Vec2 } from './MatchEngine';
+import {
+  advanceChildBodyFacing,
+  advanceChildLookFacing,
+  advanceGhostBodyFacing,
+  calculateLookOffsets,
+  createVisualFacingState,
+  movementFacing,
+  type VisualFacingState,
+} from './VisualFacing';
 import type { ViewerFrame } from './ViewerFrame';
 
 const CHILD_COLORS = [0xf0a060, 0xdcb35d, 0xd98265, 0xe2a08d] as const;
 const HEADLAMP_OFF = new THREE.Color(0x3b3025);
 const HEADLAMP_ON = new THREE.Color(0xffd36b);
 const HEADLAMP_HEIGHT = 1.5;
+const LOOK_UP_AXIS = new THREE.Vector3(0, 1, 0);
+const LOOK_ROTATION = new THREE.Quaternion();
 
 interface ActorVisual {
   root: THREE.Group;
+  bodyPivot: THREE.Group;
+  aimPivot: THREE.Group;
   body: THREE.Object3D;
   lamp: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
   lampHalo: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
@@ -27,6 +40,7 @@ interface ActorVisual {
   currentAnimation: string;
   lastPosition: Vec2 | null;
   lastUpdateSeconds: number;
+  facing: VisualFacingState;
 }
 
 const HOUSE_WALLS = [
@@ -82,9 +96,7 @@ export class GameWorld {
     }
     if (frame.ghost) {
       const actor = this.actor('ghost', 'ghost', 0);
-      actor.root.visible = true;
-      actor.root.position.set(frame.ghost.position.x, Math.sin(elapsedSeconds * 2.1) * 0.035, frame.ghost.position.z);
-      actor.root.rotation.y = -frame.ghost.facingRadians;
+      syncGhostActor(actor, frame.ghost.position, frame.ghost.facingRadians, elapsedSeconds);
       const windupPulse = frame.ghost.captureState === 'windup'
         ? 1 + Math.sin(elapsedSeconds * 28) * 0.09
         : 1;
@@ -214,10 +226,10 @@ export class GameWorld {
   ): Promise<void> {
     try {
       const imported = await createKidAssetInstance(slot, kind === 'doll');
-      actor.root.remove(actor.body);
+      actor.bodyPivot.remove(actor.body);
       actor.body = imported.root;
       actor.imported = imported;
-      actor.root.add(imported.root);
+      actor.bodyPivot.add(imported.root);
     } catch {
       actor.imported = null;
     }
@@ -241,11 +253,16 @@ function createActor(
   materials: HouseMaterialKit,
 ): ActorVisual {
   const root = new THREE.Group();
+  const bodyPivot = new THREE.Group();
+  bodyPivot.name = `${kind}-body-facing`;
+  const aimPivot = new THREE.Group();
+  aimPivot.name = `${kind}-aim-facing`;
+  root.add(bodyPivot, aimPivot);
   let body: THREE.Object3D;
   let beam: ActorVisual['beam'] = null;
   if (kind === 'ghost') {
     body = createGhost(materials);
-    root.add(body);
+    bodyPivot.add(body);
   } else {
     const color = kind === 'doll' ? 0x655849 : CHILD_COLORS[slot % CHILD_COLORS.length];
     const mesh = new THREE.Mesh(
@@ -262,11 +279,11 @@ function createActor(
     mesh.position.y = 0.51;
     mesh.castShadow = kind === 'child';
     body = mesh;
-    root.add(mesh);
+    bodyPivot.add(mesh);
     if (kind === 'child') {
       beam = createBeam();
       beam.visible = false;
-      root.add(beam);
+      aimPivot.add(beam);
     }
   }
   const lamp = new THREE.Mesh(
@@ -315,6 +332,8 @@ function createActor(
   root.add(contact);
   return {
     root,
+    bodyPivot,
+    aimPivot,
     body,
     lamp,
     lampHalo,
@@ -325,6 +344,7 @@ function createActor(
     currentAnimation: 'Idle_A',
     lastPosition: null,
     lastUpdateSeconds: 0,
+    facing: createVisualFacingState(),
   };
 }
 
@@ -339,12 +359,25 @@ function syncActor(
 ): void {
   actor.root.visible = true;
   actor.root.position.set(position.x, 0, position.z);
-  actor.root.rotation.y = -facingRadians;
+  actor.aimPivot.rotation.y = -facingRadians;
   actor.headlamp = headlamp;
+  const elapsed = actorDeltaSeconds(actor, elapsedSeconds);
+  const lookFacingRadians = advanceChildLookFacing(actor.facing, facingRadians, elapsed);
+  if (doll) {
+    actor.facing.bodyRadians = 0;
+    actor.facing.initialized = true;
+  } else if (phase !== 'capture-animation') {
+    advanceChildBodyFacing(
+      actor.facing,
+      facingRadians,
+      movementFacing(actor.lastPosition, position),
+      elapsed,
+    );
+  } else if (!actor.facing.initialized) {
+    advanceChildBodyFacing(actor.facing, facingRadians, null, 0);
+  }
+  actor.bodyPivot.rotation.y = -actor.facing.bodyRadians;
   if (actor.imported) {
-    const elapsed = actor.lastUpdateSeconds > 0
-      ? Math.min(0.08, Math.max(0, elapsedSeconds - actor.lastUpdateSeconds))
-      : 0;
     const distance = actor.lastPosition
       ? Math.hypot(position.x - actor.lastPosition.x, position.z - actor.lastPosition.z)
       : 0;
@@ -363,9 +396,52 @@ function syncActor(
       actor.currentAnimation = nextAnimation;
     }
     actor.imported.mixer.update(doll ? 0 : elapsed);
+    if (!doll && nextAnimation !== 'Hit_A') {
+      applyLookPose(actor.imported, actor.facing.bodyRadians, lookFacingRadians);
+    }
   }
-  actor.lastPosition = { ...position };
+  if (actor.lastPosition) {
+    actor.lastPosition.x = position.x;
+    actor.lastPosition.z = position.z;
+  } else {
+    actor.lastPosition = { ...position };
+  }
   actor.lastUpdateSeconds = elapsedSeconds;
+}
+
+function syncGhostActor(
+  actor: ActorVisual,
+  position: Vec2,
+  facingRadians: number,
+  elapsedSeconds: number,
+): void {
+  actor.root.visible = true;
+  actor.root.position.set(position.x, Math.sin(elapsedSeconds * 2.1) * 0.035, position.z);
+  advanceGhostBodyFacing(actor.facing, facingRadians, actorDeltaSeconds(actor, elapsedSeconds));
+  actor.bodyPivot.rotation.y = -actor.facing.bodyRadians;
+  actor.lastUpdateSeconds = elapsedSeconds;
+}
+
+function actorDeltaSeconds(actor: ActorVisual, elapsedSeconds: number): number {
+  return actor.lastUpdateSeconds > 0
+    ? Math.min(0.08, Math.max(0, elapsedSeconds - actor.lastUpdateSeconds))
+    : 0;
+}
+
+function applyLookPose(
+  imported: KidAssetInstance,
+  bodyRadians: number,
+  aimRadians: number,
+): void {
+  const look = calculateLookOffsets(bodyRadians, aimRadians);
+  applyJointYaw(imported.lookJoints.chest, -look.chestRadians);
+  applyJointYaw(imported.lookJoints.head, -look.headRadians);
+}
+
+function applyJointYaw(joint: THREE.Object3D | null, radians: number): void {
+  if (!joint) return;
+  LOOK_ROTATION.setFromAxisAngle(LOOK_UP_AXIS, radians);
+  joint.quaternion.premultiply(LOOK_ROTATION);
 }
 
 function createGhost(materials: HouseMaterialKit): THREE.Group {
