@@ -14,7 +14,9 @@
     "preview": "concurrently --kill-others --names web,rooms \"npm:preview:web\" \"npm:server\"",
     "preview:web": "vite preview",
     "server": "tsx server/index.ts",
-    "test": "playwright test",
+    "test": "npm run test:rules && npm run test:browser",
+    "test:rules": "node --import tsx --test tests/game/*.test.ts",
+    "test:browser": "playwright test",
     "verify:visual": "playwright test tests/visual.spec.ts",
     "inspect:canvas": "node scripts/inspect-threejs-canvas.mjs"
   },

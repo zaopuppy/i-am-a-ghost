@@ -1,7 +1,7 @@
 # 《I Am a Ghost》开发计划
 
 - 日期：2026-08-17
-- 状态：执行中；ADR-0001 已接受，M0 foundation 已完成
+- 状态：执行中；ADR-0001 已接受，M0 foundation 与 M1 MatchEngine 已完成
 - 设计依据：docs/2026-08-17_game-design-and-start-plan.md
 - 参考工程：E:\workspace\2026-gamehack\apple-picking
 - 参考基线：master / b3dcb8d399961e87bad56c7a3424005b80e51adb
@@ -344,6 +344,8 @@ Apple Picking 的 room-wide state-frame broadcast 不能迁移。AuthoritativeRo
 ### M1：确定性 MatchEngine
 
 **目标**：不依赖浏览器或网络，证明完整规则顺序。
+
+**完成状态（2026-08-17）**：已完成。验证记录见 `docs/2026-08-17_m1-match-engine-report.md`；下一工作包为 M2 的双客户端权威链路与信息过滤。
 
 **工作**：
 

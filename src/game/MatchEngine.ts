@@ -1,0 +1,577 @@
+export interface Vec2 {
+  x: number;
+  z: number;
+}
+
+export type HeadlampBand = 'off' | 'slow' | 'fast' | 'solid';
+
+export interface MatchMap {
+  id: string;
+  bounds: { minX: number; maxX: number; minZ: number; maxZ: number };
+  walls: ReadonlyArray<{ id: string; minX: number; maxX: number; minZ: number; maxZ: number }>;
+  ghostSpawn: Vec2;
+  childSpawns: readonly [Vec2, Vec2, Vec2, Vec2];
+  batterySpawns: ReadonlyArray<Vec2>;
+}
+
+export interface MatchSetup {
+  seed: number;
+  map: MatchMap;
+  ghostPlayerId: string;
+  childPlayerIds: readonly string[];
+}
+
+export interface PlayerCommand {
+  playerId: string;
+  move: Vec2;
+  facingRadians: number;
+  action: boolean;
+}
+
+export interface PlayerCheckpoint {
+  id: string;
+  role: 'ghost' | 'child';
+  slot: number | null;
+  position: Vec2;
+  facingRadians: number;
+  battery: number | null;
+  headlamp: HeadlampBand | null;
+}
+
+export interface DollCheckpoint {
+  id: string;
+  slot: number;
+  position: Vec2;
+  headlamp: HeadlampBand;
+}
+
+export interface BatteryCheckpoint {
+  id: string;
+  spawnIndex: number;
+  position: Vec2;
+}
+
+export interface MatchCheckpoint {
+  tick: number;
+  phase: 'playing' | 'capture-animation' | 'protection' | 'ended';
+  winner: 'children' | 'ghost' | null;
+  remainingTicks: number;
+  captureCount: number;
+  phaseTicksRemaining: number;
+  ghostAction: {
+    state: 'idle' | 'windup' | 'cooldown';
+    ticksRemaining: number;
+  };
+  ghostHealth: number;
+  ghostRevealed: boolean;
+  randomState: number;
+  players: PlayerCheckpoint[];
+  dolls: DollCheckpoint[];
+  battery: BatteryCheckpoint | null;
+}
+
+type MatchEventPayload =
+  | { type: 'capture-started' | 'capture-missed' | 'round-reset' | 'protection-ended' }
+  | { type: 'child-captured'; childPlayerId: string; captureCount: number }
+  | { type: 'battery-spawned'; battery: BatteryCheckpoint }
+  | { type: 'battery-collected'; batteryId: string; childPlayerId: string }
+  | { type: 'match-ended'; winner: 'children' | 'ghost' };
+
+export type MatchEvent = MatchEventPayload & { id: number; tick: number };
+
+export interface MatchAdvanceResult {
+  checkpoint: MatchCheckpoint;
+  events: MatchEvent[];
+}
+
+export const MATCH_RULES = Object.freeze({
+  tickRate: 60,
+  childMoveSpeed: 3.6,
+  ghostMoveSpeed: 3.96,
+  playerRadius: 0.45,
+  flashlightSecondsAtFullCharge: 8,
+  flashlightLength: 2,
+  flashlightConeRadians: (20 * Math.PI) / 180,
+  flashlightDamagePerSecond: 12.5,
+  beamDamageMultipliers: [1, 0.65, 0.45, 0.3] as const,
+  ghostMaxHealth: 100,
+  illuminatedGhostSpeedMultiplier: 0.8,
+  matchDurationTicks: 18_000,
+  captureWindupTicks: 21,
+  captureMissCooldownTicks: 72,
+  captureAnimationTicks: 90,
+  protectionTicks: 120,
+  captureRange: 1.4,
+  captureConeRadians: Math.PI / 2,
+  capturesToWin: 3,
+  headlampSlowDistance: 6,
+  headlampFastDistance: 4,
+  headlampSolidDistance: 2,
+  batterySpawnThreshold: 0.15,
+  batteryPickupRadius: 0.75,
+});
+
+export class MatchEngine {
+  private tick = 0;
+  private readonly players: PlayerCheckpoint[];
+  private readonly dolls: DollCheckpoint[];
+  private readonly commands = new Map<string, PlayerCommand>();
+  private ghostHealth: number = MATCH_RULES.ghostMaxHealth;
+  private ghostRevealed = false;
+  private phase: MatchCheckpoint['phase'] = 'playing';
+  private winner: MatchCheckpoint['winner'] = null;
+  private remainingTicks: number = MATCH_RULES.matchDurationTicks;
+  private captureCount = 0;
+  private phaseTicksRemaining = 0;
+  private ghostActionState: MatchCheckpoint['ghostAction']['state'] = 'idle';
+  private ghostActionTicksRemaining = 0;
+  private captureRequested = false;
+  private nextEventId = 1;
+  private events: MatchEvent[] = [];
+  private randomState: number;
+  private batterySerial = 0;
+  private battery: BatteryCheckpoint | null = null;
+
+  constructor(private readonly setup: MatchSetup) {
+    validateSetup(setup);
+    this.randomState = setup.seed >>> 0;
+    this.players = [
+      {
+        id: setup.ghostPlayerId,
+        role: 'ghost',
+        slot: null,
+        position: { ...setup.map.ghostSpawn },
+        facingRadians: 0,
+        battery: null,
+        headlamp: null,
+      },
+      ...setup.childPlayerIds.map((id, index): PlayerCheckpoint => ({
+        id,
+        role: 'child',
+        slot: index,
+        position: { ...setup.map.childSpawns[index] },
+        facingRadians: 0,
+        battery: 1,
+        headlamp: 'off',
+      })),
+    ];
+    this.dolls = setup.map.childSpawns
+      .slice(setup.childPlayerIds.length)
+      .map((position, index) => ({
+        id: `doll-${setup.childPlayerIds.length + index + 1}`,
+        slot: setup.childPlayerIds.length + index,
+        position: { ...position },
+        headlamp: 'off',
+      }));
+  }
+
+  advance(commands: readonly PlayerCommand[] = [], ticks = 1): MatchAdvanceResult {
+    if (!Number.isInteger(ticks) || ticks < 1) throw new RangeError('ticks must be a positive integer.');
+    this.events = [];
+    for (const command of commands) {
+      const previousCommand = this.commands.get(command.playerId);
+      const player = this.players.find((candidate) => candidate.id === command.playerId);
+      if (!player) throw new Error(`Command references unknown player: ${command.playerId}`);
+      if (
+        !Number.isFinite(command.move.x) ||
+        !Number.isFinite(command.move.z) ||
+        !Number.isFinite(command.facingRadians)
+      ) {
+        throw new RangeError('Command movement and facing must be finite numbers.');
+      }
+      if (player?.role === 'ghost' && command.action && !previousCommand?.action && this.phase === 'playing') {
+        this.captureRequested = true;
+      }
+      this.commands.set(command.playerId, {
+        ...command,
+        move: { ...command.move },
+      });
+    }
+    for (let index = 0; index < ticks; index += 1) this.step();
+    return { checkpoint: this.checkpoint(), events: [...this.events] };
+  }
+
+  checkpoint(): MatchCheckpoint {
+    this.updateHeadlamps();
+    return {
+      tick: this.tick,
+      phase: this.phase,
+      winner: this.winner,
+      remainingTicks: this.remainingTicks,
+      captureCount: this.captureCount,
+      phaseTicksRemaining: this.phaseTicksRemaining,
+      ghostAction: {
+        state: this.ghostActionState,
+        ticksRemaining: this.ghostActionTicksRemaining,
+      },
+      ghostHealth: this.ghostHealth,
+      ghostRevealed: this.ghostRevealed,
+      randomState: this.randomState,
+      players: this.players.map((player) => ({
+        ...player,
+        position: { ...player.position },
+      })),
+      dolls: this.dolls.map((doll) => ({ ...doll, position: { ...doll.position } })),
+      battery: this.battery ? { ...this.battery, position: { ...this.battery.position } } : null,
+    };
+  }
+
+  private step(): void {
+    if (this.phase === 'ended') return;
+    if (this.phase !== 'playing') {
+      this.updatePausedPhase();
+      this.tick += 1;
+      return;
+    }
+
+    const illuminatedAtStart = this.findFlashlightHitters().length > 0;
+    const secondsPerTick = 1 / MATCH_RULES.tickRate;
+    for (const player of this.players) {
+      const command = this.commands.get(player.id);
+      if (!command) continue;
+      player.facingRadians = command.facingRadians;
+      const magnitude = Math.hypot(command.move.x, command.move.z);
+      if (magnitude === 0) continue;
+      const speed =
+        player.role === 'ghost'
+          ? MATCH_RULES.ghostMoveSpeed *
+            (illuminatedAtStart ? MATCH_RULES.illuminatedGhostSpeedMultiplier : 1)
+          : MATCH_RULES.childMoveSpeed;
+      const distance = speed * secondsPerTick;
+      const xCandidate = {
+        x: player.position.x + (command.move.x / magnitude) * distance,
+        z: player.position.z,
+      };
+      if (this.isPositionOpen(player.id, xCandidate)) player.position.x = xCandidate.x;
+
+      const zCandidate = {
+        x: player.position.x,
+        z: player.position.z + (command.move.z / magnitude) * distance,
+      };
+      if (this.isPositionOpen(player.id, zCandidate)) player.position.z = zCandidate.z;
+    }
+    this.updateFlashlights();
+    this.updateBattery();
+    this.remainingTicks = Math.max(0, this.remainingTicks - 1);
+    if (this.ghostHealth <= 0 || this.remainingTicks === 0) {
+      this.finishMatch('children');
+      this.tick += 1;
+      return;
+    }
+    this.updateCapture();
+    this.tick += 1;
+  }
+
+  private updatePausedPhase(): void {
+    this.captureRequested = false;
+    this.ghostRevealed = false;
+    this.phaseTicksRemaining = Math.max(0, this.phaseTicksRemaining - 1);
+    if (this.phaseTicksRemaining > 0) return;
+
+    if (this.phase === 'capture-animation') {
+      this.resetPlayerPositions();
+      this.phase = 'protection';
+      this.phaseTicksRemaining = MATCH_RULES.protectionTicks;
+      this.emit({ type: 'round-reset' });
+      return;
+    }
+
+    this.phase = 'playing';
+    this.emit({ type: 'protection-ended' });
+  }
+
+  private updateCapture(): void {
+    if (this.ghostActionState === 'cooldown') {
+      this.ghostActionTicksRemaining = Math.max(0, this.ghostActionTicksRemaining - 1);
+      if (this.ghostActionTicksRemaining === 0) this.ghostActionState = 'idle';
+      this.captureRequested = false;
+      return;
+    }
+
+    if (this.ghostActionState === 'idle' && this.captureRequested) {
+      this.ghostActionState = 'windup';
+      this.ghostActionTicksRemaining = MATCH_RULES.captureWindupTicks;
+      this.emit({ type: 'capture-started' });
+    }
+    this.captureRequested = false;
+
+    if (this.ghostActionState !== 'windup') return;
+    this.ghostActionTicksRemaining = Math.max(0, this.ghostActionTicksRemaining - 1);
+    if (this.ghostActionTicksRemaining > 0) return;
+
+    const target = this.findCaptureTarget();
+    if (!target) {
+      this.ghostActionState = 'cooldown';
+      this.ghostActionTicksRemaining = MATCH_RULES.captureMissCooldownTicks;
+      this.emit({ type: 'capture-missed' });
+      return;
+    }
+
+    this.captureCount += 1;
+    this.ghostActionState = 'idle';
+    this.emit({ type: 'child-captured', childPlayerId: target.id, captureCount: this.captureCount });
+    if (this.captureCount >= MATCH_RULES.capturesToWin) {
+      this.finishMatch('ghost');
+      return;
+    }
+
+    this.phase = 'capture-animation';
+    this.phaseTicksRemaining = MATCH_RULES.captureAnimationTicks;
+  }
+
+  private findCaptureTarget(): PlayerCheckpoint | undefined {
+    const ghost = this.players.find((player) => player.role === 'ghost');
+    if (!ghost) return undefined;
+    const forwardX = Math.cos(ghost.facingRadians);
+    const forwardZ = Math.sin(ghost.facingRadians);
+
+    return this.players
+      .filter((player) => player.role === 'child')
+      .filter((child) => {
+        const offsetX = child.position.x - ghost.position.x;
+        const offsetZ = child.position.z - ghost.position.z;
+        const distance = Math.hypot(offsetX, offsetZ);
+        if (distance === 0 || distance > MATCH_RULES.captureRange) return false;
+        const alignment = (forwardX * offsetX + forwardZ * offsetZ) / distance;
+        if (alignment < Math.cos(MATCH_RULES.captureConeRadians / 2)) return false;
+        return !this.setup.map.walls.some((wall) =>
+          segmentIntersectsRectangle(ghost.position, child.position, wall),
+        );
+      })
+      .sort((left, right) => {
+        const leftDistance = Math.hypot(
+          left.position.x - ghost.position.x,
+          left.position.z - ghost.position.z,
+        );
+        const rightDistance = Math.hypot(
+          right.position.x - ghost.position.x,
+          right.position.z - ghost.position.z,
+        );
+        return leftDistance - rightDistance || left.id.localeCompare(right.id);
+      })[0];
+  }
+
+  private resetPlayerPositions(): void {
+    for (const player of this.players) {
+      const spawn =
+        player.role === 'ghost'
+          ? this.setup.map.ghostSpawn
+          : this.setup.map.childSpawns[this.setup.childPlayerIds.indexOf(player.id)];
+      player.position = { ...spawn };
+    }
+  }
+
+  private finishMatch(winner: 'children' | 'ghost'): void {
+    this.winner = winner;
+    this.phase = 'ended';
+    this.phaseTicksRemaining = 0;
+    this.ghostActionState = 'idle';
+    this.ghostActionTicksRemaining = 0;
+    this.emit({ type: 'match-ended', winner });
+  }
+
+  private emit(event: MatchEventPayload): void {
+    this.events.push({ id: this.nextEventId, tick: this.tick, ...event });
+    this.nextEventId += 1;
+  }
+
+  private updateFlashlights(): void {
+    const chargePerTick = 1 / (MATCH_RULES.flashlightSecondsAtFullCharge * MATCH_RULES.tickRate);
+    const hitters: Array<{ player: PlayerCheckpoint; energyRatio: number }> = [];
+
+    for (const player of this.players) {
+      if (player.role !== 'child' || player.battery === null) continue;
+      const command = this.commands.get(player.id);
+      if (!command?.action || player.battery <= 0) continue;
+
+      const spentCharge = Math.min(player.battery, chargePerTick);
+      player.battery = Math.max(0, player.battery - spentCharge);
+      if (this.flashlightHitsGhost(player)) {
+        hitters.push({ player, energyRatio: spentCharge / chargePerTick });
+      }
+    }
+
+    this.ghostRevealed = hitters.length > 0;
+    let damage = 0;
+    for (let index = 0; index < hitters.length; index += 1) {
+      const multiplier = MATCH_RULES.beamDamageMultipliers[index] ?? 0;
+      damage +=
+        (MATCH_RULES.flashlightDamagePerSecond * multiplier * hitters[index].energyRatio) /
+        MATCH_RULES.tickRate;
+    }
+    const remainingHealth = Math.max(0, this.ghostHealth - damage);
+    this.ghostHealth = remainingHealth < 1e-9 ? 0 : remainingHealth;
+  }
+
+  private updateBattery(): void {
+    if (this.battery) {
+      const collector = this.players
+        .filter((player) => player.role === 'child')
+        .filter(
+          (player) =>
+            Math.hypot(
+              player.position.x - this.battery!.position.x,
+              player.position.z - this.battery!.position.z,
+            ) <= MATCH_RULES.batteryPickupRadius,
+        )
+        .sort((left, right) => left.id.localeCompare(right.id))[0];
+      if (!collector) return;
+
+      const batteryId = this.battery.id;
+      collector.battery = 1;
+      this.battery = null;
+      this.emit({ type: 'battery-collected', batteryId, childPlayerId: collector.id });
+      return;
+    }
+
+    const needsBattery = this.players.some(
+      (player) =>
+        player.role === 'child' &&
+        player.battery !== null &&
+        player.battery < MATCH_RULES.batterySpawnThreshold,
+    );
+    if (!needsBattery || this.setup.map.batterySpawns.length === 0) return;
+
+    const spawnIndex = this.nextRandomInt(this.setup.map.batterySpawns.length);
+    this.batterySerial += 1;
+    this.battery = {
+      id: `battery-${this.batterySerial}`,
+      spawnIndex,
+      position: { ...this.setup.map.batterySpawns[spawnIndex] },
+    };
+    this.emit({
+      type: 'battery-spawned',
+      battery: { ...this.battery, position: { ...this.battery.position } },
+    });
+  }
+
+  private updateHeadlamps(): void {
+    const ghost = this.players.find((player) => player.role === 'ghost');
+    if (!ghost) return;
+    for (const player of this.players) {
+      player.headlamp = player.role === 'child' ? headlampForDistance(distanceBetween(player, ghost)) : null;
+    }
+    for (const doll of this.dolls) {
+      doll.headlamp = headlampForDistance(distanceBetween(doll, ghost));
+    }
+  }
+
+  private nextRandomInt(maximum: number): number {
+    this.randomState = (this.randomState + 0x6d2b79f5) >>> 0;
+    let value = this.randomState;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    const normalized = ((value ^ (value >>> 14)) >>> 0) / 4_294_967_296;
+    return Math.floor(normalized * maximum);
+  }
+
+  private findFlashlightHitters(): PlayerCheckpoint[] {
+    return this.players.filter((player) => {
+      if (player.role !== 'child' || player.battery === null || player.battery <= 0) return false;
+      return Boolean(this.commands.get(player.id)?.action && this.flashlightHitsGhost(player));
+    });
+  }
+
+  private flashlightHitsGhost(child: PlayerCheckpoint): boolean {
+    const ghost = this.players.find((player) => player.role === 'ghost');
+    if (!ghost) return false;
+    const offsetX = ghost.position.x - child.position.x;
+    const offsetZ = ghost.position.z - child.position.z;
+    const distance = Math.hypot(offsetX, offsetZ);
+    if (distance === 0 || distance > MATCH_RULES.flashlightLength) return false;
+
+    const forwardX = Math.cos(child.facingRadians);
+    const forwardZ = Math.sin(child.facingRadians);
+    const alignment = (forwardX * offsetX + forwardZ * offsetZ) / distance;
+    if (alignment < Math.cos(MATCH_RULES.flashlightConeRadians / 2)) return false;
+
+    return !this.setup.map.walls.some((wall) =>
+      segmentIntersectsRectangle(child.position, ghost.position, wall),
+    );
+  }
+
+  private isPositionOpen(playerId: string, position: Vec2): boolean {
+    const radius = MATCH_RULES.playerRadius;
+    const { bounds } = this.setup.map;
+    if (
+      position.x - radius < bounds.minX ||
+      position.x + radius > bounds.maxX ||
+      position.z - radius < bounds.minZ ||
+      position.z + radius > bounds.maxZ
+    ) {
+      return false;
+    }
+
+    for (const wall of this.setup.map.walls) {
+      const closestX = Math.max(wall.minX, Math.min(position.x, wall.maxX));
+      const closestZ = Math.max(wall.minZ, Math.min(position.z, wall.maxZ));
+      if (Math.hypot(position.x - closestX, position.z - closestZ) < radius) return false;
+    }
+
+    for (const other of this.players) {
+      if (other.id === playerId) continue;
+      if (Math.hypot(position.x - other.position.x, position.z - other.position.z) < radius * 2) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+}
+
+function validateSetup(setup: MatchSetup): void {
+  if (setup.childPlayerIds.length < 1 || setup.childPlayerIds.length > 4) {
+    throw new RangeError('A match requires one to four child players.');
+  }
+  const playerIds = [setup.ghostPlayerId, ...setup.childPlayerIds];
+  if (new Set(playerIds).size !== playerIds.length) {
+    throw new Error('Ghost and child player IDs must be unique.');
+  }
+  if (playerIds.some((playerId) => playerId.trim().length === 0)) {
+    throw new Error('Player IDs must not be empty.');
+  }
+  if (!Number.isFinite(setup.seed)) throw new RangeError('Match seed must be finite.');
+  if (setup.map.childSpawns.length !== 4) throw new Error('A match map must define four child spawns.');
+  if (setup.map.batterySpawns.length === 0) throw new Error('A match map must define battery spawns.');
+}
+
+function distanceBetween(left: { position: Vec2 }, right: { position: Vec2 }): number {
+  return Math.hypot(left.position.x - right.position.x, left.position.z - right.position.z);
+}
+
+function headlampForDistance(distance: number): HeadlampBand {
+  if (distance <= MATCH_RULES.headlampSolidDistance) return 'solid';
+  if (distance <= MATCH_RULES.headlampFastDistance) return 'fast';
+  if (distance <= MATCH_RULES.headlampSlowDistance) return 'slow';
+  return 'off';
+}
+
+function segmentIntersectsRectangle(
+  start: Vec2,
+  end: Vec2,
+  rectangle: { minX: number; maxX: number; minZ: number; maxZ: number },
+): boolean {
+  let minimumTime = 0;
+  let maximumTime = 1;
+  const deltaX = end.x - start.x;
+  const deltaZ = end.z - start.z;
+
+  for (const [origin, delta, minimum, maximum] of [
+    [start.x, deltaX, rectangle.minX, rectangle.maxX],
+    [start.z, deltaZ, rectangle.minZ, rectangle.maxZ],
+  ] as const) {
+    if (Math.abs(delta) < 1e-12) {
+      if (origin < minimum || origin > maximum) return false;
+      continue;
+    }
+    const inverseDelta = 1 / delta;
+    let nearTime = (minimum - origin) * inverseDelta;
+    let farTime = (maximum - origin) * inverseDelta;
+    if (nearTime > farTime) [nearTime, farTime] = [farTime, nearTime];
+    minimumTime = Math.max(minimumTime, nearTime);
+    maximumTime = Math.min(maximumTime, farTime);
+    if (minimumTime > maximumTime) return false;
+  }
+
+  return maximumTime > 0 && minimumTime < 1;
+}
