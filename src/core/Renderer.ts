@@ -3,6 +3,7 @@ import * as THREE from 'three';
 const DEFAULT_VIEW_HEIGHT = 22;
 const VOLUME_SAMPLE_COUNT = 28;
 const VOLUME_SHADOW_SIZE = 512;
+export const VOLUME_SHADOW_MAX_DEPTH_BIAS = 0.00005;
 
 export function createWebGlShadowBiasMatrix(): THREE.Matrix4 {
   return new THREE.Matrix4().set(
@@ -73,13 +74,13 @@ const VOLUME_FRAGMENT_SHADER = `
     ) return 0.0;
 
     vec2 texel = uShadowTexelSize * 0.72;
-    float receiverDepth = projected.z - uShadowBias;
-    float visibility = 0.0;
-    visibility += step(receiverDepth, texture2D(uShadowDepth, projected.xy + vec2(-texel.x, -texel.y)).r);
-    visibility += step(receiverDepth, texture2D(uShadowDepth, projected.xy + vec2( texel.x, -texel.y)).r);
-    visibility += step(receiverDepth, texture2D(uShadowDepth, projected.xy + vec2(-texel.x,  texel.y)).r);
-    visibility += step(receiverDepth, texture2D(uShadowDepth, projected.xy + vec2( texel.x,  texel.y)).r);
-    return visibility * 0.25;
+    float receiverDepth = projected.z - min(uShadowBias, ${VOLUME_SHADOW_MAX_DEPTH_BIAS});
+    float nearestDepth = 1.0;
+    nearestDepth = min(nearestDepth, texture2D(uShadowDepth, projected.xy + vec2(-texel.x, -texel.y)).r);
+    nearestDepth = min(nearestDepth, texture2D(uShadowDepth, projected.xy + vec2( texel.x, -texel.y)).r);
+    nearestDepth = min(nearestDepth, texture2D(uShadowDepth, projected.xy + vec2(-texel.x,  texel.y)).r);
+    nearestDepth = min(nearestDepth, texture2D(uShadowDepth, projected.xy + vec2( texel.x,  texel.y)).r);
+    return step(receiverDepth, nearestDepth);
   }
 
   void main() {

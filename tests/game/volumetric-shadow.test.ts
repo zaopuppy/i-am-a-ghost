@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as THREE from 'three';
-import { createWebGlShadowBiasMatrix } from '../../src/core/Renderer';
+import {
+  createWebGlShadowBiasMatrix,
+  VOLUME_SHADOW_MAX_DEPTH_BIAS,
+} from '../../src/core/Renderer';
 
 test('WebGL volumetric shadow depth blocks samples behind a wall', () => {
   const camera = new THREE.PerspectiveCamera(36, 1, 0.08, 7.5);
@@ -21,6 +24,21 @@ test('WebGL volumetric shadow depth blocks samples behind a wall', () => {
 
   assert.ok(Math.abs(wallDepth - expectedWallDepth) < 1e-7);
   assert.ok(receiverDepth > wallDepth);
+});
+
+test('volumetric shadow bias cannot illuminate a sample one centimeter behind a wall', () => {
+  const camera = new THREE.PerspectiveCamera(36, 1, 0.08, 7.5);
+  camera.lookAt(0, 0, -1);
+  camera.updateProjectionMatrix();
+  camera.updateMatrixWorld(true);
+
+  const shadowMatrix = createWebGlShadowBiasMatrix()
+    .multiply(camera.projectionMatrix)
+    .multiply(camera.matrixWorldInverse);
+  const wallDepth = projectShadowDepth(shadowMatrix, new THREE.Vector3(0, 0, -3));
+  const receiverDepth = projectShadowDepth(shadowMatrix, new THREE.Vector3(0, 0, -3.01));
+
+  assert.ok(receiverDepth - VOLUME_SHADOW_MAX_DEPTH_BIAS > wallDepth);
 });
 
 function projectShadowDepth(matrix: THREE.Matrix4, position: THREE.Vector3): number {
