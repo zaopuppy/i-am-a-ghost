@@ -345,7 +345,8 @@ export class GameRoom {
         .filter((player) => {
           if (player.role !== 'child' || !player.latestInput?.action) return false;
           const checkpointPlayer = checkpoint.players.find((candidate) => candidate.id === player.playerId);
-          return (checkpointPlayer?.battery ?? 0) > 0;
+          return this.gameplayTuning.infiniteFlashlightEnergy
+            || (checkpointPlayer?.battery ?? 0) > 0;
         })
         .map((player) => player.playerId),
     );

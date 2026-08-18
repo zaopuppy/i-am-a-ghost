@@ -42,7 +42,7 @@ test('two browser pages join, start, and move through the authoritative input pa
   await expect(childPage.getByTestId('match-timer')).toHaveText(/^0[45]:[0-5]\d$/);
   await expect
     .poll(() => childPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.cameraMode))
-    .toBe('follow');
+    .toBe('whole-house');
   await expect
     .poll(() => ghostPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.cameraMode))
     .toBe('whole-house');
@@ -62,6 +62,30 @@ test('two browser pages join, start, and move through the authoritative input pa
       { timeout: 2_000 },
     )
     .toBe(3.5);
+  const infiniteGhostHealth = host
+    .locator('.lil-gui .lil-controller')
+    .filter({ hasText: '鬼生命无限' })
+    .locator('button');
+  const infiniteFlashlightEnergy = host
+    .locator('.lil-gui .lil-controller')
+    .filter({ hasText: '手电能源无限' })
+    .locator('button');
+  await infiniteGhostHealth.click();
+  await infiniteFlashlightEnergy.click();
+  await expect
+    .poll(() => guest.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.tuning.infiniteGhostHealth))
+    .toBe(true);
+  await expect
+    .poll(() => guest.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.tuning.infiniteFlashlightEnergy))
+    .toBe(true);
+  await infiniteGhostHealth.click();
+  await infiniteFlashlightEnergy.click();
+  await expect
+    .poll(() => guest.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.tuning.infiniteGhostHealth))
+    .toBe(false);
+  await expect
+    .poll(() => guest.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.tuning.infiniteFlashlightEnergy))
+    .toBe(false);
   await host.getByRole('button', { name: '感应与手电（房主）' }).click();
   await ghostPage.evaluate(() => {
     window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space' }));

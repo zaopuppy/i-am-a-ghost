@@ -166,6 +166,40 @@ test('a held flashlight consumes battery and damages and reveals an unobstructed
   assert.equal(checkpoint.ghostRevealed, true);
 });
 
+test('infinite debug tuning preserves flashlight energy and ghost health without disabling illumination', () => {
+  const engine = new MatchEngine({
+    seed: 7,
+    map: {
+      ...OPEN_MAP,
+      ghostSpawn: { x: 1.5, z: 0 },
+    },
+    ghostPlayerId: 'ghost',
+    childPlayerIds: ['child'],
+    gameplayTuning: {
+      infiniteGhostHealth: true,
+      infiniteFlashlightEnergy: true,
+    },
+  });
+
+  const result = engine.advance(
+    [{ playerId: 'child', move: { x: 0, z: 0 }, facingRadians: 0, action: true }],
+    MATCH_RULES.tickRate * 2,
+  );
+  const child = result.checkpoint.players.find((player) => player.id === 'child');
+  assert.ok(child);
+  assert.equal(child.battery, 1);
+  assert.equal(result.checkpoint.ghostHealth, MATCH_RULES.ghostMaxHealth);
+  assert.equal(result.checkpoint.ghostRevealed, true);
+  assert.equal(result.checkpoint.ghostBurnTicksRemaining, MATCH_RULES.ghostBurnDurationTicks);
+
+  engine.setGameplayTuning({ infiniteGhostHealth: false, infiniteFlashlightEnergy: false });
+  const finite = engine.advance();
+  const finiteChild = finite.checkpoint.players.find((player) => player.id === 'child');
+  assert.ok(finiteChild);
+  assert.ok(finiteChild.battery < 1);
+  assert.ok(finite.checkpoint.ghostHealth < MATCH_RULES.ghostMaxHealth);
+});
+
 test('a wall blocks flashlight damage but not battery drain', () => {
   const engine = new MatchEngine({
     seed: 7,
@@ -404,6 +438,7 @@ test('a capture pauses the clock, resets positions, and preserves progress throu
     { playerId: 'ghost', move: { x: 0, z: 0 }, facingRadians: 0, action: false },
     { playerId: 'child', move: { x: 0, z: 0 }, facingRadians: Math.PI, action: false },
   ]);
+  engine.advance([], MATCH_RULES.ghostBurnDurationTicks);
   approachCapture(engine);
 
   const captured = engine.checkpoint();

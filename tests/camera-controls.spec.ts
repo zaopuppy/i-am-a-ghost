@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-test('capture close-up overrides mouse orbit, pan, and zoom, then restores the edited runtime preset', async ({ page }) => {
+test('the map-centered camera keeps mouse orbit, pan, and zoom behind a toggle button', async ({ page }) => {
   const errors: string[] = [];
   page.on('console', (message) => {
     if (message.type() === 'error') errors.push(message.text());
@@ -24,24 +24,21 @@ test('capture close-up overrides mouse orbit, pan, and zoom, then restores the e
       && diagnostics.world.assets.ghost.status === 'ready';
   });
 
-  const presetSelect = page
-    .locator('.lil-gui .lil-controller')
-    .filter({ hasText: '编辑 / 预览' })
-    .locator('select');
-  await presetSelect.selectOption({ label: '鬼 · 全屋' });
-  await page.waitForFunction(() => window.__THREE_GAME_DIAGNOSTICS__?.camera.mode === 'whole-house');
+  await expect(page.locator('.lil-gui .lil-controller').filter({ hasText: '编辑 / 预览' })).toHaveCount(0);
+  await expect(page.locator('.lil-gui .lil-controller').filter({ hasText: '鼠标操作' })).toHaveCount(0);
 
   const cameraToggle = page
     .locator('.lil-gui .lil-controller')
     .filter({ hasText: '进入鼠标调镜头' })
-    .locator('input');
+    .locator('button');
   await expect(cameraToggle).toBeVisible();
-  await cameraToggle.check();
+  await cameraToggle.click();
   await page.waitForFunction(() => window.__THREE_GAME_DIAGNOSTICS__?.camera.pointerMode === true);
 
   const before = await page.evaluate(() => window.__THREE_GAME_TEST_HOOKS__?.cameraSnapshot());
   expect(before?.mode).toBe('whole-house');
   expect(before?.pointerMode).toBe(true);
+  expect(before?.target).toEqual({ x: 0, y: 0, z: 0 });
 
   const canvas = page.locator('#game-canvas');
   const bounds = await canvas.boundingBox();
@@ -94,26 +91,25 @@ test('capture close-up overrides mouse orbit, pan, and zoom, then restores the e
   await page.evaluate(() => window.__THREE_GAME_TEST_HOOKS__?.setState('capture'));
   await page.waitForFunction(() => {
     const camera = window.__THREE_GAME_DIAGNOSTICS__?.camera;
-    return camera?.mode === 'capture-closeup' && camera.pointerMode === false;
+    return camera?.mode === 'whole-house' && camera.pointerMode === true;
   });
   const capture = await page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__);
-  const capturePreset = capture?.tuning.cameraPresets['capture-closeup'];
-  const savedWholeHousePreset = capture?.tuning.cameraPresets['whole-house'];
-  expect(capture?.cameraMode).toBe('capture-closeup');
-  expect(capture?.camera.relativePosition).toEqual(capturePreset?.position);
-  expect(capture?.camera.relativeTarget).toEqual(capturePreset?.target);
-  expect(capture?.camera.viewHeight).toBe(capturePreset?.viewHeight);
-  expect(capture?.camera.pointerMode).toBe(false);
+  expect(capture?.cameraMode).toBe('whole-house');
+  expect(capture?.camera.pointerMode).toBe(true);
   expectCameraValuesAreFinite(capture?.camera);
 
-  await page.evaluate(() => window.__THREE_GAME_TEST_HOOKS__?.setState('ghost-playing'));
-  await page.waitForFunction(() => window.__THREE_GAME_DIAGNOSTICS__?.camera.mode === 'whole-house');
-  const restored = await page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.camera);
-  expect(restored?.pointerMode).toBe(false);
-  expect(restored?.relativePosition).toEqual(savedWholeHousePreset?.position);
-  expect(restored?.relativeTarget).toEqual(savedWholeHousePreset?.target);
-  expect(restored?.viewHeight).toBe(savedWholeHousePreset?.viewHeight);
-  expectCameraValuesAreFinite(restored);
+  const cameraToggleOff = page
+    .locator('.lil-gui .lil-controller')
+    .filter({ hasText: '退出鼠标调镜头' })
+    .locator('button');
+  await cameraToggleOff.click();
+  await page.waitForFunction(() => window.__THREE_GAME_DIAGNOSTICS__?.camera.pointerMode === false);
+  const saved = await page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__);
+  expect(saved?.camera.mode).toBe('whole-house');
+  expect(saved?.camera.relativePosition).toEqual(saved?.tuning.cameraPresets['whole-house'].position);
+  expect(saved?.camera.relativeTarget).toEqual(saved?.tuning.cameraPresets['whole-house'].target);
+  expect(saved?.camera.viewHeight).toBe(saved?.tuning.cameraPresets['whole-house'].viewHeight);
+  expectCameraValuesAreFinite(saved?.camera);
   expect(errors).toEqual([]);
 });
 

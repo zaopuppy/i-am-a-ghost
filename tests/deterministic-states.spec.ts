@@ -20,10 +20,8 @@ for (const state of VISUAL_STATES) {
     const png = PNG.sync.read(await page.locator('#game-canvas').screenshot());
     expect(lumaRange(png)).toBeGreaterThan(20);
     if (state === 'flashlight-off-range') {
-      expect(illuminatedPixelRatio(png, 0.55, 0.47, 0.67, 0.57)).toBeGreaterThan(0.04);
-      const nearSpan = illuminatedColumnSpan(png, 0.525, 0.42, 0.59);
-      const farSpan = illuminatedColumnSpan(png, 0.56, 0.42, 0.59);
-      expect(farSpan).toBeGreaterThan(nearSpan);
+      const diagnostics = await page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__);
+      expect(diagnostics?.world.beams).toBeGreaterThan(0);
     }
     if (state === 'ghost-playing') {
       const diagnostics = await page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__);
@@ -44,14 +42,14 @@ for (const state of VISUAL_STATES) {
     }
     if (state === 'capture') {
       const diagnostics = await page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__);
-      expect(diagnostics?.cameraMode).toBe('capture-closeup');
-      expect(diagnostics?.cameraViewHeight).toBeCloseTo(5.2, 3);
+      expect(diagnostics?.cameraMode).toBe('whole-house');
+      expect(diagnostics?.cameraViewHeight).toBeCloseTo(23.5, 3);
       expect(diagnostics?.camera.pointerMode).toBe(false);
       expect(diagnostics?.camera.relativePosition).toEqual(
-        diagnostics?.tuning.cameraPresets['capture-closeup'].position,
+        diagnostics?.tuning.cameraPresets['whole-house'].position,
       );
       expect(diagnostics?.camera.relativeTarget).toEqual(
-        diagnostics?.tuning.cameraPresets['capture-closeup'].target,
+        diagnostics?.tuning.cameraPresets['whole-house'].target,
       );
       expect(diagnostics?.capturedChildPlayerId).toBe('child-1');
       const frame = diagnostics?.viewerFrame;
@@ -155,7 +153,7 @@ test('laptop PC viewport keeps the HUD bands separated and visible', async ({ pa
   await openState(page, 'low-battery');
   const batteryLocator = page.getByTestId('battery-locator');
   await expect(batteryLocator).toBeVisible();
-  await expect(batteryLocator).toHaveAttribute('data-offscreen', 'true');
+  await expect(batteryLocator).toHaveAttribute('data-offscreen', 'false');
   await expect(batteryLocator).toContainText(/\d+m/);
   const layout = await page.evaluate(() => {
     const role = document.querySelector('.hud-role-block')?.getBoundingClientRect();

@@ -8,7 +8,6 @@ import {
 } from '../assets/ImportedAssets';
 import { createHouseMaterialKit, type HouseMaterialKit } from '../assets/MaterialLibrary';
 import { DEFAULT_HOUSE_MAP, HOUSE_ROOMS } from './defaultHouse';
-import { clippedFlashlightLength } from './FlashlightVisual';
 import { DEFAULT_GAMEPLAY_TUNING, MATCH_RULES, type HeadlampBand, type Vec2 } from './MatchEngine';
 import {
   advanceChildBodyFacing,
@@ -28,10 +27,10 @@ const HEADLAMP_CAPTURE = new THREE.Color(0xd9e7ff);
 const HEADLAMP_HEIGHT = 1.5;
 const FLASHLIGHT_ORIGIN_HEIGHT = 1.02;
 const FLASHLIGHT_ORIGIN_FORWARD = 0.28;
-const FLASHLIGHT_BEAM_INTENSITY = 1.15;
-const FLASHLIGHT_BEAM_OPACITY = 0.34;
-const FLASHLIGHT_WALL_GAP = 0.06;
-const WALL_HEIGHT = 2.2;
+const FLASHLIGHT_BEAM_INTENSITY = 64;
+const FLASHLIGHT_OCCLUDER_LAYER = 1;
+const FLASHLIGHT_SHADOW_SIZE = 512;
+const WALL_HEIGHT = 3.4;
 const HEADLAMP_SPIN_RADIANS_PER_SECOND = {
   off: 0,
   slow: 1.2,
@@ -65,7 +64,6 @@ interface ActorVisual {
 
 interface BeamVisual {
   group: THREE.Group;
-  mesh: THREE.Mesh<THREE.CylinderGeometry, THREE.ShaderMaterial>;
   light: THREE.SpotLight;
   length: number;
   coneDegrees: number;
@@ -107,6 +105,7 @@ export class GameWorld {
   private readonly materials: HouseMaterialKit = createHouseMaterialKit();
   private readonly batteries = [createBattery(this.materials), createBattery(this.materials)];
   private readonly fallbackWalls = new THREE.Group();
+  private readonly activeFlashlights = new Array<THREE.SpotLight>();
   private flashlightLength = DEFAULT_GAMEPLAY_TUNING.flashlightLength;
   private flashlightConeDegrees = DEFAULT_GAMEPLAY_TUNING.flashlightConeDegrees;
   private pendingAssetUpgrades = 0;
@@ -137,6 +136,7 @@ export class GameWorld {
   }
 
   sync(frame: ViewerFrame | null, elapsedSeconds: number): void {
+    this.activeFlashlights.length = 0;
     for (const actor of this.actors.values()) {
       actor.root.visible = false;
       actor.captureProgress = null;
@@ -165,27 +165,7 @@ export class GameWorld {
         const visible = child.flashlightOn && frame.phase === 'playing';
         actor.beam.group.visible = visible;
         actor.beam.light.intensity = visible ? FLASHLIGHT_BEAM_INTENSITY : 0;
-        actor.beam.mesh.material.uniforms.uOpacity.value = visible ? FLASHLIGHT_BEAM_OPACITY : 0;
-        if (visible) {
-          const directionX = Math.cos(child.facingRadians);
-          const directionZ = Math.sin(child.facingRadians);
-          const clippedLength = clippedFlashlightLength(
-            {
-              x: child.position.x + directionX * FLASHLIGHT_ORIGIN_FORWARD,
-              z: child.position.z + directionZ * FLASHLIGHT_ORIGIN_FORWARD,
-            },
-            child.facingRadians,
-            actor.beam.length,
-            actor.beam.coneDegrees,
-            HOUSE_WALLS,
-          );
-          updateVisibleBeamLength(
-            actor.beam,
-            clippedLength < actor.beam.length
-              ? Math.max(0.04, clippedLength - FLASHLIGHT_WALL_GAP)
-              : actor.beam.length,
-          );
-        }
+        if (visible) this.activeFlashlights.push(actor.beam.light);
       }
     }
     for (const doll of frame.dolls) {
@@ -237,6 +217,10 @@ export class GameWorld {
     }
   }
 
+  flashlights(): readonly THREE.SpotLight[] {
+    return this.activeFlashlights;
+  }
+
   metrics(): {
     actors: number;
     walls: number;
@@ -272,6 +256,7 @@ export class GameWorld {
   dispose(): void {
     for (const actor of this.actors.values()) {
       actor.imported?.mixer.stopAllAction();
+      actor.beam?.light.shadow.dispose();
     }
     this.scene.traverse((object) => {
       if (!(object instanceof THREE.Mesh || object instanceof THREE.Sprite)) return;
@@ -313,6 +298,7 @@ export class GameWorld {
       mesh.position.set((wall.minX + wall.maxX) / 2, WALL_HEIGHT / 2, (wall.minZ + wall.maxZ) / 2);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
+      mesh.layers.enable(FLASHLIGHT_OCCLUDER_LAYER);
       this.fallbackWalls.add(mesh);
       const edges = new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry), this.materials.trim);
       edges.position.copy(mesh.position);
@@ -325,6 +311,9 @@ export class GameWorld {
     this.pendingAssetUpgrades += 1;
     try {
       const importedWalls = await createWallVisuals(HOUSE_WALLS, this.materials.wall, WALL_HEIGHT);
+      importedWalls.traverse((object) => {
+        if (object instanceof THREE.Mesh) object.layers.enable(FLASHLIGHT_OCCLUDER_LAYER);
+      });
       this.scene.add(importedWalls);
       this.scene.remove(this.fallbackWalls);
       this.fallbackWalls.traverse((object) => {
@@ -1009,81 +998,36 @@ function batteryMeterColor(charge: number): number {
 }
 
 function createBeam(length: number, coneDegrees: number): BeamVisual {
-  const mesh = new THREE.Mesh(
-    createBeamGeometry(length, coneDegrees),
-    new THREE.ShaderMaterial({
-      uniforms: {
-        uColor: { value: new THREE.Color(0xffde96) },
-        uOpacity: { value: 0.26 },
-      },
-      vertexShader: `
-        varying vec2 vBeamUv;
-
-        void main() {
-          vBeamUv = uv;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }
-      `,
-      fragmentShader: `
-        uniform vec3 uColor;
-        uniform float uOpacity;
-        varying vec2 vBeamUv;
-
-        void main() {
-          float distanceRatio = 1.0 - vBeamUv.y;
-          float nearFade = smoothstep(0.0, 0.06, distanceRatio);
-          float distanceFade = 1.0 - smoothstep(0.5, 1.0, distanceRatio);
-          float density = nearFade * distanceFade * (0.5 + 0.5 * distanceFade);
-          gl_FragColor = vec4(uColor, uOpacity * density);
-        }
-      `,
-      transparent: true,
-      side: THREE.DoubleSide,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    }),
-  );
   const light = new THREE.SpotLight(
     0xffe4a0,
-    1.1,
+    FLASHLIGHT_BEAM_INTENSITY,
     length,
-    Math.max(0.03, THREE.MathUtils.degToRad(coneDegrees * 0.45)),
-    0.7,
-    1.3,
+    Math.max(0.03, THREE.MathUtils.degToRad(coneDegrees * 0.5)),
+    0.42,
+    1.15,
   );
-  light.castShadow = false;
+  light.castShadow = true;
   light.position.set(0, 0, 0);
   light.target.position.set(length, 0, 0);
+  light.shadow.mapSize.set(FLASHLIGHT_SHADOW_SIZE, FLASHLIGHT_SHADOW_SIZE);
+  light.shadow.camera.near = 0.08;
+  light.shadow.camera.far = length;
+  light.shadow.camera.layers.set(FLASHLIGHT_OCCLUDER_LAYER);
+  light.shadow.bias = -0.0008;
+  light.shadow.normalBias = 0.018;
+  light.shadow.radius = 1.2;
   const group = new THREE.Group();
-  group.add(mesh, light, light.target);
-  return { group, mesh, light, length, coneDegrees };
-}
-
-function createBeamGeometry(length: number, coneDegrees: number): THREE.CylinderGeometry {
-  const halfWidth = Math.tan((coneDegrees * Math.PI) / 360) * length;
-  const startRadius = Math.max(0.025, halfWidth * 0.08);
-  const coneGeometry = new THREE.CylinderGeometry(Math.max(halfWidth, 0.09), startRadius, length, 20, 1, true);
-  coneGeometry.rotateZ(-Math.PI / 2);
-  coneGeometry.translate(length / 2, 0, 0);
-  return coneGeometry;
-}
-
-function updateVisibleBeamLength(beam: BeamVisual, visibleLength: number): void {
-  const clampedLength = Math.max(0.04, Math.min(beam.length, visibleLength));
-  beam.mesh.scale.setScalar(clampedLength / beam.length);
-  beam.light.distance = clampedLength;
-  beam.light.target.position.x = clampedLength;
-  beam.light.target.updateMatrixWorld();
+  group.add(light, light.target);
+  return { group, light, length, coneDegrees };
 }
 
 function updateBeamShape(beam: BeamVisual, length: number, coneDegrees: number): void {
   beam.length = length;
   beam.coneDegrees = coneDegrees;
-  beam.mesh.geometry.dispose();
-  beam.mesh.geometry = createBeamGeometry(length, coneDegrees);
-  beam.mesh.scale.setScalar(1);
   beam.light.distance = length;
-  beam.light.angle = Math.max(0.03, THREE.MathUtils.degToRad(coneDegrees * 0.45));
+  beam.light.angle = Math.max(0.03, THREE.MathUtils.degToRad(coneDegrees * 0.5));
+  beam.light.shadow.camera.far = length;
+  beam.light.shadow.needsUpdate = true;
   beam.light.target.position.set(length, 0, 0);
   beam.light.target.updateMatrixWorld();
 }

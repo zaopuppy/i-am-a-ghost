@@ -28,6 +28,8 @@ export interface GameplayTuning {
   headlampDetectionRange: number;
   flashlightLength: number;
   flashlightConeDegrees: number;
+  infiniteGhostHealth: boolean;
+  infiniteFlashlightEnergy: boolean;
 }
 
 export interface PlayerCommand {
@@ -99,8 +101,8 @@ export const MATCH_RULES = Object.freeze({
   ghostMoveSpeed: 3.96,
   playerRadius: 0.45,
   flashlightSecondsAtFullCharge: 8,
-  flashlightLength: 2,
-  flashlightConeDegrees: 20,
+  flashlightLength: 7.5,
+  flashlightConeDegrees: 36,
   flashlightDamagePerSecond: 12.5,
   beamDamageMultipliers: [1, 0.65, 0.45, 0.3] as const,
   ghostMaxHealth: 100,
@@ -123,6 +125,8 @@ export const DEFAULT_GAMEPLAY_TUNING: Readonly<GameplayTuning> = Object.freeze({
   headlampDetectionRange: MATCH_RULES.headlampDetectionRange,
   flashlightLength: MATCH_RULES.flashlightLength,
   flashlightConeDegrees: MATCH_RULES.flashlightConeDegrees,
+  infiniteGhostHealth: false,
+  infiniteFlashlightEnergy: false,
 });
 
 export function isCaptureTargetInContact(
@@ -388,10 +392,17 @@ export class MatchEngine {
     for (const player of this.players) {
       if (player.role !== 'child' || !player.active || player.battery === null) continue;
       const command = this.commands.get(player.id);
-      if (!command?.action || player.battery <= 0) continue;
+      if (
+        !command?.action
+        || (!this.gameplayTuning.infiniteFlashlightEnergy && player.battery <= 0)
+      ) continue;
 
-      const spentCharge = Math.min(player.battery, chargePerTick);
-      player.battery = Math.max(0, player.battery - spentCharge);
+      const spentCharge = this.gameplayTuning.infiniteFlashlightEnergy
+        ? chargePerTick
+        : Math.min(player.battery, chargePerTick);
+      if (!this.gameplayTuning.infiniteFlashlightEnergy) {
+        player.battery = Math.max(0, player.battery - spentCharge);
+      }
       if (this.flashlightHitsGhost(player)) {
         hitters.push({ player, energyRatio: spentCharge / chargePerTick });
       }
@@ -408,8 +419,10 @@ export class MatchEngine {
         (MATCH_RULES.flashlightDamagePerSecond * multiplier * hitters[index].energyRatio) /
         MATCH_RULES.tickRate;
     }
-    const remainingHealth = Math.max(0, this.ghostHealth - damage);
-    this.ghostHealth = remainingHealth < 1e-9 ? 0 : remainingHealth;
+    if (!this.gameplayTuning.infiniteGhostHealth) {
+      const remainingHealth = Math.max(0, this.ghostHealth - damage);
+      this.ghostHealth = remainingHealth < 1e-9 ? 0 : remainingHealth;
+    }
   }
 
   private updateBattery(): void {
@@ -503,7 +516,7 @@ export class MatchEngine {
         player.role !== 'child' ||
         !player.active ||
         player.battery === null ||
-        player.battery <= 0
+        (!this.gameplayTuning.infiniteFlashlightEnergy && player.battery <= 0)
       ) return false;
       return Boolean(this.commands.get(player.id)?.action && this.flashlightHitsGhost(player));
     });
@@ -610,7 +623,27 @@ function normalizeGameplayTuning(tuning: Partial<GameplayTuning> | undefined): G
       90,
       'Flashlight cone width',
     ),
+    infiniteGhostHealth: booleanTuningValue(
+      tuning?.infiniteGhostHealth,
+      DEFAULT_GAMEPLAY_TUNING.infiniteGhostHealth,
+      'Infinite ghost health',
+    ),
+    infiniteFlashlightEnergy: booleanTuningValue(
+      tuning?.infiniteFlashlightEnergy,
+      DEFAULT_GAMEPLAY_TUNING.infiniteFlashlightEnergy,
+      'Infinite flashlight energy',
+    ),
   };
+}
+
+function booleanTuningValue(
+  value: boolean | undefined,
+  fallback: boolean,
+  label: string,
+): boolean {
+  if (value === undefined) return fallback;
+  if (typeof value !== 'boolean') throw new TypeError(`${label} must be a boolean.`);
+  return value;
 }
 
 function finiteTuningValue(

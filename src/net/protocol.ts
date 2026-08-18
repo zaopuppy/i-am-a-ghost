@@ -163,6 +163,8 @@ export function parseGameplayTuning(value: unknown): GameplayTuning | null {
     || !Number.isFinite(tuning.headlampDetectionRange)
     || !Number.isFinite(tuning.flashlightLength)
     || !Number.isFinite(tuning.flashlightConeDegrees)
+    || typeof tuning.infiniteGhostHealth !== 'boolean'
+    || typeof tuning.infiniteFlashlightEnergy !== 'boolean'
     || (tuning.childMoveSpeed ?? 0) < 1
     || (tuning.childMoveSpeed ?? 9) > 8
     || (tuning.ghostMoveSpeed ?? 0) < 1
@@ -180,5 +182,7 @@ export function parseGameplayTuning(value: unknown): GameplayTuning | null {
     headlampDetectionRange: tuning.headlampDetectionRange as number,
     flashlightLength: tuning.flashlightLength as number,
     flashlightConeDegrees: tuning.flashlightConeDegrees as number,
+    infiniteGhostHealth: tuning.infiniteGhostHealth as boolean,
+    infiniteFlashlightEnergy: tuning.infiniteFlashlightEnergy as boolean,
   };
 }

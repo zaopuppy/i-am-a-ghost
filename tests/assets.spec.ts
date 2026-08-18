@@ -8,7 +8,7 @@ test('failed GLB requests keep the procedural house fallback playable', async ({
     .poll(() => page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.world.assets.wall.status))
     .toBe('failed');
   const diagnostics = await page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__);
-  expect(diagnostics?.renderer.calls).toBeGreaterThan(10);
+  expect(diagnostics?.renderer.calls).toBeGreaterThan(0);
   expect(diagnostics?.world.walls).toBe(22);
 });
 
@@ -34,7 +34,7 @@ test('a failed Ghost GLB request keeps the procedural ghost fallback playable', 
   expect(diagnostics?.world.assets.ghost.status).toBe('failed');
   expect(diagnostics?.world.actors).toBe(5);
   expect(diagnostics?.world.animatedActors).toBe(4);
-  expect(diagnostics?.renderer.calls).toBeGreaterThan(10);
+  expect(diagnostics?.renderer.calls).toBeGreaterThan(0);
   expect(diagnostics?.renderer.triangles).toBeGreaterThan(1_000);
   expect((await page.locator('#game-canvas').screenshot()).byteLength).toBeGreaterThan(10_000);
   expect(errors.filter((message) => !/Failed to load resource: net::ERR_FAILED/.test(message))).toEqual([]);

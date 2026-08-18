@@ -100,7 +100,7 @@ export function createDeterministicViewerFrame(
         return visibleChild.playerId === 'child-1'
           ? {
               ...visibleChild,
-              position: { x: -7, z: -6.7 },
+              position: { x: -8, z: -5.62 },
               facingRadians: 0,
               headlamp: 'off' as const,
               flashlightOn: true,
