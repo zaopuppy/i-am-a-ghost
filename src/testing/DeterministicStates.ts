@@ -10,6 +10,7 @@ export const DETERMINISTIC_STATE_NAMES = [
   'child-hidden',
   'child-playing',
   'flashlight-off-range',
+  'flashlight-wall',
   'ghost-playing',
   'low-battery',
   'capture',
@@ -79,7 +80,10 @@ export function createDeterministicViewerFrame(
   }
 
   const ended = state === 'child-win';
-  const hidden = state === 'child-hidden' || state === 'flashlight-off-range' || state === 'protection';
+  const hidden = state === 'child-hidden'
+    || state === 'flashlight-off-range'
+    || state === 'flashlight-wall'
+    || state === 'protection';
   const phase = state === 'capture'
     ? 'capture-animation'
     : state === 'protection'
@@ -92,6 +96,17 @@ export function createDeterministicViewerFrame(
     : cloneChildren(CHILDREN))
     .map((visibleChild) => {
       if (state === 'flashlight-off-range') return { ...visibleChild, headlamp: 'off' as const };
+      if (state === 'flashlight-wall') {
+        return visibleChild.playerId === 'child-1'
+          ? {
+              ...visibleChild,
+              position: { x: -7, z: -6.7 },
+              facingRadians: 0,
+              headlamp: 'off' as const,
+              flashlightOn: true,
+            }
+          : { ...visibleChild, headlamp: 'off' as const, flashlightOn: false };
+      }
       if (state === 'low-battery' && visibleChild.playerId === 'child-1') {
         return { ...visibleChild, batteryCharge: 0.08 };
       }

@@ -4,6 +4,7 @@ import { PNG } from 'pngjs';
 const VISUAL_STATES = [
   'child-playing',
   'flashlight-off-range',
+  'flashlight-wall',
   'ghost-playing',
   'low-battery',
   'capture',
@@ -20,6 +21,9 @@ for (const state of VISUAL_STATES) {
     expect(lumaRange(png)).toBeGreaterThan(20);
     if (state === 'flashlight-off-range') {
       expect(illuminatedPixelRatio(png, 0.55, 0.47, 0.67, 0.57)).toBeGreaterThan(0.04);
+      const nearSpan = illuminatedColumnSpan(png, 0.525, 0.42, 0.59);
+      const farSpan = illuminatedColumnSpan(png, 0.56, 0.42, 0.59);
+      expect(farSpan).toBeGreaterThan(nearSpan);
     }
     if (state === 'ghost-playing') {
       const diagnostics = await page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__);
@@ -263,4 +267,28 @@ function illuminatedPixelRatio(
     }
   }
   return illuminatedPixels / Math.max(1, totalPixels);
+}
+
+function illuminatedColumnSpan(
+  png: PNG,
+  xRatio: number,
+  topRatio: number,
+  bottomRatio: number,
+): number {
+  const x = Math.round(png.width * xRatio);
+  const top = Math.floor(png.height * topRatio);
+  const bottom = Math.ceil(png.height * bottomRatio);
+  let first = -1;
+  let last = -1;
+  for (let y = top; y < bottom; y += 1) {
+    const index = (y * png.width + x) * 4;
+    const luma =
+      png.data[index] * 0.2126 +
+      png.data[index + 1] * 0.7152 +
+      png.data[index + 2] * 0.0722;
+    if (luma <= 20) continue;
+    if (first < 0) first = y;
+    last = y;
+  }
+  return first < 0 ? 0 : last - first + 1;
 }

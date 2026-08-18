@@ -8,6 +8,7 @@ import {
 } from '../assets/ImportedAssets';
 import { createHouseMaterialKit, type HouseMaterialKit } from '../assets/MaterialLibrary';
 import { DEFAULT_HOUSE_MAP, HOUSE_ROOMS } from './defaultHouse';
+import { clippedFlashlightLength } from './FlashlightVisual';
 import { DEFAULT_GAMEPLAY_TUNING, MATCH_RULES, type HeadlampBand, type Vec2 } from './MatchEngine';
 import {
   advanceChildBodyFacing,
@@ -29,6 +30,7 @@ const FLASHLIGHT_ORIGIN_HEIGHT = 1.02;
 const FLASHLIGHT_ORIGIN_FORWARD = 0.28;
 const FLASHLIGHT_BEAM_INTENSITY = 1.15;
 const FLASHLIGHT_BEAM_OPACITY = 0.34;
+const FLASHLIGHT_WALL_GAP = 0.06;
 const WALL_HEIGHT = 2.2;
 const HEADLAMP_SPIN_RADIANS_PER_SECOND = {
   off: 0,
@@ -164,6 +166,26 @@ export class GameWorld {
         actor.beam.group.visible = visible;
         actor.beam.light.intensity = visible ? FLASHLIGHT_BEAM_INTENSITY : 0;
         actor.beam.mesh.material.uniforms.uOpacity.value = visible ? FLASHLIGHT_BEAM_OPACITY : 0;
+        if (visible) {
+          const directionX = Math.cos(child.facingRadians);
+          const directionZ = Math.sin(child.facingRadians);
+          const clippedLength = clippedFlashlightLength(
+            {
+              x: child.position.x + directionX * FLASHLIGHT_ORIGIN_FORWARD,
+              z: child.position.z + directionZ * FLASHLIGHT_ORIGIN_FORWARD,
+            },
+            child.facingRadians,
+            actor.beam.length,
+            actor.beam.coneDegrees,
+            HOUSE_WALLS,
+          );
+          updateVisibleBeamLength(
+            actor.beam,
+            clippedLength < actor.beam.length
+              ? Math.max(0.04, clippedLength - FLASHLIGHT_WALL_GAP)
+              : actor.beam.length,
+          );
+        }
       }
     }
     for (const doll of frame.dolls) {
@@ -1008,8 +1030,9 @@ function createBeam(length: number, coneDegrees: number): BeamVisual {
         varying vec2 vBeamUv;
 
         void main() {
-          float nearFade = smoothstep(0.0, 0.06, vBeamUv.y);
-          float distanceFade = 1.0 - smoothstep(0.5, 1.0, vBeamUv.y);
+          float distanceRatio = 1.0 - vBeamUv.y;
+          float nearFade = smoothstep(0.0, 0.06, distanceRatio);
+          float distanceFade = 1.0 - smoothstep(0.5, 1.0, distanceRatio);
           float density = nearFade * distanceFade * (0.5 + 0.5 * distanceFade);
           gl_FragColor = vec4(uColor, uOpacity * density);
         }
@@ -1039,10 +1062,18 @@ function createBeam(length: number, coneDegrees: number): BeamVisual {
 function createBeamGeometry(length: number, coneDegrees: number): THREE.CylinderGeometry {
   const halfWidth = Math.tan((coneDegrees * Math.PI) / 360) * length;
   const startRadius = Math.max(0.025, halfWidth * 0.08);
-  const coneGeometry = new THREE.CylinderGeometry(startRadius, Math.max(halfWidth, 0.09), length, 20, 1, true);
+  const coneGeometry = new THREE.CylinderGeometry(Math.max(halfWidth, 0.09), startRadius, length, 20, 1, true);
   coneGeometry.rotateZ(-Math.PI / 2);
   coneGeometry.translate(length / 2, 0, 0);
   return coneGeometry;
+}
+
+function updateVisibleBeamLength(beam: BeamVisual, visibleLength: number): void {
+  const clampedLength = Math.max(0.04, Math.min(beam.length, visibleLength));
+  beam.mesh.scale.setScalar(clampedLength / beam.length);
+  beam.light.distance = clampedLength;
+  beam.light.target.position.x = clampedLength;
+  beam.light.target.updateMatrixWorld();
 }
 
 function updateBeamShape(beam: BeamVisual, length: number, coneDegrees: number): void {
@@ -1050,6 +1081,7 @@ function updateBeamShape(beam: BeamVisual, length: number, coneDegrees: number):
   beam.coneDegrees = coneDegrees;
   beam.mesh.geometry.dispose();
   beam.mesh.geometry = createBeamGeometry(length, coneDegrees);
+  beam.mesh.scale.setScalar(1);
   beam.light.distance = length;
   beam.light.angle = Math.max(0.03, THREE.MathUtils.degToRad(coneDegrees * 0.45));
   beam.light.target.position.set(length, 0, 0);
