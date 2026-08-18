@@ -5,6 +5,7 @@ import { GAME_AUDIO_ASSETS, GAME_AUDIO_PACK_PATH } from '../../src/audio/GameAud
 
 test('runtime model and audio assets are present with copied CC0 licenses', () => {
   assert.equal(statSync('public/assets/models/kaykit-adventurers/Rogue_Kid.glb').size, 503_252);
+  assert.equal(statSync('public/assets/models/kaykit-adventurers/Ghost.glb').size, 445_612);
   assert.equal(statSync('public/assets/models/kaykit-medieval/wall_straight.glb').size, 28_752);
   for (const relativePath of Object.values(GAME_AUDIO_ASSETS)) {
     assert.ok(statSync(`public/${relativePath}`).size > 1_000, `${relativePath} should contain audio data`);

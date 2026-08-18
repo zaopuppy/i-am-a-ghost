@@ -11,17 +11,20 @@ for (const state of VISUAL_STATES) {
 
     const png = PNG.sync.read(await page.locator('#game-canvas').screenshot());
     expect(lumaRange(png)).toBeGreaterThan(20);
-    if (state === 'child-playing') {
-      const ownHeadlamp = regionStats(png, 640, 360, 20);
-      const nearbyWall = regionStats(png, 968, 360, 5);
-      expect(ownHeadlamp.brightPixels).toBeGreaterThan(30);
-      expect(nearbyWall.meanLuma).toBeGreaterThan(18);
-    }
     if (state === 'ghost-playing') {
-      const litNpc = regionStats(png, 332, 573, 20);
-      const unlitNpc = regionStats(png, 993, 560, 20);
-      expect(litNpc.brightPixels).toBeGreaterThan(30);
-      expect(unlitNpc.meanLuma).toBeGreaterThan(18);
+      const diagnostics = await page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__);
+      expect(diagnostics?.world.assets.ghost).toMatchObject({
+        status: 'ready',
+        fileBytes: 445_612,
+        triangles: 7_185,
+        meshes: 8,
+        materials: 1,
+        textures: 1,
+      });
+      expect(diagnostics?.world.assets.ghost.clips).toEqual(
+        expect.arrayContaining(['Idle_A', 'Running_A', 'Hit_A']),
+      );
+      expect(diagnostics?.world.animatedActors).toBe(5);
       await expect(page.locator('#control-hint')).toContainText('接触孩子自动抓取');
       await expect(page.getByTestId('event-banner')).toBeHidden();
     }
@@ -29,6 +32,13 @@ for (const state of VISUAL_STATES) {
       const diagnostics = await page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__);
       expect(diagnostics?.cameraMode).toBe('capture-closeup');
       expect(diagnostics?.cameraViewHeight).toBeCloseTo(5.2, 3);
+      expect(diagnostics?.camera.pointerMode).toBe(false);
+      expect(diagnostics?.camera.relativePosition).toEqual(
+        diagnostics?.tuning.cameraPresets['capture-closeup'].position,
+      );
+      expect(diagnostics?.camera.relativeTarget).toEqual(
+        diagnostics?.tuning.cameraPresets['capture-closeup'].target,
+      );
       expect(diagnostics?.capturedChildPlayerId).toBe('child-1');
       const frame = diagnostics?.viewerFrame;
       expect(frame?.viewerRole).toBe('child');
@@ -48,6 +58,82 @@ test('hidden child state does not leak a ghost through browser diagnostics', asy
   expect(frame?.viewerRole).toBe('child');
   if (frame?.viewerRole === 'child') expect(frame.ghost).toBeUndefined();
   expect(JSON.stringify(frame)).not.toContain('"ghost"');
+});
+
+test('capture presentation advances from impact through struggle to tightening without wall-clock timing', async ({ page }) => {
+  await openState(page, 'capture');
+  const samples = await page.evaluate(async () => {
+    type CaptureFrame = {
+      capture: { ticksRemaining: number; durationTicks: number } | null;
+    };
+    type ActorProbe = {
+      root: { position: { y: number } };
+      bodyPivot: { rotation: { x: number; z: number } };
+      ghostRig: {
+        leftShoulder: { rotation: { z: number } };
+        captureAura: { material: { opacity: number } };
+      } | null;
+    };
+    type WorldProbe = {
+      actors: Map<string, ActorProbe>;
+      sync(frame: unknown, elapsedSeconds: number): void;
+      dispose(): void;
+    };
+    const loadModule = (specifier: string): Promise<Record<string, unknown>> => import(specifier);
+    const worldModule = await loadModule('/src/game/GameWorld.ts') as {
+      GameWorld: new () => WorldProbe;
+    };
+    const stateModule = await loadModule('/src/testing/DeterministicStates.ts') as {
+      createDeterministicViewerFrame(state: string, seed: number): CaptureFrame;
+    };
+    const world = new worldModule.GameWorld();
+    document.documentElement.dataset.reducedMotion = 'false';
+
+    const sample = (requestedProgress: number) => {
+      const frame = structuredClone(stateModule.createDeterministicViewerFrame('capture', 71));
+      if (!frame.capture) throw new Error('Capture fixture is missing capture timing.');
+      frame.capture.ticksRemaining = Math.round(
+        frame.capture.durationTicks * (1 - requestedProgress),
+      );
+      const actualProgress = 1 - frame.capture.ticksRemaining / frame.capture.durationTicks;
+      world.sync(frame, actualProgress * frame.capture.durationTicks / 60);
+      const child = world.actors.get('child:child-1');
+      const ghost = world.actors.get('ghost');
+      if (!child || !ghost?.ghostRig) throw new Error('Capture actors were not created.');
+      return {
+        progress: actualProgress,
+        childPitch: child.bodyPivot.rotation.x,
+        childRoll: child.bodyPivot.rotation.z,
+        childHeight: child.root.position.y,
+        shoulderGrip: ghost.ghostRig.leftShoulder.rotation.z,
+        auraOpacity: ghost.ghostRig.captureAura.material.opacity,
+      };
+    };
+
+    const result = {
+      impact: sample(0.03),
+      struggle: sample(0.45),
+      tighten: sample(0.95),
+    };
+    world.dispose();
+    return result;
+  });
+
+  expect(samples.impact.progress).toBeLessThan(0.06);
+  expect(samples.impact.childPitch).toBeLessThan(-0.15);
+  expect(Math.abs(samples.impact.childRoll)).toBeLessThan(0.001);
+
+  expect(samples.struggle.progress).toBeGreaterThan(0.4);
+  expect(Math.abs(samples.struggle.childRoll)).toBeGreaterThan(0.04);
+  expect(samples.struggle.childHeight).not.toBeCloseTo(samples.impact.childHeight, 3);
+
+  expect(samples.tighten.progress).toBeGreaterThan(0.9);
+  expect(samples.tighten.childPitch).toBeGreaterThan(0.08);
+  expect(Math.abs(samples.tighten.childRoll)).toBeLessThan(Math.abs(samples.struggle.childRoll));
+  expect(samples.impact.shoulderGrip).toBeLessThan(samples.struggle.shoulderGrip);
+  expect(samples.struggle.shoulderGrip).toBeLessThan(samples.tighten.shoulderGrip);
+  expect(samples.struggle.auraOpacity).toBeGreaterThan(samples.impact.auraOpacity);
+  expect(samples.struggle.auraOpacity).toBeGreaterThan(samples.tighten.auraOpacity);
 });
 
 test('laptop PC viewport keeps the HUD bands separated and visible', async ({ page }) => {
@@ -94,14 +180,18 @@ async function openState(page: Page, state: string): Promise<void> {
   await page.waitForFunction(
     (expectedState) => {
       const diagnostics = window.__THREE_GAME_DIAGNOSTICS__;
+      const frameHasGhost = diagnostics?.viewerFrame
+        && 'ghost' in diagnostics.viewerFrame
+        && diagnostics.viewerFrame.ghost !== undefined;
       return diagnostics?.deterministicState === expectedState
         && diagnostics.frame > 10
         && diagnostics.world.assets.kid.status === 'ready'
+        && (!frameHasGhost || diagnostics.world.assets.ghost.status === 'ready')
         && diagnostics.world.assets.wall.status === 'ready';
     },
     state,
   );
-  await page.evaluate(async () => {
+  const frameBeforeStabilizing = await page.evaluate(async () => {
     await document.fonts.ready;
     const hooks = window.__THREE_GAME_TEST_HOOKS__;
     if (!hooks) throw new Error('Deterministic test hooks are missing.');
@@ -109,8 +199,12 @@ async function openState(page: Page, state: string): Promise<void> {
     hooks.setPausedForScreenshot(true);
     hooks.setReducedMotion(true);
     hooks.hideDebugUi(true);
+    return window.__THREE_GAME_DIAGNOSTICS__?.frame ?? 0;
   });
-  await page.waitForTimeout(100);
+  await page.waitForFunction(
+    (previousFrame) => (window.__THREE_GAME_DIAGNOSTICS__?.frame ?? 0) >= previousFrame + 2,
+    frameBeforeStabilizing,
+  );
 }
 
 function collectErrors(page: Page, errors: string[]): void {
@@ -131,27 +225,4 @@ function lumaRange(png: PNG): number {
     maximum = Math.max(maximum, luma);
   }
   return maximum - minimum;
-}
-
-function regionStats(
-  png: PNG,
-  centerX: number,
-  centerY: number,
-  radius: number,
-): { meanLuma: number; brightPixels: number } {
-  let lumaSum = 0;
-  let pixels = 0;
-  let brightPixels = 0;
-  for (let y = centerY - radius; y < centerY + radius; y += 1) {
-    for (let x = centerX - radius; x < centerX + radius; x += 1) {
-      const index = (y * png.width + x) * 4;
-      const luma = Math.round(
-        png.data[index] * 0.2126 + png.data[index + 1] * 0.7152 + png.data[index + 2] * 0.0722,
-      );
-      lumaSum += luma;
-      pixels += 1;
-      if (luma >= 120) brightPixels += 1;
-    }
-  }
-  return { meanLuma: lumaSum / pixels, brightPixels };
 }

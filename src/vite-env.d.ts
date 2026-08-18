@@ -2,6 +2,17 @@
 
 import type { ViewerFrame } from './game/ViewerFrame';
 import type { RuntimeTuning } from './game/RuntimeTuning';
+import type { CameraMode, CameraRigSnapshot } from './core/CameraRig';
+
+interface ImportedAssetDiagnostics {
+  status: 'not-requested' | 'loading' | 'ready' | 'failed';
+  fileBytes: number;
+  triangles: number;
+  meshes: number;
+  materials: number;
+  textures: number;
+  clips: string[];
+}
 
 interface GhostGameDiagnostics {
   phase: 'lobby' | 'playing' | 'ended';
@@ -16,8 +27,9 @@ interface GhostGameDiagnostics {
   ackSeq: number | null;
   ownPosition: { x: number; z: number } | null;
   viewerFrame: ViewerFrame | null;
-  cameraMode: 'follow' | 'whole-house' | 'capture-closeup';
+  cameraMode: CameraMode;
   cameraViewHeight: number;
+  camera: CameraRigSnapshot;
   capturedChildPlayerId: string | null;
   tuning: RuntimeTuning;
   world: {
@@ -29,24 +41,9 @@ interface GhostGameDiagnostics {
     materials: number;
     animatedActors: number;
     assets: {
-      kid: {
-        status: 'not-requested' | 'loading' | 'ready' | 'failed';
-        fileBytes: number;
-        triangles: number;
-        meshes: number;
-        materials: number;
-        textures: number;
-        clips: string[];
-      };
-      wall: {
-        status: 'not-requested' | 'loading' | 'ready' | 'failed';
-        fileBytes: number;
-        triangles: number;
-        meshes: number;
-        materials: number;
-        textures: number;
-        clips: string[];
-      };
+      kid: ImportedAssetDiagnostics;
+      ghost: ImportedAssetDiagnostics;
+      wall: ImportedAssetDiagnostics;
     };
   };
   audio: {
@@ -90,6 +87,8 @@ declare global {
       setReducedMotion(enabled: boolean): void;
       hideDebugUi(hidden: boolean): void;
       hideOverlay(hidden: boolean): void;
+      setCameraPreview(mode: CameraMode | null): void;
+      cameraSnapshot(): CameraRigSnapshot;
     };
   }
 }

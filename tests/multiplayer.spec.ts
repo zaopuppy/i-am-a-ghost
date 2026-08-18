@@ -17,6 +17,7 @@ test('two browser pages join, start, and move through the authoritative input pa
   await guest.getByTestId('join-room').click();
   await expect(host.getByTestId('roster').locator('li')).toHaveCount(2);
   await expect(guest.getByTestId('roster').locator('li')).toHaveCount(2);
+  await host.getByRole('button', { name: '房间移动（房主）' }).click();
   const childSpeedInput = host
     .locator('.lil-gui .lil-controller')
     .filter({ hasText: '小孩速度' })
@@ -27,6 +28,7 @@ test('two browser pages join, start, and move through the authoritative input pa
   await expect
     .poll(() => guest.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.tuning.childMoveSpeed ?? 0))
     .toBe(5.25);
+  await host.getByRole('button', { name: '房间移动（房主）' }).click();
   await host.getByTestId('start-match').click();
 
   await expect
@@ -47,6 +49,7 @@ test('two browser pages join, start, and move through the authoritative input pa
   await expect(ghostPage.locator('#control-hint')).toContainText('接触孩子自动抓取');
   await expect(childPage.locator('#control-hint')).toContainText('ESDF 移动并朝向');
   await expect(childPage.locator('#control-hint')).not.toContainText('鼠标');
+  await host.getByRole('button', { name: '感应与手电（房主）' }).click();
   const flashlightLengthInput = host
     .locator('.lil-gui .lil-controller')
     .filter({ hasText: '手电距离' })
@@ -59,6 +62,7 @@ test('two browser pages join, start, and move through the authoritative input pa
       { timeout: 2_000 },
     )
     .toBe(3.5);
+  await host.getByRole('button', { name: '感应与手电（房主）' }).click();
   await ghostPage.evaluate(() => {
     window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space' }));
     window.dispatchEvent(new KeyboardEvent('keyup', { code: 'Space' }));

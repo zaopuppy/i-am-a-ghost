@@ -1,9 +1,11 @@
+import {
+  createRecommendedCameraPresets,
+  type CameraPresetMap,
+} from '../core/CameraRig';
 import { DEFAULT_GAMEPLAY_TUNING, type GameplayTuning } from './MatchEngine';
 
 export interface RuntimeTuning extends GameplayTuning {
-  childCameraHeight: number;
-  ghostCameraHeight: number;
-  captureCameraHeight: number;
+  cameraPresets: CameraPresetMap;
   cameraFollowResponsiveness: number;
   captureCameraResponsiveness: number;
 }
@@ -11,9 +13,7 @@ export interface RuntimeTuning extends GameplayTuning {
 export function createRuntimeTuning(): RuntimeTuning {
   return {
     ...DEFAULT_GAMEPLAY_TUNING,
-    childCameraHeight: 12.5,
-    ghostCameraHeight: 22.5,
-    captureCameraHeight: 5.2,
+    cameraPresets: createRecommendedCameraPresets(),
     cameraFollowResponsiveness: 10,
     captureCameraResponsiveness: 22,
   };

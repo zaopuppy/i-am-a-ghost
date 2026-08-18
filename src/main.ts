@@ -1,5 +1,13 @@
 import * as THREE from 'three';
 import { GameAudio } from './audio/GameAudio';
+import {
+  CameraRig,
+  createRecommendedCameraPresets,
+  formatCameraPreset,
+  resolveCameraMode,
+  type CameraMode,
+  type CameraPreset,
+} from './core/CameraRig';
 import { GameInput } from './core/GameInput';
 import { Loop } from './core/Loop';
 import { createRenderStage } from './core/Renderer';
@@ -59,8 +67,8 @@ const input = new GameInput();
 const audio = new GameAudio();
 const batteryScreenPoint = new THREE.Vector3();
 const ownScreenPoint = new THREE.Vector3();
-const cameraCenter = new THREE.Vector2();
 const runtimeTuning = createRuntimeTuning();
+const cameraRig = new CameraRig(stage);
 const nickname = createTemporaryNickname();
 let renderFrame = 0;
 let lastInputSentAt = 0;
@@ -69,11 +77,17 @@ let measuredFps = 0;
 let lastIngestedFrameKey = '';
 let lastAudioEvents: typeof client.latestEvents = null;
 let lastActionHeld = false;
-let currentCameraHeight = runtimeTuning.ghostCameraHeight;
 let debugGui: import('lil-gui').GUI | null = null;
 let debugGuiHidden = false;
 let debugTuningTimer: ReturnType<typeof setTimeout> | null = null;
 let lastSyncedDebugGameplayTuning: GameplayTuning | null = null;
+let lastCameraFrame: ViewerFrame | null = null;
+let developerCameraPreviewMode: CameraMode | null = null;
+let cameraSnapRequested = false;
+let cameraValueControllers: import('lil-gui').Controller[] = [];
+let cameraMetricControllers: import('lil-gui').Controller[] = [];
+let cameraPointerController: import('lil-gui').Controller | null = null;
+const cameraDebugState = createCameraDebugState('follow', runtimeTuning.cameraPresets.follow);
 const query = new URLSearchParams(window.location.search);
 const requestedTestState = query.get('testState');
 let deterministicState: DeterministicStateName | null = import.meta.env.DEV
@@ -159,13 +173,17 @@ const loop = new Loop(
 const resizeObserver = new ResizeObserver(stage.resize);
 resizeObserver.observe(canvas);
 if (import.meta.env.DEV) {
-  window.__THREE_GAME_TEST_HOOKS__ = {
+  const testHooks: NonNullable<typeof window.__THREE_GAME_TEST_HOOKS__> & {
+    setCameraPreview(mode: CameraMode | null): void;
+    cameraSnapshot(): ReturnType<CameraRig['snapshot']>;
+  } = {
     seed: (value: number) => {
       deterministicSeed = Number.isFinite(value) ? Math.trunc(value) : 0;
     },
     setState: (name: string) => {
       if (!isDeterministicStateName(name)) throw new Error(`Unknown deterministic state: ${name}`);
       deterministicState = name;
+      developerCameraPreviewMode = null;
     },
     setPausedForScreenshot: (paused: boolean) => {
       screenshotPaused = paused;
@@ -180,7 +198,18 @@ if (import.meta.env.DEV) {
     hideOverlay: (hidden: boolean) => {
       lobbyPanel.hidden = hidden;
     },
+    setCameraPreview: (mode: CameraMode | null) => {
+      if (mode !== null && !isCameraMode(mode)) throw new Error(`Unknown camera mode: ${mode}`);
+      developerCameraPreviewMode = mode;
+      if (mode) {
+        cameraDebugState.preset = mode;
+        syncCameraDebugState(runtimeTuning.cameraPresets[mode]);
+      }
+      cameraSnapRequested = true;
+    },
+    cameraSnapshot: () => cameraRig.snapshot(),
   };
+  window.__THREE_GAME_TEST_HOOKS__ = testHooks;
   if (!deterministicState) void installDebugGui();
 }
 loop.start();
@@ -197,6 +226,7 @@ if (import.meta.hot) {
     client.dispose();
     unsubscribeClient();
     resizeObserver.disconnect();
+    cameraRig.dispose();
     world.dispose();
     stage.dispose();
     delete window.__THREE_GAME_DIAGNOSTICS__;
@@ -371,34 +401,18 @@ function showBanner(text: string, tone: 'danger' | 'safe'): void {
 }
 
 function updateCamera(frame: ViewerFrame | null, deltaSeconds: number, immediate = false): void {
-  const ownPosition = frame ? ownActorPosition(frame) : null;
   const cinematic = frame ? isCaptureCinematicViewer(frame) : false;
-  const capturedChild = frame?.capture
-    ? frame.children.find((child) => child.playerId === frame.capture?.childPlayerId)
-    : undefined;
-  const targetX = cinematic && frame?.ghost && capturedChild
-    ? (frame.ghost.position.x + capturedChild.position.x) / 2
-    : frame?.viewerRole === 'child' && ownPosition
-      ? ownPosition.x
-      : 0;
-  const targetZ = cinematic && frame?.ghost && capturedChild
-    ? (frame.ghost.position.z + capturedChild.position.z) / 2
-    : frame?.viewerRole === 'child' && ownPosition
-      ? ownPosition.z
-      : 0;
+  const runtimeMode: CameraMode = cinematic
+    ? 'capture-closeup'
+    : frame?.viewerRole === 'child'
+      ? 'follow'
+      : 'whole-house';
+  if (cinematic) developerCameraPreviewMode = null;
+  const mode = resolveCameraMode(runtimeMode, developerCameraPreviewMode);
+  const baseTarget = cameraTargetForMode(mode, frame);
   const followSpeed = cinematic
     ? runtimeTuning.captureCameraResponsiveness
     : runtimeTuning.cameraFollowResponsiveness;
-  const responsiveness = immediate ? 1 : 1 - Math.exp(-deltaSeconds * followSpeed);
-  cameraCenter.lerp(new THREE.Vector2(targetX, targetZ), responsiveness);
-  const targetHeight = cinematic
-    ? runtimeTuning.captureCameraHeight
-    : frame?.viewerRole === 'child'
-      ? runtimeTuning.childCameraHeight
-      : runtimeTuning.ghostCameraHeight;
-  currentCameraHeight = immediate
-    ? targetHeight
-    : currentCameraHeight + (targetHeight - currentCameraHeight) * responsiveness;
 
   let shakeX = 0;
   let shakeZ = 0;
@@ -408,7 +422,44 @@ function updateCamera(frame: ViewerFrame | null, deltaSeconds: number, immediate
     shakeX = Math.sin(progress * 130) * 0.18 * impact * impact;
     shakeZ = Math.sin(progress * 173 + 0.8) * 0.18 * impact * impact;
   }
-  stage.setView(cameraCenter.x + shakeX, cameraCenter.y + shakeZ, currentCameraHeight);
+  cameraRig.update({
+    mode,
+    captureActive: cinematic,
+    baseTarget,
+    preset: runtimeTuning.cameraPresets[mode],
+    deltaSeconds,
+    responsiveness: followSpeed,
+    immediate: immediate || cameraSnapRequested,
+    shakeX,
+    shakeZ,
+  });
+  cameraSnapRequested = false;
+  lastCameraFrame = frame;
+  refreshCameraMetrics();
+}
+
+function cameraTargetForMode(
+  mode: CameraMode,
+  frame: ViewerFrame | null,
+): { x: number; y: number; z: number } {
+  if (!frame || mode === 'whole-house') return { x: 0, y: 0, z: 0 };
+  if (mode === 'capture-closeup' && frame.ghost) {
+    const capturedChild = frame.capture
+      ? frame.children.find((child) => child.playerId === frame.capture?.childPlayerId)
+      : frame.children[0];
+    if (capturedChild) {
+      return {
+        x: (frame.ghost.position.x + capturedChild.position.x) / 2,
+        y: 0,
+        z: (frame.ghost.position.z + capturedChild.position.z) / 2,
+      };
+    }
+  }
+  const followedChild = frame.viewerRole === 'child'
+    ? frame.children.find((child) => child.playerId === frame.viewerPlayerId)
+    : frame.children[0];
+  const position = followedChild?.position ?? frame.ghost?.position;
+  return { x: position?.x ?? 0, y: 0, z: position?.z ?? 0 };
 }
 
 function calculateFacing(movement: { x: number; z: number }): number {
@@ -440,16 +491,64 @@ function updateControlHint(frame: ViewerFrame): void {
 }
 
 async function installDebugGui(): Promise<void> {
+  await cameraRig.installDeveloperControls(canvas, {
+    poseChanged: handleDeveloperCameraPoseChanged,
+    pointerModeChanged: handleCameraPointerModeChanged,
+  });
   const { GUI } = await import('lil-gui');
   if (debugGui || deterministicState) return;
-  const gui = new GUI({ title: '开发调试' });
+  const gui = new GUI({ title: '开发调试 · DEV', width: 310 });
+  gui.domElement.dataset.testid = 'debug-panel';
   const cameraFolder = gui.addFolder('镜头');
-  cameraFolder.add(runtimeTuning, 'childCameraHeight', 8, 18, 0.1).name('小孩距离');
-  cameraFolder.add(runtimeTuning, 'ghostCameraHeight', 16, 30, 0.1).name('鬼距离');
-  cameraFolder.add(runtimeTuning, 'captureCameraHeight', 3.8, 9, 0.1).name('抓捕特写');
+  const presetController = cameraFolder.add(cameraDebugState, 'preset', {
+    '小孩跟随': 'follow',
+    '鬼 · 全屋': 'whole-house',
+    '抓捕特写': 'capture-closeup',
+  }).name('编辑 / 预览').onChange((mode: CameraMode) => selectCameraDebugPreset(mode));
+  cameraPointerController = cameraFolder
+    .add(cameraDebugState, 'pointerMode')
+    .name('进入鼠标调镜头')
+    .onChange((enabled: boolean) => setCameraPointerMode(enabled));
+  cameraFolder.add({ gesture: '左键旋转 · 右键平移 · 滚轮缩放' }, 'gesture').name('鼠标操作').disable();
+
+  const positionFolder = cameraFolder.addFolder('相对主体的位置');
+  const positionX = positionFolder.add(cameraDebugState, 'positionX', -40, 40, 0.05)
+    .name('位置 X').onChange(applyCameraDebugPreset);
+  const positionY = positionFolder.add(cameraDebugState, 'positionY', 1, 50, 0.05)
+    .name('位置 Y').onChange(applyCameraDebugPreset);
+  const positionZ = positionFolder.add(cameraDebugState, 'positionZ', -40, 40, 0.05)
+    .name('位置 Z').onChange(applyCameraDebugPreset);
+  const targetFolder = cameraFolder.addFolder('相对主体的朝向点');
+  const targetX = targetFolder.add(cameraDebugState, 'targetX', -20, 20, 0.05)
+    .name('目标 X').onChange(applyCameraDebugPreset);
+  const targetY = targetFolder.add(cameraDebugState, 'targetY', -5, 12, 0.05)
+    .name('目标 Y').onChange(applyCameraDebugPreset);
+  const targetZ = targetFolder.add(cameraDebugState, 'targetZ', -20, 20, 0.05)
+    .name('目标 Z').onChange(applyCameraDebugPreset);
+  const viewHeight = cameraFolder.add(cameraDebugState, 'viewHeight', 3, 36, 0.05)
+    .name('正交视野高度').onChange(applyCameraDebugPreset);
+  const tilt = cameraFolder.add(cameraDebugState, 'tiltDegrees', 0, 90, 0.01).name('倾角°').disable();
+  const azimuth = cameraFolder.add(cameraDebugState, 'azimuthDegrees', -180, 180, 0.01).name('方位角°').disable();
+  const distance = cameraFolder.add(cameraDebugState, 'distance', 0, 100, 0.01).name('镜头距离').disable();
   cameraFolder.add(runtimeTuning, 'cameraFollowResponsiveness', 2, 24, 0.5).name('跟随速度');
   cameraFolder.add(runtimeTuning, 'captureCameraResponsiveness', 6, 36, 0.5).name('拉近速度');
-  cameraFolder.close();
+  cameraFolder.add({ restore: restoreRecommendedCameraPresets }, 'restore').name('恢复三套推荐值');
+  cameraFolder.add({ runtime: returnToRuntimeCamera }, 'runtime').name('返回游戏镜头');
+  cameraFolder.add({ copy: () => void copySelectedCameraPreset('typescript') }, 'copy').name('复制 TypeScript');
+  cameraFolder.add({ copy: () => void copySelectedCameraPreset('json') }, 'copy').name('复制 JSON');
+  cameraValueControllers = [
+    presetController,
+    positionX,
+    positionY,
+    positionZ,
+    targetX,
+    targetY,
+    targetZ,
+    viewHeight,
+  ];
+  cameraMetricControllers = [tilt, azimuth, distance];
+  positionFolder.close();
+  targetFolder.close();
   const movementFolder = gui.addFolder('房间移动（房主）');
   movementFolder
     .add(runtimeTuning, 'childMoveSpeed', 1, 8, 0.05)
@@ -472,8 +571,130 @@ async function installDebugGui(): Promise<void> {
     .add(runtimeTuning, 'flashlightConeDegrees', 5, 90, 1)
     .name('手电宽度°')
     .onChange(queueDebugGameplayTuning);
+  movementFolder.close();
+  sensingFolder.close();
   debugGui = gui;
+  refreshCameraMetrics();
   setDebugUiHidden(debugGuiHidden);
+}
+
+function selectCameraDebugPreset(mode: CameraMode): void {
+  if (cameraDebugState.pointerMode) setCameraPointerMode(false);
+  cameraDebugState.preset = mode;
+  syncCameraDebugState(runtimeTuning.cameraPresets[mode]);
+  developerCameraPreviewMode = mode;
+  cameraSnapRequested = true;
+}
+
+function applyCameraDebugPreset(): void {
+  runtimeTuning.cameraPresets[cameraDebugState.preset] = cameraPresetFromDebugState();
+  developerCameraPreviewMode = cameraDebugState.preset;
+  cameraSnapRequested = true;
+}
+
+function setCameraPointerMode(enabled: boolean): void {
+  if (enabled) {
+    developerCameraPreviewMode = cameraDebugState.preset;
+    const started = cameraRig.startDeveloperControl(
+      cameraDebugState.preset,
+      cameraTargetForMode(cameraDebugState.preset, lastCameraFrame),
+      runtimeTuning.cameraPresets[cameraDebugState.preset],
+    );
+    if (!started) handleCameraPointerModeChanged(false);
+    return;
+  }
+  const preset = cameraRig.stopDeveloperControl();
+  runtimeTuning.cameraPresets[cameraDebugState.preset] = preset;
+  syncCameraDebugState(preset);
+}
+
+function handleDeveloperCameraPoseChanged(): void {
+  const snapshot = cameraRig.snapshot();
+  cameraDebugState.preset = snapshot.mode;
+  runtimeTuning.cameraPresets[snapshot.mode] = cameraRig.currentPreset();
+  syncCameraDebugState(runtimeTuning.cameraPresets[snapshot.mode]);
+  refreshCameraMetrics();
+}
+
+function handleCameraPointerModeChanged(enabled: boolean): void {
+  cameraDebugState.pointerMode = enabled;
+  cameraPointerController
+    ?.name(enabled ? '退出鼠标调镜头' : '进入鼠标调镜头')
+    .updateDisplay();
+  for (const controller of cameraValueControllers) {
+    if (enabled) controller.disable();
+    else controller.enable();
+  }
+}
+
+function returnToRuntimeCamera(): void {
+  if (cameraDebugState.pointerMode) setCameraPointerMode(false);
+  developerCameraPreviewMode = null;
+  cameraSnapRequested = true;
+}
+
+function restoreRecommendedCameraPresets(): void {
+  runtimeTuning.cameraPresets = createRecommendedCameraPresets();
+  syncCameraDebugState(runtimeTuning.cameraPresets[cameraDebugState.preset]);
+  developerCameraPreviewMode = cameraDebugState.preset;
+  cameraSnapRequested = true;
+}
+
+async function copySelectedCameraPreset(format: 'typescript' | 'json'): Promise<void> {
+  const mode = cameraDebugState.preset;
+  const text = formatCameraPreset(mode, runtimeTuning.cameraPresets[mode], format);
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      // Fall through to the legacy copy path when clipboard permission is unavailable.
+    }
+  }
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.append(textarea);
+  textarea.select();
+  document.execCommand('copy');
+  textarea.remove();
+}
+
+function refreshCameraMetrics(): void {
+  if (!debugGui) return;
+  const snapshot = cameraRig.snapshot();
+  cameraDebugState.tiltDegrees = snapshot.tiltDegrees;
+  cameraDebugState.azimuthDegrees = snapshot.azimuthDegrees;
+  cameraDebugState.distance = snapshot.distance;
+  for (const controller of cameraMetricControllers) controller.updateDisplay();
+}
+
+function syncCameraDebugState(preset: CameraPreset): void {
+  cameraDebugState.positionX = preset.position.x;
+  cameraDebugState.positionY = preset.position.y;
+  cameraDebugState.positionZ = preset.position.z;
+  cameraDebugState.targetX = preset.target.x;
+  cameraDebugState.targetY = preset.target.y;
+  cameraDebugState.targetZ = preset.target.z;
+  cameraDebugState.viewHeight = preset.viewHeight;
+  for (const controller of cameraValueControllers) controller.updateDisplay();
+}
+
+function cameraPresetFromDebugState(): CameraPreset {
+  return {
+    position: {
+      x: cameraDebugState.positionX,
+      y: cameraDebugState.positionY,
+      z: cameraDebugState.positionZ,
+    },
+    target: {
+      x: cameraDebugState.targetX,
+      y: cameraDebugState.targetY,
+      z: cameraDebugState.targetZ,
+    },
+    viewHeight: cameraDebugState.viewHeight,
+  };
 }
 
 function queueDebugGameplayTuning(): void {
@@ -505,7 +726,10 @@ function setDebugUiHidden(hidden: boolean): void {
 function updateDiagnostics(frame: ViewerFrame | null): void {
   const network = client.networkStats();
   const presentation = presenter.stats();
-  window.__THREE_GAME_DIAGNOSTICS__ = {
+  const camera = cameraRig.snapshot();
+  const diagnostics: NonNullable<typeof window.__THREE_GAME_DIAGNOSTICS__> & {
+    camera: ReturnType<CameraRig['snapshot']>;
+  } = {
     phase: deterministicState ? (frame?.phase === 'ended' ? 'ended' : 'playing') : client.roomState?.phase ?? 'lobby',
     matchPhase: frame?.phase ?? null,
     deterministicState,
@@ -518,12 +742,9 @@ function updateDiagnostics(frame: ViewerFrame | null): void {
     ackSeq: client.latestFrame?.ackSeq ?? null,
     ownPosition: frame ? ownActorPosition(frame) : null,
     viewerFrame: frame,
-    cameraMode: frame && isCaptureCinematicViewer(frame)
-      ? 'capture-closeup'
-      : frame?.viewerRole === 'child'
-        ? 'follow'
-        : 'whole-house',
-    cameraViewHeight: currentCameraHeight,
+    cameraMode: camera.mode,
+    cameraViewHeight: camera.viewHeight,
+    camera,
     capturedChildPlayerId: frame?.capture?.childPlayerId ?? null,
     tuning: { ...runtimeTuning },
     world: world.metrics(),
@@ -542,6 +763,7 @@ function updateDiagnostics(frame: ViewerFrame | null): void {
       textures: stage.renderer.info.memory.textures,
     },
   };
+  window.__THREE_GAME_DIAGNOSTICS__ = diagnostics;
 }
 
 function formatTime(ticks: number): string {
@@ -553,6 +775,10 @@ function clamp(value: number, minimum: number, maximum: number): number {
   return Math.max(minimum, Math.min(maximum, value));
 }
 
+function isCameraMode(value: string): value is CameraMode {
+  return value === 'follow' || value === 'whole-house' || value === 'capture-closeup';
+}
+
 function normalizeRoomCode(value: string): string {
   return value.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
 }
@@ -560,6 +786,38 @@ function normalizeRoomCode(value: string): string {
 function createTemporaryNickname(): string {
   const adjectives = ['安静', '勇敢', '机灵', '迷路', '警觉', '发光'];
   return `${adjectives[Math.floor(Math.random() * adjectives.length)]}访客${Math.floor(Math.random() * 900 + 100)}`;
+}
+
+interface CameraDebugState {
+  preset: CameraMode;
+  pointerMode: boolean;
+  positionX: number;
+  positionY: number;
+  positionZ: number;
+  targetX: number;
+  targetY: number;
+  targetZ: number;
+  viewHeight: number;
+  tiltDegrees: number;
+  azimuthDegrees: number;
+  distance: number;
+}
+
+function createCameraDebugState(mode: CameraMode, preset: CameraPreset): CameraDebugState {
+  return {
+    preset: mode,
+    pointerMode: false,
+    positionX: preset.position.x,
+    positionY: preset.position.y,
+    positionZ: preset.position.z,
+    targetX: preset.target.x,
+    targetY: preset.target.y,
+    targetZ: preset.target.z,
+    viewHeight: preset.viewHeight,
+    tiltDegrees: 0,
+    azimuthDegrees: 0,
+    distance: 0,
+  };
 }
 
 function requireElement<T extends Element>(selector: string): T {

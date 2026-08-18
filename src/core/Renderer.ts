@@ -5,7 +5,7 @@ const DEFAULT_VIEW_HEIGHT = 22;
 export interface RenderStage {
   renderer: THREE.WebGLRenderer;
   camera: THREE.OrthographicCamera;
-  setView(centerX: number, centerZ: number, viewHeight: number): void;
+  setCameraPose(position: THREE.Vector3, target: THREE.Vector3, viewHeight: number): void;
   resize(): void;
   dispose(): void;
 }
@@ -23,9 +23,9 @@ export function createRenderStage(canvas: HTMLCanvasElement): RenderStage {
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
-  camera.up.set(0, 0, -1);
-  camera.position.set(0, 24, 0.01);
+  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 160);
+  camera.up.set(0, 1, 0);
+  camera.position.set(10, 24, 14);
   camera.lookAt(0, 0, 0);
   let currentViewHeight = DEFAULT_VIEW_HEIGHT;
 
@@ -50,11 +50,11 @@ export function createRenderStage(canvas: HTMLCanvasElement): RenderStage {
   return {
     renderer,
     camera,
-    setView: (centerX, centerZ, viewHeight) => {
+    setCameraPose: (position, target, viewHeight) => {
       const heightChanged = currentViewHeight !== viewHeight;
       currentViewHeight = viewHeight;
-      camera.position.set(centerX, 24, centerZ + 0.01);
-      camera.lookAt(centerX, 0, centerZ);
+      camera.position.copy(position);
+      camera.lookAt(target);
       if (heightChanged) {
         updateProjection(Math.max(1, canvas.clientWidth), Math.max(1, canvas.clientHeight));
       }

@@ -3,10 +3,13 @@ import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 
 const KID_URL = `${import.meta.env.BASE_URL}assets/models/kaykit-adventurers/Rogue_Kid.glb`;
+const GHOST_URL = `${import.meta.env.BASE_URL}assets/models/kaykit-adventurers/Ghost.glb`;
 const WALL_URL = `${import.meta.env.BASE_URL}assets/models/kaykit-medieval/wall_straight.glb`;
 const KID_HEIGHT = 1.5;
+const GHOST_HEIGHT = 1.72;
 const CHILD_TINTS = [0xf0a060, 0xdcb35d, 0xd98265, 0xe2a08d] as const;
 const REQUIRED_CLIPS = ['Idle_A', 'Running_A', 'Hit_A'] as const;
+type CharacterAssetKind = 'kid' | 'ghost';
 
 export type AssetLoadStatus = 'not-requested' | 'loading' | 'ready' | 'failed';
 
@@ -20,64 +23,118 @@ export interface ImportedAssetMetrics {
   clips: string[];
 }
 
-export interface KidAssetInstance {
+export interface CharacterJoints {
+  chest: THREE.Object3D | null;
+  head: THREE.Object3D | null;
+  leftUpperArm: THREE.Object3D | null;
+  rightUpperArm: THREE.Object3D | null;
+  leftLowerArm: THREE.Object3D | null;
+  rightLowerArm: THREE.Object3D | null;
+  leftUpperLeg: THREE.Object3D | null;
+  rightUpperLeg: THREE.Object3D | null;
+  leftLowerLeg: THREE.Object3D | null;
+  rightLowerLeg: THREE.Object3D | null;
+}
+
+export interface CharacterAssetInstance {
+  kind: CharacterAssetKind;
   root: THREE.Group;
   mixer: THREE.AnimationMixer;
   actions: Map<string, THREE.AnimationAction>;
-  lookJoints: {
-    chest: THREE.Object3D | null;
-    head: THREE.Object3D | null;
-  };
+  joints: CharacterJoints;
+  lookJoints: Pick<CharacterJoints, 'chest' | 'head'>;
 }
 
-const diagnostics: { kid: ImportedAssetMetrics; wall: ImportedAssetMetrics } = {
+export type KidAssetInstance = CharacterAssetInstance;
+
+const diagnostics: {
+  kid: ImportedAssetMetrics;
+  ghost: ImportedAssetMetrics;
+  wall: ImportedAssetMetrics;
+} = {
   kid: emptyMetrics(503_252),
+  ghost: emptyMetrics(445_612),
   wall: emptyMetrics(28_752),
 };
-let kidPromise: Promise<GLTF> | null = null;
+const characterPromises: Partial<Record<CharacterAssetKind, Promise<GLTF>>> = {};
 let wallPromise: Promise<GLTF> | null = null;
 
 export async function createKidAssetInstance(slot: number, doll: boolean): Promise<KidAssetInstance> {
-  const gltf = await loadKidAsset();
+  return createCharacterAssetInstance('kid', slot, doll);
+}
+
+export async function createGhostAssetInstance(): Promise<CharacterAssetInstance> {
+  return createCharacterAssetInstance('ghost', 0, false);
+}
+
+async function createCharacterAssetInstance(
+  kind: CharacterAssetKind,
+  slot: number,
+  doll: boolean,
+): Promise<CharacterAssetInstance> {
+  const gltf = await loadCharacterAsset(kind);
   const scene = cloneSkeleton(gltf.scene) as THREE.Group;
+  scene.updateMatrixWorld(true);
   const bounds = new THREE.Box3().setFromObject(scene);
   const size = bounds.getSize(new THREE.Vector3());
   const center = bounds.getCenter(new THREE.Vector3());
-  const scale = KID_HEIGHT / Math.max(size.y, 0.001);
+  const scale = (kind === 'ghost' ? GHOST_HEIGHT : KID_HEIGHT) / Math.max(size.y, 0.001);
   scene.scale.setScalar(scale);
   scene.position.set(-center.x * scale, -bounds.min.y * scale, -center.z * scale);
-  scene.rotation.y = Math.PI / 2;
 
   const tint = new THREE.Color(CHILD_TINTS[slot % CHILD_TINTS.length]);
   if (doll) tint.lerp(new THREE.Color(0x9b8064), 0.42);
+  const materialClones = new Map<THREE.Material, THREE.Material>();
   scene.traverse((object) => {
     if (!(object instanceof THREE.Mesh)) return;
-    object.castShadow = !doll;
+    object.castShadow = kind === 'kid' && !doll;
     object.receiveShadow = true;
     const sourceMaterials = Array.isArray(object.material) ? object.material : [object.material];
     const clonedMaterials = sourceMaterials.map((source) => {
+      const existing = materialClones.get(source);
+      if (existing) return existing;
       const material = source.clone();
       if (material instanceof THREE.MeshStandardMaterial) {
-        material.color.copy(tint).lerp(new THREE.Color(0xffffff), doll ? 0.24 : 0.36);
-        material.emissive.copy(tint);
-        material.emissiveIntensity = doll ? 0.46 : 0.3;
-        material.roughness = doll ? 0.94 : 0.78;
-        material.metalness = 0;
+        if (kind === 'ghost') {
+          material.color.set(0x879bb5);
+          material.emissive.set(0x172d4d);
+          material.emissiveIntensity = 0.7;
+          material.roughness = 0.68;
+          material.metalness = 0.04;
+          material.transparent = true;
+          material.opacity = 0.9;
+          material.depthWrite = true;
+        } else {
+          material.color.copy(tint).lerp(new THREE.Color(0xffffff), doll ? 0.24 : 0.36);
+          material.emissive.copy(tint);
+          material.emissiveIntensity = doll ? 0.46 : 0.3;
+          material.roughness = doll ? 0.94 : 0.78;
+          material.metalness = 0;
+        }
       }
+      materialClones.set(source, material);
       return material;
     });
     object.material = Array.isArray(object.material) ? clonedMaterials : clonedMaterials[0];
   });
 
+  const oriented = new THREE.Group();
+  oriented.name = `${kind}-normalized-model`;
+  oriented.rotation.y = Math.PI / 2;
+  oriented.add(scene);
   const root = new THREE.Group();
-  root.name = doll ? 'kaykit-sensing-doll' : 'kaykit-rogue-child';
-  root.add(scene);
+  root.name = kind === 'ghost'
+    ? 'kaykit-spectral-ghost'
+    : doll
+      ? 'kaykit-sensing-doll'
+      : 'kaykit-rogue-child';
+  root.add(oriented);
 
   const mixer = new THREE.AnimationMixer(scene);
   const actions = new Map<string, THREE.AnimationAction>();
   for (const name of REQUIRED_CLIPS) {
     const clip = gltf.animations.find((candidate) => candidate.name === name);
-    if (!clip) throw new Error(`Rogue Kid is missing required animation ${name}.`);
+    if (!clip) throw new Error(`${kind} asset is missing required animation ${name}.`);
     const action = mixer.clipAction(clip);
     action.setLoop(
       name === 'Hit_A' ? THREE.LoopOnce : THREE.LoopRepeat,
@@ -87,14 +144,25 @@ export async function createKidAssetInstance(slot: number, doll: boolean): Promi
     actions.set(name, action);
   }
   actions.get('Idle_A')?.play();
+  const joints: CharacterJoints = {
+    chest: findObjectByName(scene, 'chest'),
+    head: findObjectByName(scene, 'head'),
+    leftUpperArm: findObjectByName(scene, 'upperarm.l'),
+    rightUpperArm: findObjectByName(scene, 'upperarm.r'),
+    leftLowerArm: findObjectByName(scene, 'lowerarm.l'),
+    rightLowerArm: findObjectByName(scene, 'lowerarm.r'),
+    leftUpperLeg: findObjectByName(scene, 'upperleg.l'),
+    rightUpperLeg: findObjectByName(scene, 'upperleg.r'),
+    leftLowerLeg: findObjectByName(scene, 'lowerleg.l'),
+    rightLowerLeg: findObjectByName(scene, 'lowerleg.r'),
+  };
   return {
+    kind,
     root,
     mixer,
     actions,
-    lookJoints: {
-      chest: findObjectByName(scene, 'chest'),
-      head: findObjectByName(scene, 'head'),
-    },
+    joints,
+    lookJoints: { chest: joints.chest, head: joints.head },
   };
 }
 
@@ -138,22 +206,30 @@ export async function createWallVisuals(
   return group;
 }
 
-export function importedAssetMetrics(): Readonly<{ kid: ImportedAssetMetrics; wall: ImportedAssetMetrics }> {
+export function importedAssetMetrics(): Readonly<{
+  kid: ImportedAssetMetrics;
+  ghost: ImportedAssetMetrics;
+  wall: ImportedAssetMetrics;
+}> {
   return diagnostics;
 }
 
-function loadKidAsset(): Promise<GLTF> {
-  if (!kidPromise) {
-    diagnostics.kid.status = 'loading';
-    kidPromise = new GLTFLoader().loadAsync(KID_URL).then((gltf) => {
-      diagnostics.kid = inspectGltf(gltf, 503_252);
+function loadCharacterAsset(kind: CharacterAssetKind): Promise<GLTF> {
+  let promise = characterPromises[kind];
+  if (!promise) {
+    const url = kind === 'ghost' ? GHOST_URL : KID_URL;
+    const fileBytes = kind === 'ghost' ? 445_612 : 503_252;
+    diagnostics[kind].status = 'loading';
+    promise = new GLTFLoader().loadAsync(url).then((gltf) => {
+      diagnostics[kind] = inspectGltf(gltf, fileBytes);
       return gltf;
     }).catch((error: unknown) => {
-      diagnostics.kid.status = 'failed';
+      diagnostics[kind].status = 'failed';
       throw error;
     });
+    characterPromises[kind] = promise;
   }
-  return kidPromise;
+  return promise;
 }
 
 function loadWallAsset(): Promise<GLTF> {
