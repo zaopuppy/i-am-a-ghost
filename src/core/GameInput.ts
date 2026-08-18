@@ -2,7 +2,6 @@ import type { Vec2 } from '../game/MatchEngine';
 
 export class GameInput {
   private readonly pressed = new Set<string>();
-  private action = false;
 
   constructor() {
     window.addEventListener('keydown', this.onKeyDown);
@@ -18,7 +17,7 @@ export class GameInput {
   }
 
   actionHeld(): boolean {
-    return this.action;
+    return this.pressed.has('Space');
   }
 
   dispose(): void {
@@ -31,21 +30,16 @@ export class GameInput {
     if (isEditableTarget(event.target)) return;
     if (isGameKey(event.code)) event.preventDefault();
     this.pressed.add(event.code);
-    if (event.code === 'Space') {
-      this.action = true;
-    }
   };
 
   private readonly onKeyUp = (event: KeyboardEvent): void => {
     if (isEditableTarget(event.target)) return;
     if (isGameKey(event.code)) event.preventDefault();
     this.pressed.delete(event.code);
-    if (event.code === 'Space') this.action = false;
   };
 
   private readonly clear = (): void => {
     this.pressed.clear();
-    this.action = false;
   };
 }
 

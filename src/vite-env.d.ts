@@ -40,11 +40,10 @@ interface GhostGameDiagnostics {
     visibleObjects: number;
     materials: number;
     animatedActors: number;
-    assets: {
-      kid: ImportedAssetDiagnostics;
-      ghost: ImportedAssetDiagnostics;
-      wall: ImportedAssetDiagnostics;
-    };
+      assets: {
+        kid: ImportedAssetDiagnostics;
+        ghost: ImportedAssetDiagnostics;
+      };
   };
   audio: {
     unlocked: boolean;

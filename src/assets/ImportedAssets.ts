@@ -4,7 +4,6 @@ import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 
 const KID_URL = `${import.meta.env.BASE_URL}assets/models/kaykit-adventurers/Rogue_Kid.glb`;
 const GHOST_URL = `${import.meta.env.BASE_URL}assets/models/kaykit-adventurers/Ghost.glb`;
-const WALL_URL = `${import.meta.env.BASE_URL}assets/models/kaykit-medieval/wall_straight.glb`;
 const KID_HEIGHT = 1.5;
 const GHOST_HEIGHT = 1.72;
 const CHILD_TINTS = [0xf0a060, 0xdcb35d, 0xd98265, 0xe2a08d] as const;
@@ -50,14 +49,11 @@ export type KidAssetInstance = CharacterAssetInstance;
 const diagnostics: {
   kid: ImportedAssetMetrics;
   ghost: ImportedAssetMetrics;
-  wall: ImportedAssetMetrics;
 } = {
   kid: emptyMetrics(503_252),
   ghost: emptyMetrics(445_612),
-  wall: emptyMetrics(28_752),
 };
 const characterPromises: Partial<Record<CharacterAssetKind, Promise<GLTF>>> = {};
-let wallPromise: Promise<GLTF> | null = null;
 
 export async function createKidAssetInstance(slot: number, doll: boolean): Promise<KidAssetInstance> {
   return createCharacterAssetInstance('kid', slot, doll);
@@ -174,50 +170,9 @@ function findObjectByName(root: THREE.Object3D, name: string): THREE.Object3D | 
   return match;
 }
 
-export async function createWallVisuals(
-  walls: ReadonlyArray<{ minX: number; maxX: number; minZ: number; maxZ: number }>,
-  material: THREE.Material,
-  wallHeight = 0.72,
-): Promise<THREE.Group> {
-  const gltf = await loadWallAsset();
-  const sourceBounds = new THREE.Box3().setFromObject(gltf.scene);
-  const sourceSize = sourceBounds.getSize(new THREE.Vector3());
-  const group = new THREE.Group();
-  group.name = 'kaykit-wall-visuals';
-  for (const wall of walls) {
-    const width = wall.maxX - wall.minX;
-    const depth = wall.maxZ - wall.minZ;
-    const visual = gltf.scene.clone(true);
-    visual.traverse((object) => {
-      if (object instanceof THREE.Mesh) {
-        object.material = material;
-        object.castShadow = true;
-        object.receiveShadow = true;
-      }
-    });
-    if (width >= depth) {
-      visual.scale.set(width / sourceSize.x, wallHeight / sourceSize.y, depth / sourceSize.z);
-    } else {
-      visual.rotation.y = Math.PI / 2;
-      visual.scale.set(depth / sourceSize.x, wallHeight / sourceSize.y, width / sourceSize.z);
-    }
-    visual.updateMatrixWorld(true);
-    const visualBounds = new THREE.Box3().setFromObject(visual);
-    const visualCenter = visualBounds.getCenter(new THREE.Vector3());
-    visual.position.set(
-      (wall.minX + wall.maxX) / 2 - visualCenter.x,
-      -visualBounds.min.y,
-      (wall.minZ + wall.maxZ) / 2 - visualCenter.z,
-    );
-    group.add(visual);
-  }
-  return group;
-}
-
 export function importedAssetMetrics(): Readonly<{
   kid: ImportedAssetMetrics;
   ghost: ImportedAssetMetrics;
-  wall: ImportedAssetMetrics;
 }> {
   return diagnostics;
 }
@@ -238,20 +193,6 @@ function loadCharacterAsset(kind: CharacterAssetKind): Promise<GLTF> {
     characterPromises[kind] = promise;
   }
   return promise;
-}
-
-function loadWallAsset(): Promise<GLTF> {
-  if (!wallPromise) {
-    diagnostics.wall.status = 'loading';
-    wallPromise = new GLTFLoader().loadAsync(WALL_URL).then((gltf) => {
-      diagnostics.wall = inspectGltf(gltf, 28_752);
-      return gltf;
-    }).catch((error: unknown) => {
-      diagnostics.wall.status = 'failed';
-      throw error;
-    });
-  }
-  return wallPromise;
 }
 
 function inspectGltf(gltf: GLTF, fileBytes: number): ImportedAssetMetrics {

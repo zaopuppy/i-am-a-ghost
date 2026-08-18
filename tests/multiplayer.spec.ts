@@ -99,9 +99,6 @@ test('two browser pages join, start, and move through the authoritative input pa
   await expect
     .poll(() => ghostPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.world.assets.kid.status))
     .toBe('ready');
-  await expect
-    .poll(() => ghostPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.world.assets.wall.status))
-    .toBe('ready');
   await host.locator('#audio-toggle').click();
   await host.locator('#audio-toggle').click();
   await expect
@@ -151,11 +148,54 @@ test('two browser pages join, start, and move through the authoritative input pa
   await expect
     .poll(() => childPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.world.beams ?? 0))
     .toBe(1);
+  const litMovementStartX = await childPage.evaluate(
+    () => window.__THREE_GAME_DIAGNOSTICS__?.ownPosition?.x ?? null,
+  );
+  expect(litMovementStartX).not.toBeNull();
+  await childPage.keyboard.down('f');
+  await expect
+    .poll(() => childPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.ownPosition?.x ?? null))
+    .toBeGreaterThan((litMovementStartX ?? 0) + 0.1);
+  await expect
+    .poll(() => childPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.world.beams ?? 0))
+    .toBe(1);
+  const movingFlashlightFrame = await childPage.locator('#game-canvas').screenshot();
+  await childPage.keyboard.up('f');
+  await expect
+    .poll(() => childPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.world.beams ?? 0))
+    .toBe(1);
   await childPage.waitForTimeout(160);
   await childPage.evaluate(() => window.dispatchEvent(new Event('blur')));
   await expect
     .poll(() => childPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.world.beams ?? 0))
     .toBe(0);
+  const { PNG } = await import('pngjs');
+  const movingImage = PNG.sync.read(movingFlashlightFrame);
+  const coneBounds = {
+    minX: Math.floor(movingImage.width * 0.23),
+    maxX: Math.floor(movingImage.width * 0.36),
+    minY: Math.floor(movingImage.height * 0.09),
+    maxY: Math.floor(movingImage.height * 0.25),
+  };
+  let conePixels = 0;
+  let coneArea = 0;
+  for (let y = coneBounds.minY; y < coneBounds.maxY; y += 1) {
+    for (let x = coneBounds.minX; x < coneBounds.maxX; x += 1) {
+      const offset = (y * movingImage.width + x) * 4;
+      const red = movingImage.data[offset];
+      const green = movingImage.data[offset + 1];
+      const blue = movingImage.data[offset + 2];
+      const luma = red * 0.2126 + green * 0.7152 + blue * 0.0722;
+      if (red > blue * 1.35 && green > blue * 1.2 && luma > 55) conePixels += 1;
+      coneArea += 1;
+    }
+  }
+  await test.info().attach('moving-flashlight.png', {
+    body: movingFlashlightFrame,
+    contentType: 'image/png',
+  });
+  const conePixelRatio = conePixels / coneArea;
+  expect(conePixelRatio, `moving flashlight cone-pixel ratio: ${conePixelRatio}`).toBeGreaterThan(0.01);
   await childPage.keyboard.up(' ');
   const batteryAfter = await childPage.evaluate(() => {
     const frame = window.__THREE_GAME_DIAGNOSTICS__?.viewerFrame;

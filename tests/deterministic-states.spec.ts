@@ -199,7 +199,6 @@ async function openState(page: Page, state: string): Promise<void> {
         && diagnostics.frame > 10
         && diagnostics.world.assets.kid.status === 'ready'
         && (!frameHasGhost || diagnostics.world.assets.ghost.status === 'ready')
-        && diagnostics.world.assets.wall.status === 'ready'
         && diagnostics.world.pendingAssetUpgrades === 0;
     },
     state,

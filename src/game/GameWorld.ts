@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import {
   createGhostAssetInstance,
   createKidAssetInstance,
-  createWallVisuals,
   importedAssetMetrics,
   type CharacterAssetInstance,
 } from '../assets/ImportedAssets';
@@ -104,7 +103,7 @@ export class GameWorld {
   private readonly actors = new Map<string, ActorVisual>();
   private readonly materials: HouseMaterialKit = createHouseMaterialKit();
   private readonly batteries = [createBattery(this.materials), createBattery(this.materials)];
-  private readonly fallbackWalls = new THREE.Group();
+  private readonly walls = new THREE.Group();
   private readonly activeFlashlights = new Array<THREE.SpotLight>();
   private flashlightLength = DEFAULT_GAMEPLAY_TUNING.flashlightLength;
   private flashlightConeDegrees = DEFAULT_GAMEPLAY_TUNING.flashlightConeDegrees;
@@ -128,7 +127,6 @@ export class GameWorld {
     warmFill.position.set(10, 7, -8);
     this.scene.add(warmFill);
     this.buildHouse();
-    void this.upgradeWalls();
     for (const battery of this.batteries) {
       battery.root.visible = false;
       this.scene.add(battery.root);
@@ -289,7 +287,7 @@ export class GameWorld {
       this.scene.add(tile);
     }
 
-    this.fallbackWalls.name = 'procedural-wall-fallback';
+    this.walls.name = 'box-walls';
     for (const wall of HOUSE_WALLS) {
       const mesh = new THREE.Mesh(
         new THREE.BoxGeometry(wall.maxX - wall.minX, WALL_HEIGHT, wall.maxZ - wall.minZ),
@@ -299,31 +297,12 @@ export class GameWorld {
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       mesh.layers.enable(FLASHLIGHT_OCCLUDER_LAYER);
-      this.fallbackWalls.add(mesh);
+      this.walls.add(mesh);
       const edges = new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry), this.materials.trim);
       edges.position.copy(mesh.position);
-      this.fallbackWalls.add(edges);
+      this.walls.add(edges);
     }
-    this.scene.add(this.fallbackWalls);
-  }
-
-  private async upgradeWalls(): Promise<void> {
-    this.pendingAssetUpgrades += 1;
-    try {
-      const importedWalls = await createWallVisuals(HOUSE_WALLS, this.materials.wall, WALL_HEIGHT);
-      importedWalls.traverse((object) => {
-        if (object instanceof THREE.Mesh) object.layers.enable(FLASHLIGHT_OCCLUDER_LAYER);
-      });
-      this.scene.add(importedWalls);
-      this.scene.remove(this.fallbackWalls);
-      this.fallbackWalls.traverse((object) => {
-        if (object instanceof THREE.Mesh || object instanceof THREE.LineSegments) object.geometry.dispose();
-      });
-    } catch {
-      this.fallbackWalls.visible = true;
-    } finally {
-      this.pendingAssetUpgrades -= 1;
-    }
+    this.scene.add(this.walls);
   }
 
   private actor(id: string, kind: 'child' | 'ghost' | 'doll', slot: number): ActorVisual {

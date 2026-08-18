@@ -2,6 +2,16 @@ import * as THREE from 'three';
 
 const DEFAULT_VIEW_HEIGHT = 22;
 const VOLUME_SAMPLE_COUNT = 28;
+const VOLUME_SHADOW_SIZE = 512;
+
+export function createWebGlShadowBiasMatrix(): THREE.Matrix4 {
+  return new THREE.Matrix4().set(
+    0.5, 0, 0, 0.5,
+    0, 0.5, 0, 0.5,
+    0, 0, 0.5, 0.5,
+    0, 0, 0, 1,
+  );
+}
 
 const FULLSCREEN_VERTEX_SHADER = `
   varying vec2 vUv;
@@ -18,6 +28,7 @@ const COPY_FRAGMENT_SHADER = `
 
   void main() {
     gl_FragColor = texture2D(uSceneColor, vUv);
+    #include <colorspace_fragment>
   }
 `;
 
@@ -25,7 +36,7 @@ const VOLUME_FRAGMENT_SHADER = `
   #define VOLUME_SAMPLE_COUNT ${VOLUME_SAMPLE_COUNT}
 
   uniform sampler2D uSceneDepth;
-  uniform sampler2DShadow uShadowDepth;
+  uniform sampler2D uShadowDepth;
   uniform mat4 uProjectionInverse;
   uniform mat4 uCameraWorld;
   uniform mat4 uShadowMatrix;
@@ -64,10 +75,10 @@ const VOLUME_FRAGMENT_SHADER = `
     vec2 texel = uShadowTexelSize * 0.72;
     float receiverDepth = projected.z - uShadowBias;
     float visibility = 0.0;
-    visibility += texture(uShadowDepth, vec3(projected.xy + vec2(-texel.x, -texel.y), receiverDepth));
-    visibility += texture(uShadowDepth, vec3(projected.xy + vec2( texel.x, -texel.y), receiverDepth));
-    visibility += texture(uShadowDepth, vec3(projected.xy + vec2(-texel.x,  texel.y), receiverDepth));
-    visibility += texture(uShadowDepth, vec3(projected.xy + vec2( texel.x,  texel.y), receiverDepth));
+    visibility += step(receiverDepth, texture2D(uShadowDepth, projected.xy + vec2(-texel.x, -texel.y)).r);
+    visibility += step(receiverDepth, texture2D(uShadowDepth, projected.xy + vec2( texel.x, -texel.y)).r);
+    visibility += step(receiverDepth, texture2D(uShadowDepth, projected.xy + vec2(-texel.x,  texel.y)).r);
+    visibility += step(receiverDepth, texture2D(uShadowDepth, projected.xy + vec2( texel.x,  texel.y)).r);
     return visibility * 0.25;
   }
 
@@ -161,6 +172,28 @@ export function createRenderStage(canvas: HTMLCanvasElement): RenderStage {
   sceneTarget.depthTexture.minFilter = THREE.NearestFilter;
   sceneTarget.depthTexture.magFilter = THREE.NearestFilter;
 
+  const volumeShadowTarget = new THREE.WebGLRenderTarget(
+    VOLUME_SHADOW_SIZE,
+    VOLUME_SHADOW_SIZE,
+    {
+      minFilter: THREE.NearestFilter,
+      magFilter: THREE.NearestFilter,
+      depthBuffer: true,
+      stencilBuffer: false,
+    },
+  );
+  volumeShadowTarget.texture.name = 'volumetric-flashlight-shadow-color';
+  volumeShadowTarget.depthTexture = new THREE.DepthTexture(
+    VOLUME_SHADOW_SIZE,
+    VOLUME_SHADOW_SIZE,
+    THREE.UnsignedIntType,
+  );
+  volumeShadowTarget.depthTexture.name = 'volumetric-flashlight-shadow-depth';
+  volumeShadowTarget.depthTexture.format = THREE.DepthFormat;
+  volumeShadowTarget.depthTexture.compareFunction = null;
+  volumeShadowTarget.depthTexture.minFilter = THREE.NearestFilter;
+  volumeShadowTarget.depthTexture.magFilter = THREE.NearestFilter;
+
   const copyMaterial = new THREE.ShaderMaterial({
     name: 'volumetric-scene-copy',
     uniforms: {
@@ -207,6 +240,9 @@ export function createRenderStage(canvas: HTMLCanvasElement): RenderStage {
   const lightOrigin = new THREE.Vector3();
   const lightTarget = new THREE.Vector3();
   const lightDirection = new THREE.Vector3();
+  const volumeShadowCamera = new THREE.PerspectiveCamera(36, 1, 0.08, 12);
+  const shadowBiasMatrix = createWebGlShadowBiasMatrix();
+  const volumeShadowMatrix = new THREE.Matrix4();
 
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 160);
   camera.up.set(0, 1, 0);
@@ -244,6 +280,11 @@ export function createRenderStage(canvas: HTMLCanvasElement): RenderStage {
     }
 
     const previousAutoClear = renderer.autoClear;
+    for (const light of flashlights) {
+      light.updateWorldMatrix(true, false);
+      light.target.updateWorldMatrix(true, false);
+      light.shadow.needsUpdate = true;
+    }
     renderer.setRenderTarget(sceneTarget);
     renderer.autoClear = true;
     renderer.render(scene, camera);
@@ -257,9 +298,7 @@ export function createRenderStage(canvas: HTMLCanvasElement): RenderStage {
     volumeMaterial.uniforms.uProjectionInverse.value.copy(camera.projectionMatrixInverse);
     volumeMaterial.uniforms.uCameraWorld.value.copy(camera.matrixWorld);
     for (const light of flashlights) {
-      const shadowMap = light.shadow.map;
-      const shadowDepth = shadowMap?.depthTexture;
-      if (!shadowMap || !shadowDepth || light.intensity <= 0) continue;
+      if (light.intensity <= 0) continue;
 
       light.getWorldPosition(lightOrigin);
       light.target.getWorldPosition(lightTarget);
@@ -268,8 +307,31 @@ export function createRenderStage(canvas: HTMLCanvasElement): RenderStage {
       const farRadius = Math.tan(light.angle) * length;
       const boundsRadius = Math.hypot(length * 0.5, farRadius);
 
-      volumeMaterial.uniforms.uShadowDepth.value = shadowDepth;
-      volumeMaterial.uniforms.uShadowMatrix.value.copy(light.shadow.matrix);
+      volumeShadowCamera.fov = THREE.MathUtils.radToDeg(light.angle * 2);
+      volumeShadowCamera.near = Math.max(0.01, light.shadow.camera.near);
+      volumeShadowCamera.far = length;
+      volumeShadowCamera.layers.mask = light.shadow.camera.layers.mask;
+      volumeShadowCamera.position.copy(lightOrigin);
+      volumeShadowCamera.lookAt(lightTarget);
+      volumeShadowCamera.updateProjectionMatrix();
+      volumeShadowCamera.updateMatrixWorld(true);
+      volumeShadowMatrix
+        .copy(shadowBiasMatrix)
+        .multiply(volumeShadowCamera.projectionMatrix)
+        .multiply(volumeShadowCamera.matrixWorldInverse);
+
+      const shadowMapEnabled = renderer.shadowMap.enabled;
+      renderer.shadowMap.enabled = false;
+      renderer.setRenderTarget(volumeShadowTarget);
+      renderer.autoClear = true;
+      renderer.clear();
+      renderer.render(scene, volumeShadowCamera);
+      renderer.shadowMap.enabled = shadowMapEnabled;
+      renderer.setRenderTarget(null);
+      renderer.autoClear = false;
+
+      volumeMaterial.uniforms.uShadowDepth.value = volumeShadowTarget.depthTexture;
+      volumeMaterial.uniforms.uShadowMatrix.value.copy(volumeShadowMatrix);
       volumeMaterial.uniforms.uLightOrigin.value.copy(lightOrigin);
       volumeMaterial.uniforms.uLightDirection.value.copy(lightDirection);
       volumeMaterial.uniforms.uLightColor.value.copy(light.color).multiplyScalar(
@@ -281,7 +343,10 @@ export function createRenderStage(canvas: HTMLCanvasElement): RenderStage {
       volumeMaterial.uniforms.uBoundsRadius.value = boundsRadius;
       volumeMaterial.uniforms.uLightLength.value = length;
       volumeMaterial.uniforms.uConeAngle.value = light.angle;
-      volumeMaterial.uniforms.uShadowTexelSize.value.set(1 / shadowMap.width, 1 / shadowMap.height);
+      volumeMaterial.uniforms.uShadowTexelSize.value.set(
+        1 / VOLUME_SHADOW_SIZE,
+        1 / VOLUME_SHADOW_SIZE,
+      );
       postQuad.material = volumeMaterial;
       renderer.render(postScene, postCamera);
     }
@@ -309,6 +374,7 @@ export function createRenderStage(canvas: HTMLCanvasElement): RenderStage {
       copyMaterial.dispose();
       volumeMaterial.dispose();
       sceneTarget.dispose();
+      volumeShadowTarget.dispose();
       renderer.dispose();
     },
   };

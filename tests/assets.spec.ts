@@ -1,13 +1,15 @@
 import { expect, test } from '@playwright/test';
 
-test('failed GLB requests keep the procedural house fallback playable', async ({ page }) => {
-  await page.route('**/*.glb', (route) => route.abort());
-  await page.goto('/');
-  await expect(page.getByTestId('network-status')).toHaveText('局域网房间服务已连接');
-  await expect
-    .poll(() => page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.world.assets.wall.status))
-    .toBe('failed');
+test('the house uses procedural box walls without requesting a wall GLB', async ({ page }) => {
+  let wallRequests = 0;
+  await page.route('**/wall_straight.glb', (route) => {
+    wallRequests += 1;
+    void route.abort();
+  });
+  await page.goto('/?testState=child-playing');
+  await page.waitForFunction(() => (window.__THREE_GAME_DIAGNOSTICS__?.frame ?? 0) > 10);
   const diagnostics = await page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__);
+  expect(wallRequests).toBe(0);
   expect(diagnostics?.renderer.calls).toBeGreaterThan(0);
   expect(diagnostics?.world.walls).toBe(22);
 });
@@ -26,8 +28,7 @@ test('a failed Ghost GLB request keeps the procedural ghost fallback playable', 
     return diagnostics
       && diagnostics.frame > 10
       && diagnostics.world.assets.ghost.status === 'failed'
-      && diagnostics.world.assets.kid.status === 'ready'
-      && diagnostics.world.assets.wall.status === 'ready';
+      && diagnostics.world.assets.kid.status === 'ready';
   });
 
   const diagnostics = await page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__);
