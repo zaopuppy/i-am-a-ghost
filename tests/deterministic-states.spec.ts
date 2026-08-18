@@ -1,7 +1,14 @@
 import { expect, test, type Page } from '@playwright/test';
 import { PNG } from 'pngjs';
 
-const VISUAL_STATES = ['child-playing', 'ghost-playing', 'low-battery', 'capture', 'child-win'] as const;
+const VISUAL_STATES = [
+  'child-playing',
+  'flashlight-off-range',
+  'ghost-playing',
+  'low-battery',
+  'capture',
+  'child-win',
+] as const;
 
 for (const state of VISUAL_STATES) {
   test(`${state} deterministic visual baseline`, async ({ page }) => {
@@ -11,6 +18,9 @@ for (const state of VISUAL_STATES) {
 
     const png = PNG.sync.read(await page.locator('#game-canvas').screenshot());
     expect(lumaRange(png)).toBeGreaterThan(20);
+    if (state === 'flashlight-off-range') {
+      expect(illuminatedPixelRatio(png, 0.55, 0.47, 0.67, 0.57)).toBeGreaterThan(0.04);
+    }
     if (state === 'ghost-playing') {
       const diagnostics = await page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__);
       expect(diagnostics?.world.assets.ghost).toMatchObject({
@@ -187,7 +197,8 @@ async function openState(page: Page, state: string): Promise<void> {
         && diagnostics.frame > 10
         && diagnostics.world.assets.kid.status === 'ready'
         && (!frameHasGhost || diagnostics.world.assets.ghost.status === 'ready')
-        && diagnostics.world.assets.wall.status === 'ready';
+        && diagnostics.world.assets.wall.status === 'ready'
+        && diagnostics.world.pendingAssetUpgrades === 0;
     },
     state,
   );
@@ -225,4 +236,31 @@ function lumaRange(png: PNG): number {
     maximum = Math.max(maximum, luma);
   }
   return maximum - minimum;
+}
+
+function illuminatedPixelRatio(
+  png: PNG,
+  leftRatio: number,
+  topRatio: number,
+  rightRatio: number,
+  bottomRatio: number,
+): number {
+  const left = Math.floor(png.width * leftRatio);
+  const top = Math.floor(png.height * topRatio);
+  const right = Math.ceil(png.width * rightRatio);
+  const bottom = Math.ceil(png.height * bottomRatio);
+  let illuminatedPixels = 0;
+  let totalPixels = 0;
+  for (let y = top; y < bottom; y += 1) {
+    for (let x = left; x < right; x += 1) {
+      const index = (y * png.width + x) * 4;
+      const luma =
+        png.data[index] * 0.2126 +
+        png.data[index + 1] * 0.7152 +
+        png.data[index + 2] * 0.0722;
+      if (luma > 12) illuminatedPixels += 1;
+      totalPixels += 1;
+    }
+  }
+  return illuminatedPixels / Math.max(1, totalPixels);
 }

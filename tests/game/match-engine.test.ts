@@ -471,7 +471,7 @@ test('headlamps report ghost distance without wall occlusion', () => {
   );
 });
 
-test('low charge creates at most one deterministic battery', () => {
+test('charge below 70 percent creates one battery and below 50 percent creates two', () => {
   const engine = new MatchEngine({
     seed: 23,
     map: {
@@ -486,16 +486,19 @@ test('low charge creates at most one deterministic battery', () => {
     childPlayerIds: ['child'],
   });
 
-  const spawned = engine.advance(
+  const firstSpawn = engine.advance(
     [{ playerId: 'child', move: { x: 0, z: 0 }, facingRadians: Math.PI, action: true }],
-    409,
+    145,
   );
-  assert.ok(spawned.checkpoint.battery);
-  assert.ok(spawned.events.some((event) => event.type === 'battery-spawned'));
+  assert.equal(firstSpawn.checkpoint.batteries.length, 1);
+  assert.ok(firstSpawn.events.some((event) => event.type === 'battery-spawned'));
 
-  const batteryId = spawned.checkpoint.battery.id;
-  engine.advance([], 30);
-  assert.equal(engine.checkpoint().battery?.id, batteryId);
+  const firstBatteryId = firstSpawn.checkpoint.batteries[0].id;
+  const secondSpawn = engine.advance([], 96);
+  assert.equal(secondSpawn.checkpoint.batteries.length, 2);
+  assert.equal(secondSpawn.checkpoint.batteries[0].id, firstBatteryId);
+  assert.equal(new Set(secondSpawn.checkpoint.batteries.map((battery) => battery.spawnIndex)).size, 2);
+  assert.ok(secondSpawn.events.some((event) => event.type === 'battery-spawned'));
 });
 
 test('only a child can collect a battery and refill to full charge', () => {
@@ -511,7 +514,7 @@ test('only a child can collect a battery and refill to full charge', () => {
 
   engine.advance(
     [{ playerId: 'child', move: { x: 0, z: 0 }, facingRadians: Math.PI, action: true }],
-    409,
+    145,
   );
   const collected = engine.advance([
     { playerId: 'child', move: { x: 0, z: 0 }, facingRadians: Math.PI, action: false },
@@ -520,6 +523,7 @@ test('only a child can collect a battery and refill to full charge', () => {
   const child = collected.checkpoint.players.find((player) => player.id === 'child');
   assert.ok(child);
   assert.equal(child.battery, 1);
+  assert.deepEqual(collected.checkpoint.batteries, []);
   assert.equal(collected.checkpoint.battery, null);
   assert.ok(collected.events.some((event) => event.type === 'battery-collected'));
 });

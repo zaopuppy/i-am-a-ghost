@@ -75,6 +75,7 @@ export interface MatchCheckpoint {
   randomState: number;
   players: PlayerCheckpoint[];
   dolls: DollCheckpoint[];
+  batteries: BatteryCheckpoint[];
   battery: BatteryCheckpoint | null;
 }
 
@@ -111,7 +112,8 @@ export const MATCH_RULES = Object.freeze({
   captureContactRange: 0.98,
   capturesToWin: 3,
   headlampDetectionRange: 6,
-  batterySpawnThreshold: 0.15,
+  batterySpawnThreshold: 0.7,
+  batteryDoubleSpawnThreshold: 0.5,
   batteryPickupRadius: 0.75,
 });
 
@@ -148,7 +150,7 @@ export class MatchEngine {
   private events: MatchEvent[] = [];
   private randomState: number;
   private batterySerial = 0;
-  private battery: BatteryCheckpoint | null = null;
+  private readonly batteries: BatteryCheckpoint[] = [];
   private gameplayTuning: GameplayTuning;
 
   constructor(private readonly setup: MatchSetup) {
@@ -223,6 +225,10 @@ export class MatchEngine {
 
   checkpoint(): MatchCheckpoint {
     this.updateHeadlamps();
+    const batteries = this.batteries.map((battery) => ({
+      ...battery,
+      position: { ...battery.position },
+    }));
     return {
       tick: this.tick,
       phase: this.phase,
@@ -240,7 +246,10 @@ export class MatchEngine {
         position: { ...player.position },
       })),
       dolls: this.dolls.map((doll) => ({ ...doll, position: { ...doll.position } })),
-      battery: this.battery ? { ...this.battery, position: { ...this.battery.position } } : null,
+      batteries,
+      battery: batteries[0]
+        ? { ...batteries[0], position: { ...batteries[0].position } }
+        : null,
     };
   }
 
@@ -404,46 +413,63 @@ export class MatchEngine {
   }
 
   private updateBattery(): void {
-    if (this.battery) {
+    for (let index = 0; index < this.batteries.length; index += 1) {
+      const battery = this.batteries[index];
       const collector = this.players
-        .filter((player) => player.role === 'child' && player.active)
+        .filter(
+          (player) =>
+            player.role === 'child' &&
+            player.active &&
+            player.battery !== null &&
+            player.battery < 1,
+        )
         .filter(
           (player) =>
             Math.hypot(
-              player.position.x - this.battery!.position.x,
-              player.position.z - this.battery!.position.z,
+              player.position.x - battery.position.x,
+              player.position.z - battery.position.z,
             ) <= MATCH_RULES.batteryPickupRadius,
         )
         .sort((left, right) => left.id.localeCompare(right.id))[0];
-      if (!collector) return;
+      if (!collector) continue;
 
-      const batteryId = this.battery.id;
       collector.battery = 1;
-      this.battery = null;
-      this.emit({ type: 'battery-collected', batteryId, childPlayerId: collector.id });
-      return;
+      this.batteries.splice(index, 1);
+      this.emit({ type: 'battery-collected', batteryId: battery.id, childPlayerId: collector.id });
+      break;
     }
 
-    const needsBattery = this.players.some(
-      (player) =>
-        player.role === 'child' &&
-        player.active &&
-        player.battery !== null &&
-        player.battery < MATCH_RULES.batterySpawnThreshold,
-    );
-    if (!needsBattery || this.setup.map.batterySpawns.length === 0) return;
+    const activeCharges = this.players
+      .filter((player) => player.role === 'child' && player.active && player.battery !== null)
+      .map((player) => player.battery as number);
+    const lowestCharge = activeCharges.length > 0 ? Math.min(...activeCharges) : 1;
+    const targetCount = lowestCharge < MATCH_RULES.batteryDoubleSpawnThreshold
+      ? 2
+      : lowestCharge < MATCH_RULES.batterySpawnThreshold
+        ? 1
+        : 0;
+    const maximumCount = Math.min(targetCount, this.setup.map.batterySpawns.length);
 
-    const spawnIndex = this.nextRandomInt(this.setup.map.batterySpawns.length);
-    this.batterySerial += 1;
-    this.battery = {
-      id: `battery-${this.batterySerial}`,
-      spawnIndex,
-      position: { ...this.setup.map.batterySpawns[spawnIndex] },
-    };
-    this.emit({
-      type: 'battery-spawned',
-      battery: { ...this.battery, position: { ...this.battery.position } },
-    });
+    while (this.batteries.length < maximumCount) {
+      const occupiedSpawns = new Set(this.batteries.map((battery) => battery.spawnIndex));
+      const availableSpawns = this.setup.map.batterySpawns
+        .map((_, index) => index)
+        .filter((index) => !occupiedSpawns.has(index));
+      if (availableSpawns.length === 0) break;
+
+      const spawnIndex = availableSpawns[this.nextRandomInt(availableSpawns.length)];
+      this.batterySerial += 1;
+      const battery: BatteryCheckpoint = {
+        id: `battery-${this.batterySerial}`,
+        spawnIndex,
+        position: { ...this.setup.map.batterySpawns[spawnIndex] },
+      };
+      this.batteries.push(battery);
+      this.emit({
+        type: 'battery-spawned',
+        battery: { ...battery, position: { ...battery.position } },
+      });
+    }
   }
 
   private updateHeadlamps(): void {

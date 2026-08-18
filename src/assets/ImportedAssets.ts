@@ -177,6 +177,7 @@ function findObjectByName(root: THREE.Object3D, name: string): THREE.Object3D | 
 export async function createWallVisuals(
   walls: ReadonlyArray<{ minX: number; maxX: number; minZ: number; maxZ: number }>,
   material: THREE.Material,
+  wallHeight = 0.72,
 ): Promise<THREE.Group> {
   const gltf = await loadWallAsset();
   const sourceBounds = new THREE.Box3().setFromObject(gltf.scene);
@@ -195,12 +196,19 @@ export async function createWallVisuals(
       }
     });
     if (width >= depth) {
-      visual.scale.set(width / sourceSize.x, 0.72 / sourceSize.y, depth / sourceSize.z);
+      visual.scale.set(width / sourceSize.x, wallHeight / sourceSize.y, depth / sourceSize.z);
     } else {
       visual.rotation.y = Math.PI / 2;
-      visual.scale.set(depth / sourceSize.x, 0.72 / sourceSize.y, width / sourceSize.z);
+      visual.scale.set(depth / sourceSize.x, wallHeight / sourceSize.y, width / sourceSize.z);
     }
-    visual.position.set((wall.minX + wall.maxX) / 2, 0, (wall.minZ + wall.maxZ) / 2);
+    visual.updateMatrixWorld(true);
+    const visualBounds = new THREE.Box3().setFromObject(visual);
+    const visualCenter = visualBounds.getCenter(new THREE.Vector3());
+    visual.position.set(
+      (wall.minX + wall.maxX) / 2 - visualCenter.x,
+      -visualBounds.min.y,
+      (wall.minZ + wall.maxZ) / 2 - visualCenter.z,
+    );
     group.add(visual);
   }
   return group;

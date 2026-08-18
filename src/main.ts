@@ -351,15 +351,33 @@ function updateHud(frame: ViewerFrame | null): void {
 
 function updateBatteryLocator(frame: ViewerFrame): void {
   const ownPosition = ownActorPosition(frame);
+  let battery = frame.battery ?? null;
+  if (ownPosition) {
+    for (const candidate of frame.batteries) {
+      if (!battery) {
+        battery = candidate;
+        continue;
+      }
+      const candidateDistance = Math.hypot(
+        candidate.position.x - ownPosition.x,
+        candidate.position.z - ownPosition.z,
+      );
+      const currentDistance = Math.hypot(
+        battery.position.x - ownPosition.x,
+        battery.position.z - ownPosition.z,
+      );
+      if (candidateDistance < currentDistance) battery = candidate;
+    }
+  }
   const visible = frame.viewerRole === 'child'
     && frame.phase !== 'capture-animation'
-    && Boolean(frame.battery)
+    && Boolean(battery)
     && Boolean(ownPosition);
   batteryLocator.hidden = !visible;
-  if (!visible || frame.viewerRole !== 'child' || !frame.battery || !ownPosition) return;
+  if (!visible || frame.viewerRole !== 'child' || !battery || !ownPosition) return;
 
   stage.camera.updateMatrixWorld();
-  batteryScreenPoint.set(frame.battery.position.x, 0, frame.battery.position.z).project(stage.camera);
+  batteryScreenPoint.set(battery.position.x, 0, battery.position.z).project(stage.camera);
   ownScreenPoint.set(ownPosition.x, 0, ownPosition.z).project(stage.camera);
   const bounds = canvas.getBoundingClientRect();
   const targetX = bounds.left + (batteryScreenPoint.x + 1) * bounds.width * 0.5;
@@ -380,8 +398,8 @@ function updateBatteryLocator(frame: ViewerFrame): void {
   const locatorY = clamp(targetY - (onScreen ? 42 : 0), safeArea.top, safeArea.bottom);
   const bearingRadians = Math.atan2(targetY - sourceY, targetX - sourceX);
   const distance = Math.hypot(
-    frame.battery.position.x - ownPosition.x,
-    frame.battery.position.z - ownPosition.z,
+    battery.position.x - ownPosition.x,
+    battery.position.z - ownPosition.z,
   );
   const distanceText = `${distance < 10 ? distance.toFixed(1) : Math.round(distance)}m`;
 

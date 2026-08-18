@@ -44,6 +44,7 @@ export function projectViewerFrame(
       facingRadians: child.facingRadians,
       headlamp: child.headlamp ?? 'off',
       flashlightOn: options.activeFlashlightPlayerIds?.has(child.id) ?? false,
+      batteryCharge: child.battery ?? 0,
     }));
   const dolls = [
     ...checkpoint.dolls.map((doll) => ({
@@ -69,9 +70,11 @@ export function projectViewerFrame(
     burning: checkpoint.ghostBurnTicksRemaining > 0,
     burnTicksRemaining: checkpoint.ghostBurnTicksRemaining,
   };
-  const battery = checkpoint.battery
-    ? { batteryId: checkpoint.battery.id, position: { ...checkpoint.battery.position } }
-    : null;
+  const batteries = checkpoint.batteries.map((battery) => ({
+    batteryId: battery.id,
+    position: { ...battery.position },
+  }));
+  const battery = batteries[0] ?? null;
 
   if (viewer.role === 'ghost') {
     const frame: GhostViewerFrame = {
@@ -81,6 +84,7 @@ export function projectViewerFrame(
       ghost,
       children,
       dolls,
+      batteries,
       battery,
     };
     return frame;
@@ -95,6 +99,7 @@ export function projectViewerFrame(
     ownBattery: viewer.battery ?? 0,
     children,
     dolls,
+    batteries,
     ...(checkpoint.ghostRevealed
       || checkpoint.ghostBurnTicksRemaining > 0
       || checkpoint.capturedChildPlayerId === viewerPlayerId

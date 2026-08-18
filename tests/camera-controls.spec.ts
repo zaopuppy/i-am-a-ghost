@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-test('capture close-up overrides mouse camera control and then restores the edited runtime preset', async ({ page }) => {
+test('capture close-up overrides mouse orbit, pan, and zoom, then restores the edited runtime preset', async ({ page }) => {
   const errors: string[] = [];
   page.on('console', (message) => {
     if (message.type() === 'error') errors.push(message.text());
@@ -63,10 +63,32 @@ test('capture close-up overrides mouse camera control and then restores the edit
       current.position.z - previousPosition.z,
     ) > 0.25;
   }, before?.position);
+  await page.waitForTimeout(800);
+  const orbited = await page.evaluate(() => window.__THREE_GAME_TEST_HOOKS__?.cameraSnapshot());
+  expect(orbited?.pointerMode).toBe(true);
+  expect(orbited?.position).not.toEqual(before?.position);
+  expect(orbited?.viewHeight).not.toBe(before?.viewHeight);
+  expect(orbited?.tiltDegrees).not.toBe(before?.tiltDegrees);
+  expect(orbited?.azimuthDegrees).not.toBe(before?.azimuthDegrees);
+  expectCameraValuesAreFinite(orbited);
+
+  await page.mouse.move(startX, startY);
+  await page.mouse.down({ button: 'right' });
+  await page.mouse.move(startX - 90, startY + 55, { steps: 6 });
+  await page.mouse.up({ button: 'right' });
+  await page.waitForFunction((previousTarget) => {
+    const current = window.__THREE_GAME_TEST_HOOKS__?.cameraSnapshot();
+    if (!current) return false;
+    return Math.hypot(
+      current.target.x - previousTarget.x,
+      current.target.y - previousTarget.y,
+      current.target.z - previousTarget.z,
+    ) > 0.1;
+  }, orbited?.target);
   const edited = await page.evaluate(() => window.__THREE_GAME_TEST_HOOKS__?.cameraSnapshot());
-  expect(edited?.pointerMode).toBe(true);
-  expect(edited?.position).not.toEqual(before?.position);
-  expect(edited?.viewHeight).not.toBe(before?.viewHeight);
+  expect(edited?.target).not.toEqual(orbited?.target);
+  expect(Math.abs((edited?.tiltDegrees ?? 0) - (orbited?.tiltDegrees ?? 0))).toBeLessThan(0.5);
+  expect(Math.abs((edited?.azimuthDegrees ?? 0) - (orbited?.azimuthDegrees ?? 0))).toBeLessThan(0.5);
   expectCameraValuesAreFinite(edited);
 
   await page.evaluate(() => window.__THREE_GAME_TEST_HOOKS__?.setState('capture'));

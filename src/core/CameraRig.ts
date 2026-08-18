@@ -46,19 +46,25 @@ export interface CameraRigUpdate {
   shakeZ?: number;
 }
 
+const TOP_DOWN_TILT_RADIANS = THREE.MathUtils.degToRad(30);
+
+function cameraHeightAtTopDownTilt(horizontalDistance: number, targetHeight = 0): number {
+  return roundCameraValue(targetHeight + horizontalDistance / Math.tan(TOP_DOWN_TILT_RADIANS));
+}
+
 export const RECOMMENDED_CAMERA_PRESETS: Readonly<CameraPresetMap> = Object.freeze({
   follow: Object.freeze({
-    position: Object.freeze({ x: 7.6, y: 13.8, z: 9.8 }),
-    target: Object.freeze({ x: 0, y: 0.65, z: -0.7 }),
+    position: Object.freeze({ x: 0, y: cameraHeightAtTopDownTilt(8, 0.65), z: 8 }),
+    target: Object.freeze({ x: 0, y: 0.65, z: 0 }),
     viewHeight: 13.2,
   }),
   'whole-house': Object.freeze({
-    position: Object.freeze({ x: 10, y: 24, z: 14 }),
+    position: Object.freeze({ x: 0, y: cameraHeightAtTopDownTilt(13.86), z: 13.86 }),
     target: Object.freeze({ x: 0, y: 0, z: 0 }),
     viewHeight: 23.5,
   }),
   'capture-closeup': Object.freeze({
-    position: Object.freeze({ x: 4.2, y: 5.8, z: 5.4 }),
+    position: Object.freeze({ x: 0, y: cameraHeightAtTopDownTilt(3.2, 1), z: 3.2 }),
     target: Object.freeze({ x: 0, y: 1, z: 0 }),
     viewHeight: 5.2,
   }),
@@ -176,6 +182,7 @@ export class CameraRig {
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
     controls.enablePan = true;
+    controls.enableRotate = true;
     controls.screenSpacePanning = true;
     controls.zoomToCursor = false;
     controls.minZoom = 0.45;

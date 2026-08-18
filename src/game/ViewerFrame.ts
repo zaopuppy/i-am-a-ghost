@@ -21,6 +21,7 @@ export interface VisibleChild {
   facingRadians: number;
   headlamp: HeadlampBand;
   flashlightOn: boolean;
+  batteryCharge: number;
 }
 
 export interface VisibleDoll {
@@ -48,6 +49,7 @@ export interface GhostViewerFrame extends SharedMatchFrame {
   ghost: VisibleGhost;
   children: VisibleChild[];
   dolls: VisibleDoll[];
+  batteries: VisibleBattery[];
   battery: VisibleBattery | null;
 }
 
@@ -57,6 +59,7 @@ export interface ChildViewerFrame extends SharedMatchFrame {
   ownBattery: number;
   children: VisibleChild[];
   dolls: VisibleDoll[];
+  batteries: VisibleBattery[];
   ghost?: VisibleGhost;
   battery?: VisibleBattery;
 }

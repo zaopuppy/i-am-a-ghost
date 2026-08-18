@@ -9,6 +9,7 @@ import type {
 export const DETERMINISTIC_STATE_NAMES = [
   'child-hidden',
   'child-playing',
+  'flashlight-off-range',
   'ghost-playing',
   'low-battery',
   'capture',
@@ -59,6 +60,7 @@ export function createDeterministicViewerFrame(
 
   if (state === 'ghost-playing' || state === 'ghost-win') {
     const ended = state === 'ghost-win';
+    const batteries = [{ batteryId: 'battery-1', position: { x: 2.2, z: 0 } }];
     const frame: GhostViewerFrame = {
       ...common,
       phase: ended ? 'ended' : 'playing',
@@ -70,13 +72,14 @@ export function createDeterministicViewerFrame(
       ghost: { ...GHOST },
       children: cloneChildren(CHILDREN.slice(0, 1)),
       dolls: cloneDolls(DOLLS),
-      battery: { batteryId: 'battery-1', position: { x: 2.2, z: 0 } },
+      batteries,
+      battery: batteries[0],
     };
     return frame;
   }
 
   const ended = state === 'child-win';
-  const hidden = state === 'child-hidden' || state === 'protection';
+  const hidden = state === 'child-hidden' || state === 'flashlight-off-range' || state === 'protection';
   const phase = state === 'capture'
     ? 'capture-animation'
     : state === 'protection'
@@ -84,9 +87,22 @@ export function createDeterministicViewerFrame(
       : ended
         ? 'ended'
         : 'playing';
-  const children = state === 'child-hidden'
+  const children = (state === 'child-hidden'
     ? cloneChildren(CHILDREN.slice(0, 2)).map((visibleChild) => ({ ...visibleChild, flashlightOn: false }))
-    : cloneChildren(CHILDREN);
+    : cloneChildren(CHILDREN))
+    .map((visibleChild) => {
+      if (state === 'flashlight-off-range') return { ...visibleChild, headlamp: 'off' as const };
+      if (state === 'low-battery' && visibleChild.playerId === 'child-1') {
+        return { ...visibleChild, batteryCharge: 0.08 };
+      }
+      return visibleChild;
+    });
+  const batteries = state === 'low-battery'
+    ? [
+        { batteryId: 'battery-1', position: { x: 5.8, z: 4.8 } },
+        { batteryId: 'battery-2', position: { x: -5.6, z: 4.4 } },
+      ]
+    : [];
 
   return {
     ...common,
@@ -102,10 +118,9 @@ export function createDeterministicViewerFrame(
     ownBattery: state === 'low-battery' ? 0.08 : 0.58,
     children,
     dolls: hidden && children.length === 2 ? cloneDolls(DOLLS.slice(1)) : [],
+    batteries,
     ...(!hidden ? { ghost: { ...GHOST, position: { ...GHOST.position } } } : {}),
-    ...(state === 'low-battery'
-      ? { battery: { batteryId: 'battery-1', position: { x: 5.8, z: 4.8 } } }
-      : {}),
+    ...(batteries[0] ? { battery: batteries[0] } : {}),
   };
 }
 
@@ -118,7 +133,15 @@ function child(
   headlamp: VisibleChild['headlamp'],
   flashlightOn: boolean,
 ): VisibleChild {
-  return { playerId, slot, position: { x, z }, facingRadians, headlamp, flashlightOn };
+  return {
+    playerId,
+    slot,
+    position: { x, z },
+    facingRadians,
+    headlamp,
+    flashlightOn,
+    batteryCharge: slot === 0 ? 0.58 : 0.82,
+  };
 }
 
 function cloneChildren(children: readonly VisibleChild[]): VisibleChild[] {

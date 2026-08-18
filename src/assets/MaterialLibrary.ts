@@ -27,19 +27,31 @@ export interface HouseMaterialKit {
 }
 
 export function createHouseMaterialKit(): HouseMaterialKit {
+  const wallPattern = createWallPatternTexture();
+  const floorPattern = createFloorPatternTexture();
   const wall = new THREE.MeshStandardMaterial({
     color: ART_COLORS.bodyPrimary,
+    map: wallPattern,
     emissive: 0x30394d,
     emissiveIntensity: 1.05,
     roughness: 0.82,
     metalness: 0.03,
   });
   const floor = new THREE.MeshStandardMaterial({
+    map: floorPattern,
     color: ART_COLORS.groundContact,
     roughness: 0.98,
   });
-  const roomFloorA = new THREE.MeshStandardMaterial({ color: 0x101319, roughness: 0.95 });
-  const roomFloorB = new THREE.MeshStandardMaterial({ color: 0x13151b, roughness: 0.92 });
+  const roomFloorA = new THREE.MeshStandardMaterial({
+    map: floorPattern,
+    color: 0x101319,
+    roughness: 0.95,
+  });
+  const roomFloorB = new THREE.MeshStandardMaterial({
+    map: floorPattern,
+    color: 0x13151b,
+    roughness: 0.92,
+  });
   const trim = new THREE.LineBasicMaterial({ color: ART_COLORS.trim, transparent: true, opacity: 0.68 });
   const ghostBody = new THREE.MeshStandardMaterial({
     color: 0x9ba5bd,
@@ -78,6 +90,15 @@ export function createHouseMaterialKit(): HouseMaterialKit {
     reward,
     contact,
   ];
+  const textures: THREE.Texture[] = [wallPattern, floorPattern];
+  wallPattern.wrapS = THREE.RepeatWrapping;
+  wallPattern.wrapT = THREE.RepeatWrapping;
+  wallPattern.repeat.set(8, 4);
+  floorPattern.wrapS = THREE.RepeatWrapping;
+  floorPattern.wrapT = THREE.RepeatWrapping;
+  floorPattern.repeat.set(14, 16);
+  floorPattern.colorSpace = THREE.SRGBColorSpace;
+  wallPattern.colorSpace = THREE.SRGBColorSpace;
   return {
     wall,
     floor,
@@ -88,6 +109,83 @@ export function createHouseMaterialKit(): HouseMaterialKit {
     ghostTrim,
     reward,
     contact,
-    dispose: () => owned.forEach((material) => material.dispose()),
+    dispose: () => {
+      owned.forEach((material) => material.dispose());
+      textures.forEach((texture) => texture.dispose());
+    },
   };
+}
+
+function createWallPatternTexture(): THREE.DataTexture {
+  const width = 256;
+  const height = 256;
+  const data = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const i = (y * width + x) * 4;
+      const offset = (Math.floor(y / 32) % 2) * 7;
+      const localX = (x + offset) % 32;
+      const localY = y % 20;
+      const mortar = localX < 3 || localX > 27 || localY < 3 || localY > 16;
+      const noise = (pseudoNoise(x * 12.7, y * 8.3) - 0.5) * 6;
+      const isCrack = ((x * 11 + y * 7) % 127) < 2;
+      let r: number;
+      let g: number;
+      let b: number;
+      if (mortar) {
+        r = 64;
+        g = 72;
+        b = 84;
+      } else {
+        r = 95 + noise;
+        g = 102 + noise;
+        b = 116 + noise;
+      }
+      if (isCrack) {
+        r = Math.max(0, r - 22);
+        g = Math.max(0, g - 15);
+        b = Math.max(0, b - 15);
+      }
+      data[i] = clampByte(r);
+      data[i + 1] = clampByte(g);
+      data[i + 2] = clampByte(b);
+      data[i + 3] = 255;
+    }
+  }
+  return createDataTexture(width, height, data);
+}
+
+function createFloorPatternTexture(): THREE.DataTexture {
+  const width = 256;
+  const height = 256;
+  const data = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const i = (y * width + x) * 4;
+      const noise = (pseudoNoise(x * 5.21, y * 7.13) - 0.5) * 14;
+      const seam = (x % 48 < 2 || y % 42 < 2) ? 1 : 0;
+      const base = 31 + seam * 18;
+      data[i] = clampByte(base + noise);
+      data[i + 1] = clampByte(base + noise * 0.7);
+      data[i + 2] = clampByte(base + noise * 0.5);
+      data[i + 3] = 255;
+    }
+  }
+  return createDataTexture(width, height, data);
+}
+
+function createDataTexture(width: number, height: number, data: Uint8ClampedArray): THREE.DataTexture {
+  const texture = new THREE.DataTexture(data, width, height);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+function clampByte(value: number): number {
+  return Math.min(255, Math.max(0, Math.round(value)));
+}
+
+function pseudoNoise(x: number, y: number): number {
+  const value = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
+  return value - Math.floor(value);
 }

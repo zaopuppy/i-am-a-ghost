@@ -8,7 +8,7 @@ import {
 } from '../assets/ImportedAssets';
 import { createHouseMaterialKit, type HouseMaterialKit } from '../assets/MaterialLibrary';
 import { DEFAULT_HOUSE_MAP, HOUSE_ROOMS } from './defaultHouse';
-import { DEFAULT_GAMEPLAY_TUNING, type HeadlampBand, type Vec2 } from './MatchEngine';
+import { DEFAULT_GAMEPLAY_TUNING, MATCH_RULES, type HeadlampBand, type Vec2 } from './MatchEngine';
 import {
   advanceChildBodyFacing,
   advanceChildLookFacing,
@@ -25,6 +25,17 @@ const HEADLAMP_OFF = new THREE.Color(0x3b3025);
 const HEADLAMP_ON = new THREE.Color(0xffd36b);
 const HEADLAMP_CAPTURE = new THREE.Color(0xd9e7ff);
 const HEADLAMP_HEIGHT = 1.5;
+const FLASHLIGHT_ORIGIN_HEIGHT = 1.02;
+const FLASHLIGHT_ORIGIN_FORWARD = 0.28;
+const FLASHLIGHT_BEAM_INTENSITY = 1.15;
+const FLASHLIGHT_BEAM_OPACITY = 0.34;
+const WALL_HEIGHT = 2.2;
+const HEADLAMP_SPIN_RADIANS_PER_SECOND = {
+  off: 0,
+  slow: 1.2,
+  fast: 2.8,
+  solid: 4.4,
+} as const;
 const LOOK_UP_AXIS = new THREE.Vector3(0, 1, 0);
 const LOOK_ROTATION = new THREE.Quaternion();
 
@@ -37,7 +48,7 @@ interface ActorVisual {
   lamp: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
   lampHalo: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
   lampLight: THREE.PointLight;
-  beam: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial> | null;
+  beam: BeamVisual | null;
   headlamp: HeadlampBand;
   imported: CharacterAssetInstance | null;
   currentAnimation: string;
@@ -46,6 +57,24 @@ interface ActorVisual {
   lastUpdateSeconds: number;
   facing: VisualFacingState;
   ghostRig: GhostRig | null;
+  lampSpin: number;
+  statusMeter: WorldMeter | null;
+}
+
+interface BeamVisual {
+  group: THREE.Group;
+  mesh: THREE.Mesh<THREE.CylinderGeometry, THREE.ShaderMaterial>;
+  light: THREE.SpotLight;
+  length: number;
+  coneDegrees: number;
+}
+
+interface WorldMeter {
+  root: THREE.Group;
+  context: CanvasRenderingContext2D;
+  texture: THREE.CanvasTexture;
+  lastPercent: number;
+  lastColor: number;
 }
 
 interface GhostRig {
@@ -74,10 +103,11 @@ export class GameWorld {
   readonly scene = new THREE.Scene();
   private readonly actors = new Map<string, ActorVisual>();
   private readonly materials: HouseMaterialKit = createHouseMaterialKit();
-  private readonly battery = createBattery(this.materials);
+  private readonly batteries = [createBattery(this.materials), createBattery(this.materials)];
   private readonly fallbackWalls = new THREE.Group();
   private flashlightLength = DEFAULT_GAMEPLAY_TUNING.flashlightLength;
   private flashlightConeDegrees = DEFAULT_GAMEPLAY_TUNING.flashlightConeDegrees;
+  private pendingAssetUpgrades = 0;
 
   constructor() {
     this.scene.background = new THREE.Color(0x050608);
@@ -98,8 +128,10 @@ export class GameWorld {
     this.scene.add(warmFill);
     this.buildHouse();
     void this.upgradeWalls();
-    this.battery.root.visible = false;
-    this.scene.add(this.battery.root);
+    for (const battery of this.batteries) {
+      battery.root.visible = false;
+      this.scene.add(battery.root);
+    }
   }
 
   sync(frame: ViewerFrame | null, elapsedSeconds: number): void {
@@ -121,7 +153,18 @@ export class GameWorld {
         false,
         frame.capture?.childPlayerId === child.playerId,
       );
-      if (actor.beam) actor.beam.visible = child.flashlightOn && frame.phase === 'playing';
+      updateWorldMeter(
+        actor.statusMeter,
+        child.batteryCharge,
+        batteryMeterColor(child.batteryCharge),
+      );
+      if (actor.statusMeter) actor.statusMeter.root.visible = frame.phase === 'playing';
+      if (actor.beam) {
+        const visible = child.flashlightOn && frame.phase === 'playing';
+        actor.beam.group.visible = visible;
+        actor.beam.light.intensity = visible ? FLASHLIGHT_BEAM_INTENSITY : 0;
+        actor.beam.mesh.material.uniforms.uOpacity.value = visible ? FLASHLIGHT_BEAM_OPACITY : 0;
+      }
     }
     for (const doll of frame.dolls) {
       const actor = this.actor(`doll:${doll.dollId}`, 'doll', doll.slot);
@@ -137,18 +180,27 @@ export class GameWorld {
         elapsedSeconds,
       );
       actor.body.scale.setScalar(1);
+      updateWorldMeter(
+        actor.statusMeter,
+        frame.ghostHealth / MATCH_RULES.ghostMaxHealth,
+        0xd96f5f,
+      );
+      if (actor.statusMeter) actor.statusMeter.root.visible = frame.phase === 'playing';
       if (actor.ghostRig) poseGhostRig(actor.ghostRig, 0, 0, elapsedSeconds);
     }
     if (frame.capture && frame.ghost) this.applyCapturePresentation(frame);
 
-    this.battery.root.visible = Boolean(frame.battery);
-    if (frame.battery) {
-      this.battery.root.position.set(
-        frame.battery.position.x,
+    for (let index = 0; index < this.batteries.length; index += 1) {
+      const visual = this.batteries[index];
+      const battery = frame.batteries[index];
+      visual.root.visible = Boolean(battery);
+      if (!battery) continue;
+      visual.root.position.set(
+        battery.position.x,
         0.42 + Math.sin(elapsedSeconds * 3) * 0.08,
-        frame.battery.position.z,
+        battery.position.z,
       );
-      this.battery.root.rotation.y = elapsedSeconds * 1.4;
+      visual.root.rotation.y = elapsedSeconds * 1.4 + index * Math.PI;
     }
     this.animateHeadlamps(elapsedSeconds);
   }
@@ -159,8 +211,7 @@ export class GameWorld {
     this.flashlightConeDegrees = coneDegrees;
     for (const actor of this.actors.values()) {
       if (!actor.beam) continue;
-      actor.beam.geometry.dispose();
-      actor.beam.geometry = createBeamGeometry(length, coneDegrees);
+      updateBeamShape(actor.beam, length, coneDegrees);
     }
   }
 
@@ -172,13 +223,14 @@ export class GameWorld {
     visibleObjects: number;
     materials: number;
     animatedActors: number;
+    pendingAssetUpgrades: number;
     assets: ReturnType<typeof importedAssetMetrics>;
   } {
     let visibleObjects = 0;
     const materials = new Set<THREE.Material>();
     this.scene.traverseVisible((object) => {
       visibleObjects += 1;
-      if (!(object instanceof THREE.Mesh)) return;
+      if (!(object instanceof THREE.Mesh || object instanceof THREE.Sprite)) return;
       const meshMaterials = Array.isArray(object.material) ? object.material : [object.material];
       for (const material of meshMaterials) materials.add(material);
     });
@@ -186,10 +238,11 @@ export class GameWorld {
       actors: [...this.actors.values()].filter((actor) => actor.root.visible).length,
       walls: HOUSE_WALLS.length,
       rooms: HOUSE_ROOMS.length,
-      beams: [...this.actors.values()].filter((actor) => actor.beam?.visible).length,
+      beams: [...this.actors.values()].filter((actor) => actor.beam?.group.visible).length,
       visibleObjects,
       materials: materials.size,
       animatedActors: [...this.actors.values()].filter((actor) => actor.root.visible && actor.imported).length,
+      pendingAssetUpgrades: this.pendingAssetUpgrades,
       assets: importedAssetMetrics(),
     };
   }
@@ -199,8 +252,9 @@ export class GameWorld {
       actor.imported?.mixer.stopAllAction();
     }
     this.scene.traverse((object) => {
-      if (!(object instanceof THREE.Mesh)) return;
-      object.geometry.dispose();
+      if (!(object instanceof THREE.Mesh || object instanceof THREE.Sprite)) return;
+      if (object instanceof THREE.Mesh) object.geometry.dispose();
+      if (object instanceof THREE.Sprite) object.material.map?.dispose();
       const materials = Array.isArray(object.material) ? object.material : [object.material];
       for (const material of materials) material.dispose();
     });
@@ -231,10 +285,10 @@ export class GameWorld {
     this.fallbackWalls.name = 'procedural-wall-fallback';
     for (const wall of HOUSE_WALLS) {
       const mesh = new THREE.Mesh(
-        new THREE.BoxGeometry(wall.maxX - wall.minX, 0.72, wall.maxZ - wall.minZ),
+        new THREE.BoxGeometry(wall.maxX - wall.minX, WALL_HEIGHT, wall.maxZ - wall.minZ),
         this.materials.wall,
       );
-      mesh.position.set((wall.minX + wall.maxX) / 2, 0.36, (wall.minZ + wall.maxZ) / 2);
+      mesh.position.set((wall.minX + wall.maxX) / 2, WALL_HEIGHT / 2, (wall.minZ + wall.maxZ) / 2);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       this.fallbackWalls.add(mesh);
@@ -246,8 +300,9 @@ export class GameWorld {
   }
 
   private async upgradeWalls(): Promise<void> {
+    this.pendingAssetUpgrades += 1;
     try {
-      const importedWalls = await createWallVisuals(HOUSE_WALLS, this.materials.wall);
+      const importedWalls = await createWallVisuals(HOUSE_WALLS, this.materials.wall, WALL_HEIGHT);
       this.scene.add(importedWalls);
       this.scene.remove(this.fallbackWalls);
       this.fallbackWalls.traverse((object) => {
@@ -255,6 +310,8 @@ export class GameWorld {
       });
     } catch {
       this.fallbackWalls.visible = true;
+    } finally {
+      this.pendingAssetUpgrades -= 1;
     }
   }
 
@@ -279,6 +336,7 @@ export class GameWorld {
     kind: 'child' | 'ghost' | 'doll',
     slot: number,
   ): Promise<void> {
+    this.pendingAssetUpgrades += 1;
     try {
       const imported = kind === 'ghost'
         ? await createGhostAssetInstance()
@@ -297,6 +355,8 @@ export class GameWorld {
       }
     } catch {
       actor.imported = null;
+    } finally {
+      this.pendingAssetUpgrades -= 1;
     }
   }
 
@@ -423,8 +483,9 @@ function createActor(
     bodyPivot.add(mesh);
     if (kind === 'child') {
       beam = createBeam(flashlightLength, flashlightConeDegrees);
-      beam.visible = false;
-      aimPivot.add(beam);
+      beam.group.position.set(FLASHLIGHT_ORIGIN_FORWARD, FLASHLIGHT_ORIGIN_HEIGHT, 0);
+      beam.group.visible = false;
+      aimPivot.add(beam.group);
     }
   }
   const lamp = new THREE.Mesh(
@@ -471,6 +532,8 @@ function createActor(
   contact.rotation.x = -Math.PI / 2;
   contact.position.y = 0.012;
   root.add(contact);
+  const statusMeter = kind === 'doll' ? null : createWorldMeter(kind);
+  if (statusMeter) root.add(statusMeter.root);
   return {
     kind,
     root,
@@ -487,8 +550,10 @@ function createActor(
     captureProgress: null,
     lastPosition: null,
     lastUpdateSeconds: 0,
+    lampSpin: 0,
     facing: createVisualFacingState(),
     ghostRig,
+    statusMeter,
   };
 }
 
@@ -506,6 +571,9 @@ function syncActor(
   actor.root.position.set(position.x, 0, position.z);
   actor.aimPivot.rotation.y = -facingRadians;
   actor.headlamp = headlamp;
+  if (actor.kind !== 'ghost') {
+    updateHeadlampSpin(actor, elapsedSeconds);
+  }
   const elapsed = actorDeltaSeconds(actor, elapsedSeconds);
   const lookFacingRadians = advanceChildLookFacing(actor.facing, facingRadians, elapsed);
   if (doll) {
@@ -545,9 +613,26 @@ function syncActor(
     actor.lastPosition.x = position.x;
     actor.lastPosition.z = position.z;
   } else {
-    actor.lastPosition = { ...position };
+  actor.lastPosition = { ...position };
   }
   actor.lastUpdateSeconds = elapsedSeconds;
+}
+
+function updateHeadlampSpin(actor: ActorVisual, elapsedSeconds: number): void {
+  const elapsed = actor.lastUpdateSeconds > 0
+    ? Math.min(0.08, Math.max(0, elapsedSeconds - actor.lastUpdateSeconds))
+    : 0;
+  const spinSpeed = HEADLAMP_SPIN_RADIANS_PER_SECOND[actor.headlamp];
+  if (spinSpeed <= 0) {
+    actor.lampSpin = 0;
+    actor.lamp.rotation.y = 0;
+    actor.lampHalo.rotation.z = 0;
+    return;
+  }
+  actor.lampSpin += spinSpeed * elapsed;
+  if (actor.lampSpin >= Math.PI * 2) actor.lampSpin -= Math.PI * 2;
+  actor.lamp.rotation.y = actor.lampSpin;
+  actor.lampHalo.rotation.z = -actor.lampSpin;
 }
 
 function syncGhostActor(
@@ -832,32 +917,143 @@ function reducedMotionEnabled(): boolean {
     && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
-function createBeam(
-  length: number,
-  coneDegrees: number,
-): THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial> {
-  return new THREE.Mesh(
+function createWorldMeter(kind: 'child' | 'ghost'): WorldMeter {
+  const root = new THREE.Group();
+  root.name = `${kind}-status-meter`;
+  root.position.y = kind === 'ghost' ? 2.05 : 1.82;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 20;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('World meter requires a 2D canvas context.');
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.name = `${kind}-status-meter-texture`;
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.generateMipmaps = false;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.NearestFilter;
+
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    depthTest: false,
+    depthWrite: false,
+  }));
+  sprite.name = `${kind}-status-meter-sprite`;
+  sprite.scale.set(1.08, 0.17, 1);
+  sprite.renderOrder = 40;
+  root.add(sprite);
+
+  const meter: WorldMeter = {
+    root,
+    context,
+    texture,
+    lastPercent: -1,
+    lastColor: -1,
+  };
+  updateWorldMeter(meter, 1, kind === 'ghost' ? 0xd96f5f : 0xe6c965);
+  return meter;
+}
+
+function updateWorldMeter(meter: WorldMeter | null, value: number, color: number): void {
+  if (!meter) return;
+  const ratio = clamp01(value);
+  const percent = Math.round(ratio * 100);
+  if (meter.lastPercent === percent && meter.lastColor === color) return;
+
+  const { context } = meter;
+  context.clearRect(0, 0, 128, 20);
+  context.fillStyle = 'rgba(199, 208, 223, 0.82)';
+  context.fillRect(0, 2, 128, 16);
+  context.fillStyle = 'rgba(7, 9, 13, 0.96)';
+  context.fillRect(2, 4, 124, 12);
+  const fillWidth = Math.round(120 * ratio);
+  if (fillWidth > 0) {
+    context.fillStyle = `#${color.toString(16).padStart(6, '0')}`;
+    context.fillRect(4, 6, fillWidth, 8);
+    context.fillStyle = 'rgba(255, 255, 255, 0.24)';
+    context.fillRect(4, 6, fillWidth, 2);
+  }
+  meter.texture.needsUpdate = true;
+  meter.lastPercent = percent;
+  meter.lastColor = color;
+}
+
+function batteryMeterColor(charge: number): number {
+  if (charge < MATCH_RULES.batteryDoubleSpawnThreshold) return 0xd96f5f;
+  if (charge < MATCH_RULES.batterySpawnThreshold) return 0xe6a65b;
+  return 0xe6c965;
+}
+
+function createBeam(length: number, coneDegrees: number): BeamVisual {
+  const mesh = new THREE.Mesh(
     createBeamGeometry(length, coneDegrees),
-    new THREE.MeshBasicMaterial({
-      color: 0xffdc72,
+    new THREE.ShaderMaterial({
+      uniforms: {
+        uColor: { value: new THREE.Color(0xffde96) },
+        uOpacity: { value: 0.26 },
+      },
+      vertexShader: `
+        varying vec2 vBeamUv;
+
+        void main() {
+          vBeamUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform vec3 uColor;
+        uniform float uOpacity;
+        varying vec2 vBeamUv;
+
+        void main() {
+          float nearFade = smoothstep(0.0, 0.06, vBeamUv.y);
+          float distanceFade = 1.0 - smoothstep(0.5, 1.0, vBeamUv.y);
+          float density = nearFade * distanceFade * (0.5 + 0.5 * distanceFade);
+          gl_FragColor = vec4(uColor, uOpacity * density);
+        }
+      `,
       transparent: true,
-      opacity: 0.3,
       side: THREE.DoubleSide,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     }),
   );
+  const light = new THREE.SpotLight(
+    0xffe4a0,
+    1.1,
+    length,
+    Math.max(0.03, THREE.MathUtils.degToRad(coneDegrees * 0.45)),
+    0.7,
+    1.3,
+  );
+  light.castShadow = false;
+  light.position.set(0, 0, 0);
+  light.target.position.set(length, 0, 0);
+  const group = new THREE.Group();
+  group.add(mesh, light, light.target);
+  return { group, mesh, light, length, coneDegrees };
 }
 
-function createBeamGeometry(length: number, coneDegrees: number): THREE.BufferGeometry {
+function createBeamGeometry(length: number, coneDegrees: number): THREE.CylinderGeometry {
   const halfWidth = Math.tan((coneDegrees * Math.PI) / 360) * length;
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute(
-    'position',
-    new THREE.Float32BufferAttribute([0.28, 0.25, 0, length, 0.05, -halfWidth, length, 0.05, halfWidth], 3),
-  );
-  geometry.computeVertexNormals();
-  return geometry;
+  const startRadius = Math.max(0.025, halfWidth * 0.08);
+  const coneGeometry = new THREE.CylinderGeometry(startRadius, Math.max(halfWidth, 0.09), length, 20, 1, true);
+  coneGeometry.rotateZ(-Math.PI / 2);
+  coneGeometry.translate(length / 2, 0, 0);
+  return coneGeometry;
+}
+
+function updateBeamShape(beam: BeamVisual, length: number, coneDegrees: number): void {
+  beam.length = length;
+  beam.coneDegrees = coneDegrees;
+  beam.mesh.geometry.dispose();
+  beam.mesh.geometry = createBeamGeometry(length, coneDegrees);
+  beam.light.distance = length;
+  beam.light.angle = Math.max(0.03, THREE.MathUtils.degToRad(coneDegrees * 0.45));
+  beam.light.target.position.set(length, 0, 0);
+  beam.light.target.updateMatrixWorld();
 }
 
 function createBattery(materials: HouseMaterialKit): { root: THREE.Group } {
@@ -880,7 +1076,7 @@ function createBattery(materials: HouseMaterialKit): { root: THREE.Group } {
 
 function headlampIsLit(band: HeadlampBand, elapsedSeconds: number): boolean {
   if (band === 'solid') return true;
-  if (band === 'fast') return Math.sin(elapsedSeconds * Math.PI * 8) > -0.1;
-  if (band === 'slow') return Math.sin(elapsedSeconds * Math.PI * 2.4) > 0.35;
+  if (band === 'fast') return (elapsedSeconds * 2.8) % 1 < 0.48;
+  if (band === 'slow') return (elapsedSeconds * 1.05) % 1 < 0.38;
   return false;
 }

@@ -25,6 +25,16 @@ test('recommended camera presets are independent mutable copies', () => {
   assert.notEqual(second['capture-closeup'].viewHeight, 999);
 });
 
+test('recommended camera presets keep a fixed 30-degree top-down angle', () => {
+  const presets = createRecommendedCameraPresets();
+
+  for (const [mode, preset] of Object.entries(presets)) {
+    const angles = cameraAngles(preset.position, preset.target);
+    assert.ok(Math.abs(angles.tiltDegrees - 30) <= 0.01, `${mode} tilt`);
+    assert.equal(angles.azimuthDegrees, 0, `${mode} azimuth`);
+  }
+});
+
 test('camera pose serializes relative to its tracked subject', () => {
   const preset = cameraPresetFromPose(
     { x: 14.1254, y: 8, z: -2 },
