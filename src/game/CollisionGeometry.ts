@@ -67,6 +67,37 @@ export function orientedRectsOverlap(left: OrientedRect, right: OrientedRect): b
   });
 }
 
+export function segmentIntersectsOrientedRect(
+  from: Vec2,
+  to: Vec2,
+  rect: OrientedRect,
+  padding = 0,
+): boolean {
+  const localFrom = rotateIntoRect(from, rect);
+  const localTo = rotateIntoRect(to, rect);
+  const direction = {
+    x: localTo.x - localFrom.x,
+    z: localTo.z - localFrom.z,
+  };
+  let minimumTime = 0;
+  let maximumTime = 1;
+  for (const [start, delta, minimum, maximum] of [
+    [localFrom.x, direction.x, -rect.halfWidth - padding, rect.halfWidth + padding],
+    [localFrom.z, direction.z, -rect.halfDepth - padding, rect.halfDepth + padding],
+  ]) {
+    if (Math.abs(delta) < 1e-9) {
+      if (start < minimum || start > maximum) return false;
+      continue;
+    }
+    const first = (minimum - start) / delta;
+    const second = (maximum - start) / delta;
+    minimumTime = Math.max(minimumTime, Math.min(first, second));
+    maximumTime = Math.min(maximumTime, Math.max(first, second));
+    if (minimumTime > maximumTime) return false;
+  }
+  return true;
+}
+
 function rotateIntoRect(position: Vec2, rect: OrientedRect): Vec2 {
   const offsetX = position.x - rect.center.x;
   const offsetZ = position.z - rect.center.z;

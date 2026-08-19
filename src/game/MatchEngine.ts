@@ -1,3 +1,5 @@
+import { mapPositionIsOpen } from './MapCollision';
+
 export interface Vec2 {
   x: number;
   z: number;
@@ -550,21 +552,7 @@ export class MatchEngine {
 
   private isPositionOpen(playerId: string, position: Vec2): boolean {
     const radius = MATCH_RULES.playerRadius;
-    const { bounds } = this.setup.map;
-    if (
-      position.x - radius < bounds.minX ||
-      position.x + radius > bounds.maxX ||
-      position.z - radius < bounds.minZ ||
-      position.z + radius > bounds.maxZ
-    ) {
-      return false;
-    }
-
-    for (const wall of this.setup.map.walls) {
-      const closestX = Math.max(wall.minX, Math.min(position.x, wall.maxX));
-      const closestZ = Math.max(wall.minZ, Math.min(position.z, wall.maxZ));
-      if (Math.hypot(position.x - closestX, position.z - closestZ) < radius) return false;
-    }
+    if (!mapPositionIsOpen(this.setup.map, position, radius)) return false;
 
     for (const other of this.players) {
       if (other.id === playerId || !other.active) continue;

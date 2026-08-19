@@ -1,4 +1,5 @@
 import { DEFAULT_HOUSE_MAP, HOUSE_ROOMS } from '../game/defaultHouse';
+import { mapPositionIsOpen, mapSegmentIsOpen } from '../game/MapCollision';
 import {
   MATCH_RULES,
   MatchEngine,
@@ -297,12 +298,7 @@ class GridNavigator {
   }
 
   hasLineOfSight(from: Vec2, to: Vec2): boolean {
-    return !this.map.walls.some((wall) => segmentIntersectsRectangle(from, to, {
-      minX: wall.minX - MATCH_RULES.playerRadius,
-      maxX: wall.maxX + MATCH_RULES.playerRadius,
-      minZ: wall.minZ - MATCH_RULES.playerRadius,
-      maxZ: wall.maxZ + MATCH_RULES.playerRadius,
-    }));
+    return mapSegmentIsOpen(this.map, from, to, MATCH_RULES.playerRadius);
   }
 
   moveToward(id: string, from: Vec2, to: Vec2, tick: number): Vec2 {
@@ -367,16 +363,7 @@ class GridNavigator {
 }
 
 function pointIsOpen(point: Vec2, map: MatchMap): boolean {
-  const radius = MATCH_RULES.playerRadius;
-  if (
-    point.x - radius < map.bounds.minX || point.x + radius > map.bounds.maxX
-    || point.z - radius < map.bounds.minZ || point.z + radius > map.bounds.maxZ
-  ) return false;
-  return !map.walls.some((wall) => {
-    const x = Math.max(wall.minX, Math.min(point.x, wall.maxX));
-    const z = Math.max(wall.minZ, Math.min(point.z, wall.maxZ));
-    return distanceBetween(point, { x, z }) < radius;
-  });
+  return mapPositionIsOpen(map, point, MATCH_RULES.playerRadius);
 }
 
 function trackDepletions(checkpoint: MatchCheckpoint, memory: BotMemory): void {
@@ -453,32 +440,4 @@ function secondsOrNull(tick: number | null): number | null {
 
 function average(values: readonly number[]): number {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
-}
-
-function segmentIntersectsRectangle(
-  start: Vec2,
-  end: Vec2,
-  rectangle: { minX: number; maxX: number; minZ: number; maxZ: number },
-): boolean {
-  let tMinimum = 0;
-  let tMaximum = 1;
-  const deltaX = end.x - start.x;
-  const deltaZ = end.z - start.z;
-  for (const [origin, delta, minimum, maximum] of [
-    [start.x, deltaX, rectangle.minX, rectangle.maxX],
-    [start.z, deltaZ, rectangle.minZ, rectangle.maxZ],
-  ] as const) {
-    if (Math.abs(delta) < 1e-9) {
-      if (origin >= minimum && origin <= maximum) continue;
-      return false;
-    }
-    const first = (minimum - origin) / delta;
-    const second = (maximum - origin) / delta;
-    const near = Math.min(first, second);
-    const far = Math.max(first, second);
-    tMinimum = Math.max(tMinimum, near);
-    tMaximum = Math.min(tMaximum, far);
-    if (tMinimum > tMaximum) return false;
-  }
-  return true;
 }

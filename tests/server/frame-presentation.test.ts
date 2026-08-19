@@ -142,7 +142,7 @@ function childFrame(tick: number, ownX: number, remoteX: number): ChildViewerFra
     ownBattery: 1,
     batteries: [],
     children: [
-      { playerId: 'own', slot: 0, position: { x: ownX, z: -8 }, facingRadians: 0, headlamp: 'off', flashlightOn: false, batteryCharge: 1 },
+      { playerId: 'own', slot: 0, position: { x: ownX, z: -5 }, facingRadians: 0, headlamp: 'off', flashlightOn: false, batteryCharge: 1 },
       { playerId: 'remote', slot: 1, position: { x: remoteX, z: 8 }, facingRadians: 0, headlamp: 'off', flashlightOn: false, batteryCharge: 1 },
     ],
     dolls: [],

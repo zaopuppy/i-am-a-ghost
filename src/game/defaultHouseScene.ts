@@ -20,7 +20,7 @@ const rooms: HouseRoomDefinition[] = [
 ];
 
 const furniture: FurniturePlacement[] = [
-  placement('nursery-bed', 'nursery', 'bed_single_A', -1.2, -1.3),
+  placement('nursery-bed', 'nursery', 'bed_single_A', 0, -1.3),
   placement('nursery-cabinet', 'nursery', 'cabinet_medium_decorated', -4, 1.4, Math.PI / 2),
   placement('nursery-rug', 'nursery', 'rug_oval_A', 1, 1.1),
 

@@ -1,4 +1,5 @@
 import { DEFAULT_HOUSE_MAP } from '../game/defaultHouse';
+import { mapPositionIsOpen } from '../game/MapCollision';
 import {
   DEFAULT_GAMEPLAY_TUNING,
   MATCH_RULES,
@@ -218,19 +219,7 @@ export function movePredictedPosition(position: Vec2, direction: Vec2, distance:
 }
 
 function positionIsOpen(position: Vec2): boolean {
-  const radius = MATCH_RULES.playerRadius;
-  const { bounds } = DEFAULT_HOUSE_MAP;
-  if (
-    position.x - radius < bounds.minX ||
-    position.x + radius > bounds.maxX ||
-    position.z - radius < bounds.minZ ||
-    position.z + radius > bounds.maxZ
-  ) return false;
-  return !DEFAULT_HOUSE_MAP.walls.some((wall) => {
-    const closestX = Math.max(wall.minX, Math.min(position.x, wall.maxX));
-    const closestZ = Math.max(wall.minZ, Math.min(position.z, wall.maxZ));
-    return Math.hypot(position.x - closestX, position.z - closestZ) < radius;
-  });
+  return mapPositionIsOpen(DEFAULT_HOUSE_MAP, position, MATCH_RULES.playerRadius);
 }
 
 function interpolateRemoteActors(target: ViewerFrame, previous: ViewerFrame, alpha: number): void {
