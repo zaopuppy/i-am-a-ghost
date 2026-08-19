@@ -14,6 +14,11 @@ import {
   type HouseSceneIssue,
 } from './HouseScene';
 import { DEFAULT_HOUSE_SCENE } from './defaultHouseScene';
+import {
+  SceneEditorCamera,
+  type SceneEditorCameraSnapshot,
+  type SceneEditorViewportMode,
+} from './SceneEditorCamera';
 
 type EditorKind = 'furniture' | 'room' | 'wall';
 const SCENE_DRAFT_STORAGE_KEY = 'i-am-a-ghost:house-scene-draft:v1';
@@ -32,6 +37,8 @@ export interface SceneEditorOptions {
 export interface SceneEditorSnapshot {
   scene: HouseSceneDefinition;
   selection: EditorSelection | null;
+  viewport: SceneEditorCameraSnapshot;
+  panelCollapsed: boolean;
   furnitureCount: number;
   movementColliderCount: number;
   errors: number;
@@ -59,6 +66,8 @@ export class SceneEditor {
   private readonly roomSelect: HTMLSelectElement;
   private readonly assetSelect: HTMLSelectElement;
   private readonly importInput: HTMLInputElement;
+  private readonly cameraControls: SceneEditorCamera;
+  private readonly cameraStatus: HTMLOutputElement;
   private sceneDefinition = cloneHouseScene(DEFAULT_HOUSE_SCENE);
   private library: FurnitureLibrary | null = null;
   private selection: EditorSelection | null = null;
@@ -69,6 +78,8 @@ export class SceneEditor {
   private dragging = false;
   private dragMoved = false;
   private dragOffset = { x: 0, z: 0 };
+  private panelCollapsed = false;
+  private frameRequest = 0;
   private history = [serializeScene(this.sceneDefinition)];
   private historyIndex = 0;
 
@@ -98,10 +109,14 @@ export class SceneEditor {
     this.roomSelect = requireEditorElement(this.panel, '[data-editor-room]');
     this.assetSelect = requireEditorElement(this.panel, '[data-editor-asset]');
     this.importInput = requireEditorElement(this.panel, '[data-editor-import]');
+    this.cameraStatus = requireEditorElement(this.panel, '[data-editor-camera-status]');
     document.body.append(this.panel);
     document.documentElement.dataset.sceneEditor = 'true';
+    document.documentElement.dataset.sceneEditorPanel = 'open';
+    this.cameraControls = new SceneEditorCamera(options.camera, options.canvas);
     this.populatePalette();
     this.bindUi();
+    this.setViewportMode('edit');
     this.renderPreview();
     this.options.canvas.addEventListener('pointerdown', this.handlePointerDown);
     this.options.canvas.addEventListener('pointermove', this.handlePointerMove);
@@ -109,6 +124,7 @@ export class SceneEditor {
     this.options.canvas.addEventListener('pointercancel', this.handlePointerUp);
     window.addEventListener('keydown', this.handleKeyDown);
     this.installTestHooks();
+    this.scheduleFrameHouse();
     this.ready = loadFurnitureLibrary(this.materials).then((library) => {
       this.library = library;
       this.syncFurniture();
@@ -121,6 +137,8 @@ export class SceneEditor {
     return {
       scene: cloneHouseScene(this.sceneDefinition),
       selection: this.selection ? { ...this.selection } : null,
+      viewport: this.cameraControls.snapshot(),
+      panelCollapsed: this.panelCollapsed,
       furnitureCount: compiled.furniture.length,
       movementColliderCount: compiled.map.movementObstacles?.length ?? 0,
       errors: compiled.issues.filter((issue) => issue.severity === 'error').length,
@@ -129,12 +147,19 @@ export class SceneEditor {
     };
   }
 
+  updateCamera(): void {
+    this.cameraControls.update();
+  }
+
   dispose(): void {
     this.options.canvas.removeEventListener('pointerdown', this.handlePointerDown);
     this.options.canvas.removeEventListener('pointermove', this.handlePointerMove);
     this.options.canvas.removeEventListener('pointerup', this.handlePointerUp);
     this.options.canvas.removeEventListener('pointercancel', this.handlePointerUp);
     window.removeEventListener('keydown', this.handleKeyDown);
+    if (this.frameRequest) cancelAnimationFrame(this.frameRequest);
+    this.cameraControls.dispose();
+    delete this.options.canvas.dataset.editorViewportMode;
     this.panel.remove();
     this.root.removeFromParent();
     disposeGeneratedGroup(this.structureGroup, false);
@@ -142,6 +167,7 @@ export class SceneEditor {
     for (const object of this.hiddenEnvironment) object.visible = true;
     this.materials.dispose();
     document.documentElement.removeAttribute('data-scene-editor');
+    document.documentElement.removeAttribute('data-scene-editor-panel');
     delete window.__HOUSE_SCENE_EDITOR__;
   }
 
@@ -151,8 +177,13 @@ export class SceneEditor {
     panel.dataset.testid = 'scene-editor';
     panel.innerHTML = `
       <header class="scene-editor__header">
-        <p class="scene-editor__kicker">DEV CARTOGRAPHY / 01</p>
-        <h1>房屋制图台</h1>
+        <div class="scene-editor__header-row">
+          <div class="scene-editor__title-block">
+            <p class="scene-editor__kicker">DEV CARTOGRAPHY / 01</p>
+            <h1>房屋制图台</h1>
+          </div>
+          <button type="button" class="scene-editor__collapse" data-editor-collapse aria-label="收起面板" aria-expanded="true" title="收起面板">‹</button>
+        </div>
         <p>拖动画布中的家具、房间或墙体。橙色区域必须保持畅通。</p>
       </header>
       <section class="scene-editor__section scene-editor__palette">
@@ -165,6 +196,13 @@ export class SceneEditor {
       </section>
       <section class="scene-editor__section scene-editor__inspector" data-editor-inspector></section>
       <section class="scene-editor__section scene-editor__view">
+        <div class="scene-editor__section-title"><span>视口导航</span><output data-editor-camera-status>编辑对象</output></div>
+        <div class="scene-editor__mode">
+          <button type="button" data-editor-camera-mode="edit" aria-pressed="true">编辑对象</button>
+          <button type="button" data-editor-camera-mode="navigate" aria-pressed="false">漫游地图</button>
+          <button type="button" data-editor-frame-house>适配全屋</button>
+        </div>
+        <p class="scene-editor__camera-help">右键旋转 · 中键平移 · 滚轮缩放；漫游模式下左键也可平移。</p>
         <label><input type="checkbox" data-editor-colliders checked> 显示碰撞脚印</label>
         <label><input type="checkbox" data-editor-safety checked> 显示门洞与出生安全区</label>
         <label>网格吸附
@@ -193,7 +231,7 @@ export class SceneEditor {
           <button type="button" data-editor-import-button>导入</button>
           <input type="file" accept="application/json,.json" data-editor-import hidden>
         </div>
-        <p class="scene-editor__keys">Q / E 旋转 15° · R 旋转 90° · Delete 删除 · Ctrl+Z 撤销</p>
+        <p class="scene-editor__keys">V 切换编辑/漫游 · F 适配全屋 · Q / E 旋转 15° · R 旋转 90° · Delete 删除 · Ctrl+Z 撤销</p>
       </footer>
     `;
     return panel;
@@ -205,6 +243,14 @@ export class SceneEditor {
   }
 
   private bindUi(): void {
+    this.button('[data-editor-collapse]').addEventListener('click', () => this.togglePanel());
+    for (const button of this.panel.querySelectorAll<HTMLButtonElement>('[data-editor-camera-mode]')) {
+      button.addEventListener('click', () => {
+        const mode = button.dataset.editorCameraMode;
+        if (mode === 'edit' || mode === 'navigate') this.setViewportMode(mode);
+      });
+    }
+    this.button('[data-editor-frame-house]').addEventListener('click', () => this.cameraControls.frameHouse());
     this.button('[data-editor-add-furniture]').addEventListener('click', () => this.addFurniture());
     this.button('[data-editor-add-wall]').addEventListener('click', () => this.addWall());
     this.button('[data-editor-delete]').addEventListener('click', () => this.deleteSelection());
@@ -512,7 +558,7 @@ export class SceneEditor {
   }
 
   private readonly handlePointerDown = (event: PointerEvent): void => {
-    if (event.button !== 0) return;
+    if (event.button !== 0 || this.cameraControls.currentMode() === 'navigate') return;
     const hit = this.pick(event);
     if (!hit) {
       this.selectObject(null);
@@ -562,6 +608,16 @@ export class SceneEditor {
       this.redo();
       return;
     }
+    if (event.key.toLowerCase() === 'v') {
+      event.preventDefault();
+      this.setViewportMode(this.cameraControls.currentMode() === 'edit' ? 'navigate' : 'edit');
+      return;
+    }
+    if (event.key.toLowerCase() === 'f') {
+      event.preventDefault();
+      this.cameraControls.frameHouse();
+      return;
+    }
     if (event.key === 'Delete' || event.key === 'Backspace') {
       event.preventDefault();
       this.deleteSelection();
@@ -571,6 +627,37 @@ export class SceneEditor {
     if (event.key.toLowerCase() === 'e') this.rotateSelection(15);
     if (event.key.toLowerCase() === 'r') this.rotateSelection(90);
   };
+
+  private setViewportMode(mode: SceneEditorViewportMode): void {
+    this.cameraControls.setMode(mode);
+    this.cameraStatus.textContent = mode === 'edit' ? '编辑对象' : '漫游地图';
+    this.options.canvas.dataset.editorViewportMode = mode;
+    for (const button of this.panel.querySelectorAll<HTMLButtonElement>('[data-editor-camera-mode]')) {
+      button.setAttribute('aria-pressed', String(button.dataset.editorCameraMode === mode));
+    }
+  }
+
+  private togglePanel(): void {
+    this.panelCollapsed = !this.panelCollapsed;
+    this.panel.dataset.collapsed = String(this.panelCollapsed);
+    document.documentElement.dataset.sceneEditorPanel = this.panelCollapsed ? 'collapsed' : 'open';
+    const button = this.button('[data-editor-collapse]');
+    button.textContent = this.panelCollapsed ? '›' : '‹';
+    button.title = this.panelCollapsed ? '展开面板' : '收起面板';
+    button.setAttribute('aria-label', button.title);
+    button.setAttribute('aria-expanded', String(!this.panelCollapsed));
+    this.scheduleFrameHouse();
+  }
+
+  private scheduleFrameHouse(): void {
+    if (this.frameRequest) cancelAnimationFrame(this.frameRequest);
+    this.frameRequest = requestAnimationFrame(() => {
+      this.frameRequest = requestAnimationFrame(() => {
+        this.frameRequest = 0;
+        this.cameraControls.frameHouse();
+      });
+    });
+  }
 
   private pick(event: PointerEvent): EditorSelection | null {
     this.updateRay(event);

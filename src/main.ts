@@ -422,6 +422,10 @@ function showBanner(text: string, tone: 'danger' | 'safe'): void {
 }
 
 function updateCamera(frame: ViewerFrame | null, deltaSeconds: number, immediate = false): void {
+  if (sceneEditor) {
+    sceneEditor.updateCamera();
+    return;
+  }
   const captureActive = Boolean(frame && isCaptureCinematicViewer(frame));
   if (captureActive && cameraRig.snapshot().pointerMode) {
     runtimeTuning.cameraPresets['whole-house'] = cameraRig.stopDeveloperControl();
@@ -433,9 +437,7 @@ function updateCamera(frame: ViewerFrame | null, deltaSeconds: number, immediate
     captureActive,
     baseTarget: captureActive && frame
       ? captureCameraTarget(frame)
-      : sceneEditorRequested
-        ? { x: -3.4, y: 0, z: 0 }
-        : { x: 0, y: 0, z: 0 },
+      : { x: 0, y: 0, z: 0 },
     preset: runtimeTuning.cameraPresets[mode],
     deltaSeconds,
     responsiveness: captureActive

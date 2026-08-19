@@ -11,6 +11,18 @@ test('the developer scene editor edits furniture, rooms, and walls with live val
   await expect(page.getByTestId('scene-editor')).toBeVisible();
   await expect.poll(() => page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.snapshot().furnitureCount ?? 0)).toBe(34);
 
+  const openPanel = await page.getByTestId('scene-editor').boundingBox();
+  const openCanvas = await page.locator('#game-canvas').boundingBox();
+  expect(openPanel).toBeTruthy();
+  expect(openCanvas).toBeTruthy();
+  expect(openPanel!.x + openPanel!.width).toBeLessThanOrEqual(openCanvas!.x);
+  await page.locator('[data-editor-collapse]').click();
+  await expect.poll(() => page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.snapshot().panelCollapsed)).toBe(true);
+  const collapsedCanvas = await page.locator('#game-canvas').boundingBox();
+  expect(collapsedCanvas!.x).toBeLessThan(openCanvas!.x);
+  await page.locator('[data-editor-collapse]').click();
+  await expect.poll(() => page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.snapshot().panelCollapsed)).toBe(false);
+
   const baseline = await page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.snapshot());
   expect(baseline?.errors).toBe(0);
   expect(baseline?.movementColliderCount).toBe(22);
@@ -30,6 +42,55 @@ test('the developer scene editor edits furniture, rooms, and walls with live val
       .find((item) => item.id === 'nursery-bed')?.offsetX ?? 0,
   )).toBeGreaterThan(0.5);
   await page.locator('[data-editor-undo]').click();
+
+  const canvas = await page.locator('#game-canvas').boundingBox();
+  expect(canvas).toBeTruthy();
+  const cameraBeforeRotate = await page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.snapshot().viewport);
+  await page.mouse.move(canvas!.x + canvas!.width * 0.62, canvas!.y + canvas!.height * 0.48);
+  await page.mouse.down({ button: 'right' });
+  await page.mouse.move(canvas!.x + canvas!.width * 0.72, canvas!.y + canvas!.height * 0.55, { steps: 8 });
+  await page.mouse.up({ button: 'right' });
+  await expect.poll(async () => {
+    const current = await page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.snapshot().viewport.position);
+    return Math.hypot(
+      (current?.x ?? 0) - (cameraBeforeRotate?.position.x ?? 0),
+      (current?.z ?? 0) - (cameraBeforeRotate?.position.z ?? 0),
+    );
+  }).toBeGreaterThan(0.2);
+
+  const targetBeforePan = await page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.snapshot().viewport.target);
+  await page.mouse.down({ button: 'middle' });
+  await page.mouse.move(canvas!.x + canvas!.width * 0.66, canvas!.y + canvas!.height * 0.48, { steps: 8 });
+  await page.mouse.up({ button: 'middle' });
+  await expect.poll(async () => {
+    const current = await page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.snapshot().viewport.target);
+    return Math.hypot(
+      (current?.x ?? 0) - (targetBeforePan?.x ?? 0),
+      (current?.z ?? 0) - (targetBeforePan?.z ?? 0),
+    );
+  }).toBeGreaterThan(0.2);
+
+  const zoomBefore = await page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.snapshot().viewport.zoom ?? 0);
+  await page.mouse.wheel(0, -500);
+  await expect.poll(() => page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.snapshot().viewport.zoom ?? 0))
+    .toBeGreaterThan(zoomBefore);
+
+  await page.locator('[data-editor-camera-mode="navigate"]').click();
+  await expect.poll(() => page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.snapshot().viewport.mode)).toBe('navigate');
+  const targetBeforeNavigate = await page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.snapshot().viewport.target);
+  await page.mouse.down();
+  await page.mouse.move(canvas!.x + canvas!.width * 0.58, canvas!.y + canvas!.height * 0.42, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(async () => {
+    const current = await page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.snapshot().viewport.target);
+    return Math.hypot(
+      (current?.x ?? 0) - (targetBeforeNavigate?.x ?? 0),
+      (current?.z ?? 0) - (targetBeforeNavigate?.z ?? 0),
+    );
+  }).toBeGreaterThan(0.2);
+  await page.locator('[data-editor-camera-mode="edit"]').click();
+  await page.locator('[data-editor-frame-house]').click();
+  await expect.poll(() => page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.snapshot().viewport.target.x ?? 1)).toBe(0);
 
   await page.locator('[data-editor-room]').selectOption('foyer');
   await page.locator('[data-editor-asset]').selectOption('table_small');
