@@ -40,7 +40,7 @@ try {
         && diagnostics.serverTick !== null
         && diagnostics.serverTick > 6
         && diagnostics.world.assets.kid.status === 'ready'
-        && diagnostics.world.assets.wall.status === 'ready',
+        && diagnostics.world.assets.furniture.status === 'ready',
       );
     },
     undefined,
@@ -171,11 +171,11 @@ function rendererBudgets(diagnostics) {
   const world = diagnostics?.world ?? {};
   return {
     fps: minimumBudget(diagnostics?.fps, 50),
-    calls: budget(renderer.calls, 100),
-    triangles: budget(renderer.triangles, 100_000),
-    geometries: budget(renderer.geometries, 100),
+    calls: budget(renderer.calls, 300),
+    triangles: budget(renderer.triangles, 750_000),
+    geometries: budget(renderer.geometries, 300),
     materials: budget(world.materials, 80),
-    textures: budget(renderer.textures, 40),
+    textures: budget(renderer.textures, 60),
   };
 }
 

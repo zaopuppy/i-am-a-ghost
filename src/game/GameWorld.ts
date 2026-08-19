@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { furnitureAssetMetrics } from '../assets/EnvironmentAssets';
 import {
   createGhostAssetInstance,
   createKidAssetInstance,
@@ -38,7 +39,7 @@ const FLASHLIGHT_ORIGIN_FORWARD = 0.28;
 const FLASHLIGHT_BEAM_INTENSITY = 64;
 const FLASHLIGHT_OCCLUDER_LAYER = 1;
 const FLASHLIGHT_SHADOW_SIZE = 512;
-const WALL_HEIGHT = 3.4;
+const WALL_HEIGHT = 2.8;
 const HEADLAMP_SPIN_RADIANS_PER_SECOND = {
   off: 0,
   slow: 1.2,
@@ -265,13 +266,21 @@ export class GameWorld {
     visibleObjects: number;
     materials: number;
     animatedActors: number;
+    environmentProps: number;
+    wallDressings: number;
     pendingAssetUpgrades: number;
-    assets: ReturnType<typeof importedAssetMetrics>;
+    assets: ReturnType<typeof importedAssetMetrics> & {
+      furniture: ReturnType<typeof furnitureAssetMetrics>;
+    };
   } {
     let visibleObjects = 0;
+    let environmentProps = 0;
+    let wallDressings = 0;
     const materials = new Set<THREE.Material>();
     this.scene.traverseVisible((object) => {
       visibleObjects += 1;
+      if (object.name.startsWith('furniture-')) environmentProps += 1;
+      if (object.name === 'wall-dressing' || object.name.startsWith('dressing-')) wallDressings += 1;
       if (!(object instanceof THREE.Mesh || object instanceof THREE.Sprite)) return;
       const meshMaterials = Array.isArray(object.material) ? object.material : [object.material];
       for (const material of meshMaterials) materials.add(material);
@@ -284,8 +293,13 @@ export class GameWorld {
       visibleObjects,
       materials: materials.size,
       animatedActors: [...this.actors.values()].filter((actor) => actor.root.visible && actor.imported).length,
+      environmentProps,
+      wallDressings,
       pendingAssetUpgrades: this.pendingAssetUpgrades,
-      assets: importedAssetMetrics(),
+      assets: {
+        ...importedAssetMetrics(),
+        furniture: furnitureAssetMetrics(),
+      },
     };
   }
 
@@ -313,7 +327,12 @@ export class GameWorld {
     floor.receiveShadow = true;
     this.scene.add(floor);
 
-    this.scene.add(buildHouseStage(this.materials));
+    const stage = buildHouseStage(this.materials);
+    this.scene.add(stage.root);
+    this.pendingAssetUpgrades += 1;
+    void stage.ready.catch(() => undefined).finally(() => {
+      this.pendingAssetUpgrades -= 1;
+    });
 
     this.walls.name = 'box-walls';
     for (const wall of HOUSE_WALLS) {

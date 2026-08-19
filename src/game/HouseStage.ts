@@ -1,28 +1,287 @@
 import * as THREE from 'three';
+import {
+  loadFurnitureLibrary,
+  type FurnitureAssetId,
+} from '../assets/EnvironmentAssets';
 import type { HouseMaterialKit } from '../assets/MaterialLibrary';
 import {
   DEFAULT_HOUSE_MAP,
   HOUSE_OPENINGS,
   HOUSE_ROOMS,
   ROOM_FAMILY_BY_ID,
-  type HouseRoomLabel,
   type RoomFamily,
 } from './defaultHouse';
 
-const WALL_HEIGHT = 3.4;
 const DOOR_HEIGHT = 2.15;
 const POST_SIZE = 0.11;
 const ROOM_WIDTH = 9.3;
 const ROOM_DEPTH = 5.8;
 
-export function buildHouseStage(materials: HouseMaterialKit): THREE.Group {
+interface FurniturePlacement {
+  id: string;
+  roomId: string;
+  asset: FurnitureAssetId;
+  offsetX: number;
+  offsetZ: number;
+  yaw?: number;
+  scale?: number;
+  elevation?: number;
+}
+
+export interface HouseStageBuild {
+  root: THREE.Group;
+  ready: Promise<void>;
+  furnitureCount: number;
+}
+
+const FURNITURE_PLACEMENTS: readonly FurniturePlacement[] = [
+  { id: 'nursery-bed', roomId: 'nursery', asset: 'bed_single_A', offsetX: -1.2, offsetZ: -1.3 },
+  {
+    id: 'nursery-cabinet',
+    roomId: 'nursery',
+    asset: 'cabinet_medium_decorated',
+    offsetX: -4,
+    offsetZ: 1.4,
+    yaw: Math.PI / 2,
+  },
+  { id: 'nursery-rug', roomId: 'nursery', asset: 'rug_oval_A', offsetX: 1, offsetZ: 1.1 },
+
+  {
+    id: 'dining-rug',
+    roomId: 'dining',
+    asset: 'rug_rectangle_stripes_A',
+    offsetX: 0,
+    offsetZ: -1.45,
+  },
+  {
+    id: 'dining-table',
+    roomId: 'dining',
+    asset: 'table_medium_long',
+    offsetX: 0,
+    offsetZ: -1.45,
+  },
+  {
+    id: 'dining-chair-west',
+    roomId: 'dining',
+    asset: 'chair_A_wood',
+    offsetX: -2,
+    offsetZ: -1.45,
+    yaw: -Math.PI / 2,
+  },
+  {
+    id: 'dining-chair-east',
+    roomId: 'dining',
+    asset: 'chair_A_wood',
+    offsetX: 2,
+    offsetZ: -1.45,
+    yaw: Math.PI / 2,
+  },
+  {
+    id: 'dining-chair-south',
+    roomId: 'dining',
+    asset: 'chair_A_wood',
+    offsetX: 1.25,
+    offsetZ: 0.5,
+    yaw: Math.PI,
+  },
+
+  {
+    id: 'pantry-shelf-north',
+    roomId: 'pantry',
+    asset: 'shelf_B_large_decorated',
+    offsetX: 4,
+    offsetZ: -1.4,
+    yaw: -Math.PI / 2,
+  },
+  {
+    id: 'pantry-shelf-south',
+    roomId: 'pantry',
+    asset: 'shelf_B_large_decorated',
+    offsetX: 4,
+    offsetZ: 1,
+    yaw: -Math.PI / 2,
+  },
+  {
+    id: 'pantry-cabinet',
+    roomId: 'pantry',
+    asset: 'cabinet_medium_decorated',
+    offsetX: 2.7,
+    offsetZ: 2,
+    yaw: Math.PI,
+  },
+
+  {
+    id: 'library-shelf-north',
+    roomId: 'library',
+    asset: 'shelf_B_large_decorated',
+    offsetX: -4,
+    offsetZ: -1.5,
+    yaw: Math.PI / 2,
+  },
+  {
+    id: 'library-shelf-south',
+    roomId: 'library',
+    asset: 'shelf_B_large_decorated',
+    offsetX: -4,
+    offsetZ: 1.3,
+    yaw: Math.PI / 2,
+  },
+  {
+    id: 'library-rug',
+    roomId: 'library',
+    asset: 'rug_rectangle_A',
+    offsetX: -0.3,
+    offsetZ: 1.2,
+  },
+  {
+    id: 'library-chair',
+    roomId: 'library',
+    asset: 'armchair_pillows',
+    offsetX: -2.4,
+    offsetZ: 1.7,
+    yaw: -Math.PI / 4,
+  },
+  {
+    id: 'library-lamp',
+    roomId: 'library',
+    asset: 'lamp_standing',
+    offsetX: -3.6,
+    offsetZ: 1.8,
+  },
+
+  { id: 'foyer-rug', roomId: 'foyer', asset: 'rug_oval_A', offsetX: 0, offsetZ: 0 },
+
+  {
+    id: 'parlor-rug',
+    roomId: 'parlor',
+    asset: 'rug_rectangle_A',
+    offsetX: -0.3,
+    offsetZ: 1.1,
+  },
+  { id: 'parlor-couch', roomId: 'parlor', asset: 'couch_pillows', offsetX: -2.1, offsetZ: 2 },
+  {
+    id: 'parlor-chair-north',
+    roomId: 'parlor',
+    asset: 'armchair_pillows',
+    offsetX: 2.7,
+    offsetZ: 2,
+    yaw: -Math.PI / 2,
+  },
+  {
+    id: 'parlor-chair-south',
+    roomId: 'parlor',
+    asset: 'armchair_pillows',
+    offsetX: 3,
+    offsetZ: -2,
+    yaw: -Math.PI / 2,
+  },
+  { id: 'parlor-table', roomId: 'parlor', asset: 'table_low', offsetX: 0, offsetZ: 0.9 },
+
+  {
+    id: 'bedroom-bed',
+    roomId: 'bedroom',
+    asset: 'bed_double_A',
+    offsetX: 3,
+    offsetZ: 1.7,
+    scale: 0.8,
+  },
+  {
+    id: 'bedroom-cabinet',
+    roomId: 'bedroom',
+    asset: 'cabinet_medium_decorated',
+    offsetX: -4,
+    offsetZ: -1.5,
+    yaw: Math.PI / 2,
+  },
+
+  {
+    id: 'gallery-rug',
+    roomId: 'gallery',
+    asset: 'rug_rectangle_stripes_A',
+    offsetX: 0,
+    offsetZ: -0.4,
+  },
+  {
+    id: 'gallery-console',
+    roomId: 'gallery',
+    asset: 'table_low',
+    offsetX: 0,
+    offsetZ: 2.25,
+    scale: 0.8,
+  },
+  {
+    id: 'gallery-frame-west',
+    roomId: 'gallery',
+    asset: 'pictureframe_standing_A',
+    offsetX: -0.65,
+    offsetZ: 2.25,
+    scale: 0.9,
+    elevation: 0.4,
+  },
+  {
+    id: 'gallery-frame-center',
+    roomId: 'gallery',
+    asset: 'pictureframe_standing_A',
+    offsetX: 0,
+    offsetZ: 2.25,
+    scale: 0.9,
+    elevation: 0.4,
+  },
+  {
+    id: 'gallery-frame-east',
+    roomId: 'gallery',
+    asset: 'pictureframe_standing_A',
+    offsetX: 0.65,
+    offsetZ: 2.25,
+    scale: 0.9,
+    elevation: 0.4,
+  },
+
+  {
+    id: 'study-rug',
+    roomId: 'study',
+    asset: 'rug_rectangle_A',
+    offsetX: -1.5,
+    offsetZ: 1.1,
+  },
+  {
+    id: 'study-shelf',
+    roomId: 'study',
+    asset: 'shelf_B_large_decorated',
+    offsetX: 4,
+    offsetZ: 1.3,
+    yaw: -Math.PI / 2,
+  },
+  { id: 'study-desk', roomId: 'study', asset: 'table_medium', offsetX: 0.8, offsetZ: 1.3 },
+  { id: 'study-chair', roomId: 'study', asset: 'chair_A_wood', offsetX: 0.8, offsetZ: -0.1 },
+  {
+    id: 'study-lamp',
+    roomId: 'study',
+    asset: 'lamp_table',
+    offsetX: 0.8,
+    offsetZ: 1.3,
+    scale: 0.65,
+    elevation: 1,
+  },
+];
+
+export const HOUSE_FURNITURE_COUNT = FURNITURE_PLACEMENTS.length;
+
+export function buildHouseStage(materials: HouseMaterialKit): HouseStageBuild {
   const root = new THREE.Group();
   root.name = 'house-stage';
   root.add(buildRoomFloors(materials));
+  root.add(buildRoomInlays(materials));
   root.add(buildOpenings(materials));
-  root.add(buildWallDressing(materials));
   root.add(buildWindows(materials));
-  return root;
+  const furniture = new THREE.Group();
+  furniture.name = 'room-furniture';
+  root.add(furniture);
+  return {
+    root,
+    ready: populateFurniture(furniture, materials),
+    furnitureCount: FURNITURE_PLACEMENTS.length,
+  };
 }
 
 function buildRoomFloors(materials: HouseMaterialKit): THREE.Group {
@@ -30,7 +289,7 @@ function buildRoomFloors(materials: HouseMaterialKit): THREE.Group {
   group.name = 'room-floors';
   const geometry = new THREE.PlaneGeometry(ROOM_WIDTH, ROOM_DEPTH);
   for (const room of HOUSE_ROOMS) {
-    const family = familyOf(room);
+    const family = familyOf(room.id);
     const tile = new THREE.Mesh(geometry, materials.roomFloors[family]);
     tile.name = `room-floor-${room.id}`;
     tile.rotation.x = -Math.PI / 2;
@@ -39,6 +298,29 @@ function buildRoomFloors(materials: HouseMaterialKit): THREE.Group {
     group.add(tile);
   }
   return group;
+}
+
+function buildRoomInlays(materials: HouseMaterialKit): THREE.LineSegments {
+  const halfWidth = ROOM_WIDTH / 2 - 0.28;
+  const halfDepth = ROOM_DEPTH / 2 - 0.28;
+  const vertices: number[] = [];
+  for (const room of HOUSE_ROOMS) {
+    const minX = room.center.x - halfWidth;
+    const maxX = room.center.x + halfWidth;
+    const minZ = room.center.z - halfDepth;
+    const maxZ = room.center.z + halfDepth;
+    vertices.push(
+      minX, 0.034, minZ, maxX, 0.034, minZ,
+      maxX, 0.034, minZ, maxX, 0.034, maxZ,
+      maxX, 0.034, maxZ, minX, 0.034, maxZ,
+      minX, 0.034, maxZ, minX, 0.034, minZ,
+    );
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+  const inlays = new THREE.LineSegments(geometry, materials.floorTrim);
+  inlays.name = 'room-floor-inlays';
+  return inlays;
 }
 
 function buildOpenings(materials: HouseMaterialKit): THREE.Group {
@@ -90,37 +372,6 @@ function buildOpenings(materials: HouseMaterialKit): THREE.Group {
   return group;
 }
 
-function buildWallDressing(materials: HouseMaterialKit): THREE.Group {
-  const group = new THREE.Group();
-  group.name = 'wall-dressing';
-  const frameGeometry = new THREE.BoxGeometry(0.72, 0.52, 0.05);
-  const shelfGeometry = new THREE.BoxGeometry(1.15, 0.08, 0.07);
-  const cribGeometry = new THREE.BoxGeometry(0.9, 0.62, 0.06);
-
-  for (const room of HOUSE_ROOMS) {
-    const family = familyOf(room);
-    const material = materials.dressing[family];
-    const insets = dressingInsets(room);
-    for (const [index, inset] of insets.entries()) {
-      let mesh: THREE.Mesh;
-      if (family === 'old') {
-        mesh = new THREE.Mesh(shelfGeometry, material);
-        mesh.position.set(inset.x, 1.12 + (index % 2) * 0.42, inset.z);
-      } else if (family === 'sleep' && index === 0) {
-        mesh = new THREE.Mesh(cribGeometry, material);
-        mesh.position.set(inset.x, 0.72, inset.z);
-      } else {
-        mesh = new THREE.Mesh(frameGeometry, material);
-        mesh.position.set(inset.x, 1.38, inset.z);
-      }
-      mesh.rotation.y = inset.yaw;
-      mesh.name = `dressing-${room.id}-${index}`;
-      group.add(mesh);
-    }
-  }
-  return group;
-}
-
 function buildWindows(materials: HouseMaterialKit): THREE.Group {
   const group = new THREE.Group();
   group.name = 'window-glows';
@@ -146,17 +397,24 @@ function buildWindows(materials: HouseMaterialKit): THREE.Group {
   return group;
 }
 
-function dressingInsets(room: HouseRoomLabel): Array<{ x: number; z: number; yaw: number }> {
-  const { x, z } = room.center;
-  return [
-    { x: x - 2.1, z: z + ROOM_DEPTH / 2 - 0.16, yaw: 0 },
-    { x: x + 2.1, z: z + ROOM_DEPTH / 2 - 0.16, yaw: 0 },
-    { x: x + ROOM_WIDTH / 2 - 0.16, z: z, yaw: -Math.PI / 2 },
-  ];
+async function populateFurniture(group: THREE.Group, materials: HouseMaterialKit): Promise<void> {
+  const library = await loadFurnitureLibrary(materials);
+  for (const placement of FURNITURE_PLACEMENTS) {
+    const room = HOUSE_ROOMS.find((candidate) => candidate.id === placement.roomId);
+    if (!room) throw new Error(`Unknown room ${placement.roomId} for furniture ${placement.id}.`);
+    const root = library.instantiate(placement.asset, familyOf(room.id));
+    root.name = `furniture-${placement.id}`;
+    root.position.set(
+      room.center.x + placement.offsetX,
+      placement.elevation ?? 0.012,
+      room.center.z + placement.offsetZ,
+    );
+    root.rotation.y = placement.yaw ?? 0;
+    root.scale.setScalar(placement.scale ?? 1);
+    group.add(root);
+  }
 }
 
-function familyOf(room: HouseRoomLabel): RoomFamily {
-  return ROOM_FAMILY_BY_ID[room.id] ?? 'old';
+function familyOf(roomId: string): RoomFamily {
+  return ROOM_FAMILY_BY_ID[roomId] ?? 'old';
 }
-
-export const HOUSE_STAGE_WALL_HEIGHT = WALL_HEIGHT;

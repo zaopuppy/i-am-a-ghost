@@ -9,12 +9,12 @@ export const ART_COLORS = Object.freeze({
   reward: 0xe6c965,
   shieldBoost: 0x83d5ad,
   emissiveSignal: 0xffd36b,
-  groundContact: 0x090a0d,
+  groundContact: 0x171a21,
   decalDark: 0x111319,
   decalLight: 0x777f90,
-  livingFloor: 0x1c1610,
-  sleepFloor: 0x14161c,
-  oldFloor: 0x121410,
+  livingFloor: 0x6d4c32,
+  sleepFloor: 0x46546f,
+  oldFloor: 0x46533d,
   doorFrame: 0x6d5a42,
   threshold: 0x8a7348,
   windowGlow: 0x7d8aa8,
@@ -26,11 +26,12 @@ export interface HouseMaterialKit {
   roomFloorA: THREE.MeshStandardMaterial;
   roomFloorB: THREE.MeshStandardMaterial;
   roomFloors: Record<RoomFamily, THREE.MeshStandardMaterial>;
+  floorTrim: THREE.LineBasicMaterial;
   trim: THREE.LineBasicMaterial;
   doorFrame: THREE.MeshStandardMaterial;
   threshold: THREE.MeshBasicMaterial;
   windowGlow: THREE.MeshBasicMaterial;
-  dressing: Record<RoomFamily, THREE.MeshStandardMaterial>;
+  furniture: Record<RoomFamily, THREE.MeshStandardMaterial>;
   ghostBody: THREE.MeshStandardMaterial;
   ghostTrim: THREE.MeshStandardMaterial;
   reward: THREE.MeshStandardMaterial;
@@ -67,16 +68,22 @@ export function createHouseMaterialKit(): HouseMaterialKit {
   const livingFloor = new THREE.MeshStandardMaterial({
     map: floorPattern,
     color: ART_COLORS.livingFloor,
+    emissive: 0x21160d,
+    emissiveIntensity: 0.16,
     roughness: 0.9,
   });
   const sleepFloor = new THREE.MeshStandardMaterial({
     map: floorPattern,
     color: ART_COLORS.sleepFloor,
+    emissive: 0x111727,
+    emissiveIntensity: 0.15,
     roughness: 0.94,
   });
   const oldFloor = new THREE.MeshStandardMaterial({
     map: floorPattern,
     color: ART_COLORS.oldFloor,
+    emissive: 0x11190e,
+    emissiveIntensity: 0.14,
     roughness: 0.96,
   });
   const doorFrame = new THREE.MeshStandardMaterial({
@@ -98,25 +105,30 @@ export function createHouseMaterialKit(): HouseMaterialKit {
     opacity: 0.34,
     depthWrite: false,
   });
-  const livingDressing = new THREE.MeshStandardMaterial({
-    color: 0x4a3a28,
+  const livingFurniture = new THREE.MeshStandardMaterial({
+    color: 0xffdfc0,
     roughness: 0.78,
-    emissive: 0x1c140c,
-    emissiveIntensity: 0.28,
+    emissive: 0x21140a,
+    emissiveIntensity: 0.16,
   });
-  const sleepDressing = new THREE.MeshStandardMaterial({
-    color: 0x3a3440,
+  const sleepFurniture = new THREE.MeshStandardMaterial({
+    color: 0xd6dcff,
     roughness: 0.82,
-    emissive: 0x121018,
-    emissiveIntensity: 0.22,
+    emissive: 0x111526,
+    emissiveIntensity: 0.14,
   });
-  const oldDressing = new THREE.MeshStandardMaterial({
-    color: 0x2c3228,
+  const oldFurniture = new THREE.MeshStandardMaterial({
+    color: 0xc7d0b0,
     roughness: 0.88,
-    emissive: 0x0c100c,
-    emissiveIntensity: 0.18,
+    emissive: 0x10160b,
+    emissiveIntensity: 0.12,
   });
   const trim = new THREE.LineBasicMaterial({ color: ART_COLORS.trim, transparent: true, opacity: 0.68 });
+  const floorTrim = new THREE.LineBasicMaterial({
+    color: 0xa89476,
+    transparent: true,
+    opacity: 0.28,
+  });
   const ghostBody = new THREE.MeshStandardMaterial({
     color: 0x9ba5bd,
     emissive: 0x30384d,
@@ -154,9 +166,10 @@ export function createHouseMaterialKit(): HouseMaterialKit {
     doorFrame,
     threshold,
     windowGlow,
-    livingDressing,
-    sleepDressing,
-    oldDressing,
+    livingFurniture,
+    sleepFurniture,
+    oldFurniture,
+    floorTrim,
     trim,
     ghostBody,
     ghostTrim,
@@ -178,11 +191,12 @@ export function createHouseMaterialKit(): HouseMaterialKit {
     roomFloorA,
     roomFloorB,
     roomFloors: { living: livingFloor, sleep: sleepFloor, old: oldFloor },
+    floorTrim,
     trim,
     doorFrame,
     threshold,
     windowGlow,
-    dressing: { living: livingDressing, sleep: sleepDressing, old: oldDressing },
+    furniture: { living: livingFurniture, sleep: sleepFurniture, old: oldFurniture },
     ghostBody,
     ghostTrim,
     reward,
@@ -240,9 +254,9 @@ function createFloorPatternTexture(): THREE.DataTexture {
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
       const i = (y * width + x) * 4;
-      const noise = (pseudoNoise(x * 5.21, y * 7.13) - 0.5) * 14;
+      const noise = (pseudoNoise(x * 5.21, y * 7.13) - 0.5) * 18;
       const seam = (x % 48 < 2 || y % 42 < 2) ? 1 : 0;
-      const base = 31 + seam * 18;
+      const base = seam ? 76 : 124;
       data[i] = clampByte(base + noise);
       data[i + 1] = clampByte(base + noise * 0.7);
       data[i + 2] = clampByte(base + noise * 0.5);

@@ -1,17 +1,31 @@
 import { expect, test } from '@playwright/test';
 
-test('the house uses procedural box walls without requesting a wall GLB', async ({ page }) => {
+test('the house keeps box-wall collision and loads grounded room furniture', async ({ page }) => {
   let wallRequests = 0;
   await page.route('**/wall_straight.glb', (route) => {
     wallRequests += 1;
     void route.abort();
   });
   await page.goto('/?testState=child-playing');
-  await page.waitForFunction(() => (window.__THREE_GAME_DIAGNOSTICS__?.frame ?? 0) > 10);
+  await page.waitForFunction(() => {
+    const diagnostics = window.__THREE_GAME_DIAGNOSTICS__;
+    return diagnostics
+      && diagnostics.frame > 10
+      && diagnostics.world.assets.furniture.status !== 'loading';
+  });
   const diagnostics = await page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__);
   expect(wallRequests).toBe(0);
   expect(diagnostics?.renderer.calls).toBeGreaterThan(0);
   expect(diagnostics?.world.walls).toBe(22);
+  expect(diagnostics?.world.wallDressings).toBe(0);
+  expect(diagnostics?.world.environmentProps).toBe(34);
+  expect(diagnostics?.world.assets.furniture).toMatchObject({
+    status: 'ready',
+    triangles: 6_098,
+    meshes: 17,
+    materials: 3,
+    textures: 1,
+  });
 });
 
 test('a failed Ghost GLB request keeps the procedural ghost fallback playable', async ({ page }) => {

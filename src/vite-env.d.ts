@@ -40,9 +40,13 @@ interface GhostGameDiagnostics {
     visibleObjects: number;
     materials: number;
     animatedActors: number;
+    environmentProps: number;
+    wallDressings: number;
+    pendingAssetUpgrades: number;
       assets: {
         kid: ImportedAssetDiagnostics;
         ghost: ImportedAssetDiagnostics;
+        furniture: ImportedAssetDiagnostics;
       };
   };
   audio: {
