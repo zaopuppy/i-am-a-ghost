@@ -90,8 +90,10 @@ let cameraMetricControllers: import('lil-gui').Controller[] = [];
 let cameraPointerController: import('lil-gui').Controller | null = null;
 let infiniteGhostHealthController: import('lil-gui').Controller | null = null;
 let infiniteFlashlightEnergyController: import('lil-gui').Controller | null = null;
+let sceneEditor: import('./game/SceneEditor').SceneEditor | null = null;
 const cameraDebugState = createCameraDebugState(runtimeTuning.cameraPresets['whole-house']);
 const query = new URLSearchParams(window.location.search);
+const sceneEditorRequested = import.meta.env.DEV && query.get('sceneEditor') === '1';
 const requestedTestState = query.get('testState');
 let deterministicState: DeterministicStateName | null = import.meta.env.DEV
   && isDeterministicStateName(requestedTestState)
@@ -208,7 +210,8 @@ if (import.meta.env.DEV) {
     cameraSnapshot: () => cameraRig.snapshot(),
   };
   window.__THREE_GAME_TEST_HOOKS__ = testHooks;
-  if (!deterministicState) void installDebugGui();
+  if (sceneEditorRequested) void installSceneEditor();
+  else if (!deterministicState) void installDebugGui();
 }
 loop.start();
 
@@ -225,6 +228,7 @@ if (import.meta.hot) {
     unsubscribeClient();
     resizeObserver.disconnect();
     cameraRig.dispose();
+    sceneEditor?.dispose();
     world.dispose();
     stage.dispose();
     delete window.__THREE_GAME_DIAGNOSTICS__;
@@ -239,7 +243,7 @@ function joinRoom(): void {
 }
 
 function renderClientState(): void {
-  if (deterministicState) return;
+  if (deterministicState || sceneEditorRequested) return;
   connectionRow.dataset.connected = String(client.connected);
   networkStatus.textContent = client.connected ? '局域网房间服务已连接' : '等待局域网房间服务';
   errorMessage.textContent = client.roomState?.notice === 'ghost-disconnected'
@@ -427,7 +431,11 @@ function updateCamera(frame: ViewerFrame | null, deltaSeconds: number, immediate
   cameraRig.update({
     mode,
     captureActive,
-    baseTarget: captureActive && frame ? captureCameraTarget(frame) : { x: 0, y: 0, z: 0 },
+    baseTarget: captureActive && frame
+      ? captureCameraTarget(frame)
+      : sceneEditorRequested
+        ? { x: -3.4, y: 0, z: 0 }
+        : { x: 0, y: 0, z: 0 },
     preset: runtimeTuning.cameraPresets[mode],
     deltaSeconds,
     responsiveness: captureActive
@@ -578,6 +586,22 @@ async function installDebugGui(): Promise<void> {
   debugGui = gui;
   refreshCameraMetrics();
   setDebugUiHidden(debugGuiHidden);
+}
+
+async function installSceneEditor(): Promise<void> {
+  lobbyPanel.hidden = true;
+  gameHud.hidden = true;
+  eventBanner.hidden = true;
+  audioButton.hidden = true;
+  resultOverlay.hidden = true;
+  milestone.hidden = true;
+  const { SceneEditor } = await import('./game/SceneEditor');
+  sceneEditor = new SceneEditor({
+    scene: world.scene,
+    camera: stage.camera,
+    canvas,
+  });
+  await sceneEditor.ready;
 }
 
 function applyCameraDebugPreset(): void {

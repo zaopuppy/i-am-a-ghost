@@ -3,6 +3,8 @@
 import type { ViewerFrame } from './game/ViewerFrame';
 import type { RuntimeTuning } from './game/RuntimeTuning';
 import type { CameraMode, CameraRigSnapshot } from './core/CameraRig';
+import type { FurnitureAssetId } from './game/HouseScene';
+import type { SceneEditorSnapshot } from './game/SceneEditor';
 
 interface ImportedAssetDiagnostics {
   status: 'not-requested' | 'loading' | 'ready' | 'failed';
@@ -92,6 +94,16 @@ declare global {
       hideOverlay(hidden: boolean): void;
       setCameraPreview(mode: CameraMode | null): void;
       cameraSnapshot(): CameraRigSnapshot;
+    };
+    __HOUSE_SCENE_EDITOR__?: {
+      snapshot(): SceneEditorSnapshot;
+      select(kind: 'furniture' | 'room' | 'wall', id: string): void;
+      moveSelected(x: number, z: number): void;
+      rotateSelected(degrees: number): void;
+      addFurniture(asset: FurnitureAssetId, roomId: string): void;
+      undo(): void;
+      exportJson(): string;
+      screenPoint(x: number, z: number): { x: number; y: number };
     };
   }
 }

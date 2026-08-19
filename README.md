@@ -35,6 +35,7 @@ npm run stop
 | `http://127.0.0.1:5189/` | 开发大厅。可创建/加入房间，开局后进入对局。开发模式下会显示「开发调试」面板。 |
 | `http://127.0.0.1:5189/?room=ABC123` | 把 6 位房间码填进加入框。字母会自动转成大写。 |
 | `http://127.0.0.1:5189/?testState=<name>` | **仅开发模式**。跳过联机，播放固定画面，用于截图和验收。生产构建会忽略该参数。 |
+| `http://127.0.0.1:5189/?sceneEditor=1` | **仅开发模式**。打开房屋场景编辑器，可移动/旋转/增加家具并编辑房间和墙段。 |
 | `http://127.0.0.1:5191/healthz` | 房间服务 JSON 健康检查。Vite 也会把 `/healthz` 代理到这里，所以 `http://127.0.0.1:5189/healthz` 同样可用。 |
 | `http://127.0.0.1:4189/` | `npm run build` 后 `npm run preview` 的生产预览。房间服务仍要单独在 5191 运行（`npm run preview` 会一起拉起）。 |
 
@@ -58,6 +59,7 @@ npm run stop
 ```text
 http://127.0.0.1:5189/?testState=ghost-playing
 http://127.0.0.1:5189/?testState=capture
+http://127.0.0.1:5189/?sceneEditor=1
 http://127.0.0.1:5189/?room=AB12CD
 ```
 
@@ -101,6 +103,7 @@ npx playwright test tests/deterministic-states.spec.ts
 - 开发计划：[docs/2026-08-17_development-plan.md](docs/2026-08-17_development-plan.md)
 - 联机栈决策：[docs/adr/0001-use-socketio-authoritative-stack.md](docs/adr/0001-use-socketio-authoritative-stack.md)
 - M6 自动试玩与 QA：[docs/2026-08-17_m6-playtest-tuning-and-qa-report.md](docs/2026-08-17_m6-playtest-tuning-and-qa-report.md)
+- 场景编辑器：[docs/SCENE_EDITOR.md](docs/SCENE_EDITOR.md)
 - 第三方资产许可：[docs/ASSET_LICENSES.md](docs/ASSET_LICENSES.md)
 
 当前是首轮局域网试玩版，不代表最终平衡或正式发布。自动机器人显示少人数局对鬼明显有利；下一轮应以 2–5 名真人的实际操作、误判与路线选择数据决定调整。
