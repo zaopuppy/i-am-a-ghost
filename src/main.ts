@@ -4,6 +4,7 @@ import {
   CameraRig,
   createRecommendedCameraPresets,
   formatCameraPreset,
+  orientMovementToCamera,
   type CameraMode,
   type CameraPreset,
 } from './core/CameraRig';
@@ -133,7 +134,10 @@ const loop = new Loop(
         lastIngestedFrameKey = key;
       }
     }
-    const movement = deterministicState ? { x: 0, z: 0 } : input.movement();
+    const cameraPose = cameraRig.snapshot();
+    const movement = deterministicState
+      ? { x: 0, z: 0 }
+      : orientMovementToCamera(input.movement(), cameraPose.position, cameraPose.target);
     const frame = deterministicState
       ? createDeterministicViewerFrame(deterministicState, deterministicSeed)
       : presenter.present(deltaSeconds, movement, runtimeTuning);

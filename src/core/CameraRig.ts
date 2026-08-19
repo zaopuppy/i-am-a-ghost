@@ -143,6 +143,35 @@ export function cameraAngles(position: CameraVector, target: CameraVector): {
   };
 }
 
+/** Map screen-space ESDF into world XZ using the camera's current yaw. */
+export function orientMovementToCamera(
+  movement: { x: number; z: number },
+  cameraPosition: Pick<CameraVector, 'x' | 'z'>,
+  cameraTarget: Pick<CameraVector, 'x' | 'z'>,
+): { x: number; z: number } {
+  if (movement.x === 0 && movement.z === 0) return { x: 0, z: 0 };
+
+  const offsetX = cameraPosition.x - cameraTarget.x;
+  const offsetZ = cameraPosition.z - cameraTarget.z;
+  const length = Math.hypot(offsetX, offsetZ);
+  const oriented = length < 1e-6
+    ? { x: movement.x, z: movement.z }
+    : {
+        x: movement.x * (offsetZ / length) + movement.z * (offsetX / length),
+        z: -movement.x * (offsetX / length) + movement.z * (offsetZ / length),
+      };
+
+  const maxComponent = Math.max(1, Math.abs(oriented.x), Math.abs(oriented.z));
+  return {
+    x: signedZero(oriented.x / maxComponent),
+    z: signedZero(oriented.z / maxComponent),
+  };
+}
+
+function signedZero(value: number): number {
+  return Object.is(value, -0) ? 0 : value;
+}
+
 /**
  * Owns the runtime camera transform and the optional DEV-only OrbitControls session.
  * Runtime capture always cancels developer control before applying its preset.

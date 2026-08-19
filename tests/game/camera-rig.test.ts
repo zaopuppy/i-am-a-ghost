@@ -5,6 +5,7 @@ import {
   cameraPresetFromPose,
   createRecommendedCameraPresets,
   formatCameraPreset,
+  orientMovementToCamera,
   resolveCameraMode,
 } from '../../src/core/CameraRig';
 
@@ -59,6 +60,33 @@ test('camera diagnostics report human-readable tilt and azimuth', () => {
     cameraAngles({ x: 10, y: 10, z: 0 }, { x: 0, y: 0, z: 0 }),
     { distance: 14.142, tiltDegrees: 45, azimuthDegrees: 90 },
   );
+});
+
+test('ESDF movement stays screen-aligned after the camera orbits', () => {
+  const screenUp = { x: 0, z: -1 };
+  const screenRight = { x: 1, z: 0 };
+  const idle = { x: 0, z: 0 };
+  const defaultCamera = { x: 0, y: 10, z: 8 };
+  const origin = { x: 0, y: 0, z: 0 };
+
+  assert.deepEqual(orientMovementToCamera(screenUp, defaultCamera, origin), screenUp);
+  assert.deepEqual(orientMovementToCamera(screenRight, defaultCamera, origin), screenRight);
+  assert.deepEqual(orientMovementToCamera(idle, defaultCamera, origin), idle);
+
+  const yawedEast = { x: 8, y: 10, z: 0 };
+  assert.deepEqual(orientMovementToCamera(screenUp, yawedEast, origin), { x: -1, z: 0 });
+  assert.deepEqual(orientMovementToCamera(screenRight, yawedEast, origin), { x: 0, z: -1 });
+
+  const yawedNorth = { x: 0, y: 10, z: -8 };
+  assert.deepEqual(orientMovementToCamera(screenUp, yawedNorth, origin), { x: 0, z: 1 });
+  assert.deepEqual(orientMovementToCamera(screenRight, yawedNorth, origin), { x: -1, z: 0 });
+
+  const yawedNortheast = { x: 8, y: 10, z: 8 };
+  const diagonal = orientMovementToCamera({ x: 1, z: -1 }, yawedNortheast, origin);
+  assert.ok(Math.abs(diagonal.x) <= 1);
+  assert.ok(Math.abs(diagonal.z) <= 1);
+  assert.ok(Math.abs(diagonal.x) < 1e-6, '45-degree orbit turns ESDF diagonal into camera-forward');
+  assert.ok(diagonal.z < -0.99, '45-degree orbit keeps the diagonal on screen-up');
 });
 
 test('camera preset copy helpers produce TypeScript and JSON payloads', () => {
