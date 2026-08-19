@@ -9,6 +9,13 @@ export interface MatchMap {
   id: string;
   bounds: { minX: number; maxX: number; minZ: number; maxZ: number };
   walls: ReadonlyArray<{ id: string; minX: number; maxX: number; minZ: number; maxZ: number }>;
+  movementObstacles?: ReadonlyArray<{
+    id: string;
+    center: Vec2;
+    halfWidth: number;
+    halfDepth: number;
+    yawRadians: number;
+  }>;
   ghostSpawn: Vec2;
   childSpawns: readonly [Vec2, Vec2, Vec2, Vec2];
   batterySpawns: ReadonlyArray<Vec2>;

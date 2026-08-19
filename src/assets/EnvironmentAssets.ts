@@ -1,30 +1,12 @@
 import * as THREE from 'three';
 import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import type { RoomFamily } from '../game/defaultHouse';
+import {
+  FURNITURE_ASSET_IDS,
+  type FurnitureAssetId,
+} from '../game/HouseScene';
 import type { HouseMaterialKit } from './MaterialLibrary';
 import type { ImportedAssetMetrics } from './ImportedAssets';
-
-export const FURNITURE_ASSET_IDS = [
-  'armchair_pillows',
-  'bed_double_A',
-  'bed_single_A',
-  'cabinet_medium_decorated',
-  'chair_A_wood',
-  'couch_pillows',
-  'lamp_standing',
-  'lamp_table',
-  'pictureframe_standing_A',
-  'rug_oval_A',
-  'rug_rectangle_A',
-  'rug_rectangle_stripes_A',
-  'shelf_B_large_decorated',
-  'table_low',
-  'table_medium',
-  'table_medium_long',
-  'table_small',
-] as const;
-
-export type FurnitureAssetId = typeof FURNITURE_ASSET_IDS[number];
 
 export interface FurnitureLibrary {
   instantiate(id: FurnitureAssetId, family: RoomFamily): THREE.Group;
