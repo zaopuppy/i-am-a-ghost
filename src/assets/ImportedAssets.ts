@@ -41,6 +41,8 @@ export interface CharacterAssetInstance {
   mixer: THREE.AnimationMixer;
   actions: Map<string, THREE.AnimationAction>;
   joints: CharacterJoints;
+  captureJointRotations: ReadonlyMap<THREE.Object3D, THREE.Quaternion>;
+  jointRestRotations: ReadonlyMap<THREE.Object3D, THREE.Quaternion>;
   lookJoints: Pick<CharacterJoints, 'chest' | 'head'>;
 }
 
@@ -143,21 +145,32 @@ async function createCharacterAssetInstance(
   const joints: CharacterJoints = {
     chest: findObjectByName(scene, 'chest'),
     head: findObjectByName(scene, 'head'),
-    leftUpperArm: findObjectByName(scene, 'upperarm.l'),
-    rightUpperArm: findObjectByName(scene, 'upperarm.r'),
-    leftLowerArm: findObjectByName(scene, 'lowerarm.l'),
-    rightLowerArm: findObjectByName(scene, 'lowerarm.r'),
-    leftUpperLeg: findObjectByName(scene, 'upperleg.l'),
-    rightUpperLeg: findObjectByName(scene, 'upperleg.r'),
-    leftLowerLeg: findObjectByName(scene, 'lowerleg.l'),
-    rightLowerLeg: findObjectByName(scene, 'lowerleg.r'),
+    leftUpperArm: findObjectByName(scene, 'upperarml'),
+    rightUpperArm: findObjectByName(scene, 'upperarmr'),
+    leftLowerArm: findObjectByName(scene, 'lowerarml'),
+    rightLowerArm: findObjectByName(scene, 'lowerarmr'),
+    leftUpperLeg: findObjectByName(scene, 'upperlegl'),
+    rightUpperLeg: findObjectByName(scene, 'upperlegr'),
+    leftLowerLeg: findObjectByName(scene, 'lowerlegl'),
+    rightLowerLeg: findObjectByName(scene, 'lowerlegr'),
   };
+  const jointRestRotations = new Map<THREE.Object3D, THREE.Quaternion>();
+  for (const joint of Object.values(joints)) {
+    if (joint) jointRestRotations.set(joint, joint.quaternion.clone());
+  }
+  mixer.update(0);
+  const captureJointRotations = new Map<THREE.Object3D, THREE.Quaternion>();
+  for (const joint of Object.values(joints)) {
+    if (joint) captureJointRotations.set(joint, joint.quaternion.clone());
+  }
   return {
     kind,
     root,
     mixer,
     actions,
     joints,
+    captureJointRotations,
+    jointRestRotations,
     lookJoints: { chest: joints.chest, head: joints.head },
   };
 }

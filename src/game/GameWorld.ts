@@ -625,6 +625,7 @@ function syncActor(
   actor.bodyPivot.rotation.x = 0;
   actor.bodyPivot.rotation.z = 0;
   if (actor.imported) {
+    resetImportedJointRotations(actor.imported, captured);
     const distance = actor.lastPosition
       ? Math.hypot(position.x - actor.lastPosition.x, position.z - actor.lastPosition.z)
       : 0;
@@ -636,7 +637,8 @@ function syncActor(
           ? 'Running_A'
           : 'Idle_A';
     playActorAnimation(actor, nextAnimation);
-    actor.imported.mixer.update(doll ? 0 : elapsed);
+    // Capture uses the stable base pose below plus authoritative procedural limb motion.
+    if (!captured) actor.imported.mixer.update(doll ? 0 : elapsed);
     if (!doll && nextAnimation !== 'Hit_A') {
       applyLookPose(actor.imported, actor.facing.bodyRadians, lookFacingRadians);
     }
@@ -687,6 +689,7 @@ function syncGhostActor(
   const distance = actor.lastPosition
     ? Math.hypot(position.x - actor.lastPosition.x, position.z - actor.lastPosition.z)
     : 0;
+  if (actor.imported) resetImportedJointRotations(actor.imported);
   playActorAnimation(actor, distance > 0.012 ? 'Running_A' : 'Idle_A');
   actor.imported?.mixer.update(elapsed);
   if (actor.ghostRig) {
@@ -714,6 +717,17 @@ function playActorAnimation(actor: ActorVisual, nextAnimation: string, fadeSecon
   next.reset().play();
   if (previous) next.crossFadeFrom(previous, fadeSeconds, false);
   actor.currentAnimation = nextAnimation;
+}
+
+function resetImportedJointRotations(
+  imported: CharacterAssetInstance,
+  capturePose = false,
+): void {
+  // Clips do not key every joint, so clear the previous procedural overlay before posing.
+  const rotations = capturePose ? imported.captureJointRotations : imported.jointRestRotations;
+  for (const [joint, baseRotation] of rotations) {
+    joint.quaternion.copy(baseRotation);
+  }
 }
 
 function actorDeltaSeconds(actor: ActorVisual, elapsedSeconds: number): number {
@@ -746,10 +760,19 @@ function poseCapturedChild(
   captureSeconds: number,
   motionScale: number,
 ): void {
-  const thrash = Math.sin(captureSeconds * 19.5) * struggle * motionScale;
-  const counter = Math.sin(captureSeconds * 14.2 + 1.1) * struggle * motionScale;
-  const kick = Math.sin(captureSeconds * 23.4 + 0.55) * struggle * motionScale;
-  const hug = hold * 0.08;
+  const thrash = Math.sin(captureSeconds * 9.2) * struggle * motionScale;
+  const counter = Math.sin(captureSeconds * 7.4 + 1.1) * struggle * motionScale;
+  const wingOpen = Math.min(1, struggle * 1.35 + hold * 0.35);
+  const wingFlap = Math.sin(captureSeconds * 10.5);
+  const wingBounce = Math.sin(captureSeconds * 21 + 0.35) * 0.04;
+  const wingAngle = wingOpen * (1.05 + (wingFlap * 0.34 + wingBounce) * motionScale);
+  const armReach = Math.sin(captureSeconds * 7.1 + 0.8) * 0.12 * struggle * motionScale;
+  const kickEnergy = Math.min(1, struggle * 1.35 + hold * 0.32) * motionScale;
+  const leftKick = Math.sin(captureSeconds * 12.8) * kickEnergy;
+  const rightKick = Math.sin(captureSeconds * 12.8 + Math.PI * 0.92) * kickEnergy;
+  const leftKnee = (0.18 + (1 - leftKick) * 0.52) * kickEnergy;
+  const rightKnee = (0.18 + (1 - rightKick) * 0.52) * kickEnergy;
+  const hug = hold * 0.12;
   applyJointRotation(imported.joints.chest, -impact * 0.16 + hug, thrash * 0.18, counter * 0.08);
   applyJointRotation(
     imported.joints.head,
@@ -757,14 +780,25 @@ function poseCapturedChild(
     Math.max(-0.18, Math.min(0.18, -thrash * 0.22)),
     Math.max(-0.12, Math.min(0.12, counter * 0.12)),
   );
-  applyJointRotation(imported.joints.leftUpperArm, counter * 0.42, -thrash * 0.16, -struggle * 0.28 - hug);
-  applyJointRotation(imported.joints.rightUpperArm, -counter * 0.42, thrash * 0.16, struggle * 0.28 + hug);
-  applyJointRotation(imported.joints.leftLowerArm, -struggle * 0.28 - hug, 0, thrash * 0.18);
-  applyJointRotation(imported.joints.rightLowerArm, -struggle * 0.28 - hug, 0, -thrash * 0.18);
-  applyJointRotation(imported.joints.leftUpperLeg, kick * 0.28, 0, -counter * 0.08);
-  applyJointRotation(imported.joints.rightUpperLeg, -kick * 0.28, 0, counter * 0.08);
-  applyJointRotation(imported.joints.leftLowerLeg, Math.max(0, -kick) * 0.24, 0, 0);
-  applyJointRotation(imported.joints.rightLowerLeg, Math.max(0, kick) * 0.24, 0, 0);
+  applyJointRotation(
+    imported.joints.leftUpperArm,
+    impact * 0.24 + armReach,
+    -armReach * 0.4,
+    wingAngle + hug * 0.25,
+  );
+  applyJointRotation(
+    imported.joints.rightUpperArm,
+    -impact * 0.24 - armReach,
+    -armReach * 0.4,
+    -wingAngle - hug * 0.25,
+  );
+  const elbowFlex = (0.08 + Math.max(0, -wingFlap) * 0.18) * wingOpen * motionScale;
+  applyJointRotation(imported.joints.leftLowerArm, elbowFlex - hug * 0.35, 0, -wingFlap * 0.08);
+  applyJointRotation(imported.joints.rightLowerArm, elbowFlex - hug * 0.35, 0, wingFlap * 0.08);
+  applyJointRotation(imported.joints.leftUpperLeg, leftKick * 0.98, 0, -kickEnergy * 0.16);
+  applyJointRotation(imported.joints.rightUpperLeg, rightKick * 0.98, 0, kickEnergy * 0.16);
+  applyJointRotation(imported.joints.leftLowerLeg, leftKnee, 0, 0);
+  applyJointRotation(imported.joints.rightLowerLeg, rightKnee, 0, 0);
 }
 
 function poseImportedGhostCapture(
