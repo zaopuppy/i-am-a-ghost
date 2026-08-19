@@ -9,11 +9,10 @@ import {
 } from './CollisionGeometry';
 
 export const HOUSE_SCENE_VERSION = 1 as const;
-export const HOUSE_ROOM_DEFAULT_WIDTH = 9.3;
-export const HOUSE_ROOM_DEFAULT_DEPTH = 5.8;
 export const HOUSE_SCENE_PLAYER_RADIUS = 0.45;
 const DOOR_CLEARANCE_DEPTH = 1.25;
 const CONNECTIVITY_GRID_SIZE = 0.4;
+const ROOM_BOUNDS_EPSILON = 1e-6;
 
 export const FURNITURE_ASSET_IDS = [
   'armchair_pillows',
@@ -316,10 +315,10 @@ function validatePlacements(
     if (!room) continue;
     const bounds = orientedRectBounds(placement.collider);
     if (
-      bounds.minX < room.center.x - room.width / 2
-      || bounds.maxX > room.center.x + room.width / 2
-      || bounds.minZ < room.center.z - room.depth / 2
-      || bounds.maxZ > room.center.z + room.depth / 2
+      bounds.minX < room.center.x - room.width / 2 - ROOM_BOUNDS_EPSILON
+      || bounds.maxX > room.center.x + room.width / 2 + ROOM_BOUNDS_EPSILON
+      || bounds.minZ < room.center.z - room.depth / 2 - ROOM_BOUNDS_EPSILON
+      || bounds.maxZ > room.center.z + room.depth / 2 + ROOM_BOUNDS_EPSILON
     ) {
       issues.push(issue('error', 'outside-room', placement.id, `家具 ${placement.id} 超出了所属房间。`));
     }

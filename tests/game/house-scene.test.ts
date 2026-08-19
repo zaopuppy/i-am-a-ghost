@@ -39,6 +39,26 @@ test('the compiler rejects furniture placed inside a doorway safety zone', () =>
   ));
 });
 
+test('wall-aligned furniture fits inside the room up to the structural inner face', () => {
+  const scene = cloneHouseScene(DEFAULT_HOUSE_SCENE);
+  const nursery = scene.rooms.find((room) => room.id === 'nursery');
+  assert.ok(nursery);
+  scene.furniture.push({
+    id: 'wall-aligned-table',
+    roomId: nursery.id,
+    asset: 'table_small',
+    offsetX: -15.39 - nursery.center.x,
+    offsetZ: -9 - nursery.center.z,
+  });
+
+  const compiled = compileHouseScene(scene);
+
+  assert.ok(!compiled.issues.some((issue) =>
+    issue.code === 'outside-room'
+    && issue.subjectId === 'wall-aligned-table',
+  ));
+});
+
 test('scene clones can be edited without mutating the shipped house', () => {
   const clone = cloneHouseScene(DEFAULT_HOUSE_SCENE);
   clone.rooms[0].center.x += 3;

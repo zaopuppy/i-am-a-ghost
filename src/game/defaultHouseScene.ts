@@ -1,22 +1,31 @@
 import {
-  HOUSE_ROOM_DEFAULT_DEPTH,
-  HOUSE_ROOM_DEFAULT_WIDTH,
   HOUSE_SCENE_VERSION,
   type FurniturePlacement,
   type HouseRoomDefinition,
   type HouseSceneDefinition,
 } from './HouseScene';
 
+const columns = {
+  west: { center: -10.45, size: 10.7 },
+  center: { center: 0, size: 9.8 },
+  east: { center: 10.45, size: 10.7 },
+} as const;
+const rows = {
+  south: { center: -6.7, size: 6.2 },
+  center: { center: 0, size: 6.8 },
+  north: { center: 6.7, size: 6.2 },
+} as const;
+
 const rooms: HouseRoomDefinition[] = [
-  room('nursery', '育婴室', 'sleep', -10.5, -6.7),
-  room('dining', '餐厅', 'living', 0, -6.7),
-  room('pantry', '储藏室', 'old', 10.5, -6.7),
-  room('library', '书房', 'old', -10.5, 0),
-  room('foyer', '门厅', 'living', 0, 0),
-  room('parlor', '会客室', 'living', 10.5, 0),
-  room('bedroom', '卧室', 'sleep', -10.5, 6.7),
-  room('gallery', '画廊', 'old', 0, 6.7),
-  room('study', '旧书斋', 'old', 10.5, 6.7),
+  room('nursery', '育婴室', 'sleep', 'west', 'south'),
+  room('dining', '餐厅', 'living', 'center', 'south'),
+  room('pantry', '储藏室', 'old', 'east', 'south'),
+  room('library', '书房', 'old', 'west', 'center'),
+  room('foyer', '门厅', 'living', 'center', 'center'),
+  room('parlor', '会客室', 'living', 'east', 'center'),
+  room('bedroom', '卧室', 'sleep', 'west', 'north'),
+  room('gallery', '画廊', 'old', 'center', 'north'),
+  room('study', '旧书斋', 'old', 'east', 'north'),
 ];
 
 const furniture: FurniturePlacement[] = [
@@ -115,16 +124,18 @@ function room(
   id: string,
   name: string,
   family: HouseRoomDefinition['family'],
-  x: number,
-  z: number,
+  columnId: keyof typeof columns,
+  rowId: keyof typeof rows,
 ): HouseRoomDefinition {
+  const column = columns[columnId];
+  const row = rows[rowId];
   return {
     id,
     name,
     family,
-    center: { x, z },
-    width: HOUSE_ROOM_DEFAULT_WIDTH,
-    depth: HOUSE_ROOM_DEFAULT_DEPTH,
+    center: { x: column.center, z: row.center },
+    width: column.size,
+    depth: row.size,
   };
 }
 

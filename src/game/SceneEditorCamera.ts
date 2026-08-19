@@ -61,9 +61,7 @@ export class SceneEditorCamera {
   }
 
   frameHouse(): void {
-    const dampingEnabled = this.controls.enableDamping;
-    this.controls.enableDamping = false;
-    this.controls.update();
+    const dampingEnabled = this.flushDamping();
     this.controls.target.set(0, 0, 0);
     this.camera.position.set(0, 24, 13.86);
     this.camera.zoom = 1;
@@ -102,6 +100,18 @@ export class SceneEditorCamera {
     this.controls.enableDamping = dampingEnabled;
   }
 
+  focusPoint(point: { x: number; z: number }): void {
+    const dampingEnabled = this.flushDamping();
+    const offset = this.camera.position.clone().sub(this.controls.target);
+    this.controls.target.set(point.x, 0, point.z);
+    this.camera.position.copy(this.controls.target).add(offset);
+    this.camera.zoom = Math.max(this.camera.zoom, 1.35);
+    this.camera.lookAt(this.controls.target);
+    this.camera.updateProjectionMatrix();
+    this.controls.update();
+    this.controls.enableDamping = dampingEnabled;
+  }
+
   snapshot(): SceneEditorCameraSnapshot {
     return {
       mode: this.mode,
@@ -113,6 +123,13 @@ export class SceneEditorCamera {
 
   dispose(): void {
     this.controls.dispose();
+  }
+
+  private flushDamping(): boolean {
+    const dampingEnabled = this.controls.enableDamping;
+    this.controls.enableDamping = false;
+    this.controls.update();
+    return dampingEnabled;
   }
 }
 

@@ -98,6 +98,22 @@ test('the developer scene editor edits furniture, rooms, and walls with live val
   await expect.poll(() => page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.snapshot().furnitureCount ?? 0)).toBe(35);
   await expect.poll(() => page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.snapshot().errors ?? 0)).toBeGreaterThan(0);
 
+  const addedFurnitureId = await page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.snapshot().selection?.id ?? '');
+  expect(addedFurnitureId).not.toBe('');
+  await page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.moveSelected(20, 0));
+  await page.locator('[data-editor-issue-filter]').selectOption('outside-room');
+  const outsideIssue = page.locator(`[data-editor-issues] li[data-code="outside-room"][data-subject-id="${addedFurnitureId}"]`);
+  await expect(outsideIssue).toBeVisible();
+  await page.locator('[data-editor-clear-issues]').click();
+  await expect(outsideIssue).toHaveCount(0);
+  await expect(page.locator('[data-editor-issues] .scene-editor__empty-issues')).toContainText('已清除');
+  await page.locator('[data-editor-restore-issues]').click();
+  await expect(outsideIssue).toBeVisible();
+  await outsideIssue.locator('button').click();
+  await expect.poll(() => page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.snapshot().viewport.target.x ?? 0)).toBe(20);
+  await page.locator('[data-editor-issue-filter]').selectOption('all');
+
+  await page.locator('[data-editor-undo]').click();
   await page.locator('[data-editor-undo]').click();
   await expect.poll(() => page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.snapshot().errors ?? -1)).toBe(0);
   await expect.poll(() => page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.snapshot().furnitureCount ?? 0)).toBe(34);
@@ -124,4 +140,38 @@ test('the developer scene editor edits furniture, rooms, and walls with live val
   const exported = await page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.exportJson() ?? '');
   expect(JSON.parse(exported).version).toBe(1);
   expect(pageErrors).toEqual([]);
+});
+
+test('legacy editor drafts gain structural room bounds without moving furniture', async ({ page }) => {
+  await page.goto('/?sceneEditor=1');
+  await expect.poll(() => page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.snapshot().furnitureCount ?? 0)).toBe(34);
+  const legacyBedPosition = await page.evaluate(() => {
+    const scene = window.__HOUSE_SCENE_EDITOR__!.snapshot().scene;
+    for (const room of scene.rooms) {
+      room.center.x = room.center.x < 0 ? -10.5 : room.center.x > 0 ? 10.5 : 0;
+      room.width = 9.3;
+      room.depth = 5.8;
+    }
+    const bed = scene.furniture.find((item) => item.id === 'nursery-bed')!;
+    const nursery = scene.rooms.find((room) => room.id === bed.roomId)!;
+    localStorage.setItem('i-am-a-ghost:house-scene-draft:v1', JSON.stringify(scene));
+    return { x: nursery.center.x + bed.offsetX, z: nursery.center.z + bed.offsetZ };
+  });
+
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.snapshot().furnitureCount ?? 0)).toBe(34);
+  const migrated = await page.evaluate(() => {
+    const scene = window.__HOUSE_SCENE_EDITOR__!.snapshot().scene;
+    const nursery = scene.rooms.find((room) => room.id === 'nursery')!;
+    const bed = scene.furniture.find((item) => item.id === 'nursery-bed')!;
+    return {
+      room: nursery,
+      bedPosition: { x: nursery.center.x + bed.offsetX, z: nursery.center.z + bed.offsetZ },
+    };
+  });
+  expect(migrated.room.center).toEqual({ x: -10.45, z: -6.7 });
+  expect(migrated.room.width).toBe(10.7);
+  expect(migrated.room.depth).toBe(6.2);
+  expect(migrated.bedPosition.x).toBeCloseTo(legacyBedPosition.x, 6);
+  expect(migrated.bedPosition.z).toBeCloseTo(legacyBedPosition.z, 6);
 });

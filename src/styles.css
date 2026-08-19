@@ -309,6 +309,12 @@ input { width: 100%; padding: 0 12px; color: #f3f0e8; background: rgb(255 255 25
   background: linear-gradient(#f1c778, #d8a64f);
 }
 .scene-editor__camera-help { margin: 0 0 12px; color: #607b76; font: 9px/1.55 monospace; }
+.scene-editor__overlay-legend { display: flex; align-items: center; gap: 5px; margin: 0 0 12px; color: #78928e; font-size: 9px; }
+.scene-editor__overlay-legend i { display: inline-block; width: 11px; height: 7px; margin-left: 4px; border: 1px solid currentcolor; }
+.scene-editor__overlay-legend i:first-child { margin-left: 0; }
+.scene-editor__overlay-legend i[data-mark="room"] { color: #54aaa3; background: transparent; }
+.scene-editor__overlay-legend i[data-mark="collider"] { border-color: #67c8b4; background: rgb(85 199 176 / 42%); }
+.scene-editor__overlay-legend i[data-mark="safety"] { border-color: #f29d49; background: rgb(242 157 73 / 38%); }
 
 .scene-editor__palette { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
 .scene-editor__palette .scene-editor__actions { grid-column: 1 / -1; }
@@ -340,10 +346,36 @@ input { width: 100%; padding: 0 12px; color: #f3f0e8; background: rgb(255 255 25
 .scene-editor__empty span { color: #a8bbb7; font: 600 13px/1 "STSong", serif; letter-spacing: .1em; }
 .scene-editor__empty p { margin: 6px 0 0; color: #657c78; font-size: 10px; line-height: 1.5; }
 
-.scene-editor__issues ol { display: grid; gap: 6px; max-height: 106px; margin: 0; padding: 0; overflow: auto; list-style: none; }
-.scene-editor__issues li { padding: 7px 8px; border-left: 2px solid #b58f4e; color: #c3ad86; background: rgb(137 96 39 / 10%); font-size: 10px; line-height: 1.4; cursor: pointer; }
+.scene-editor__issue-help { margin: -4px 0 9px; color: #617a76; font-size: 9px; line-height: 1.5; }
+.scene-editor__issue-tools { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 6px; margin-bottom: 8px; }
+.scene-editor .scene-editor__issue-tools select,
+.scene-editor .scene-editor__issue-tools button { min-height: 29px; height: 29px; }
+.scene-editor .scene-editor__issue-tools button { padding-inline: 8px; border-color: rgb(106 170 165 / 25%); color: #9bb0ac; background: rgb(36 74 74 / 24%); }
+.scene-editor__issues ol { display: grid; gap: 6px; max-height: 190px; margin: 0; padding: 0; overflow: auto; list-style: none; }
+.scene-editor__issues li { border-left: 2px solid #b58f4e; color: #c3ad86; background: rgb(137 96 39 / 10%); font-size: 10px; line-height: 1.4; }
 .scene-editor__issues li[data-severity="error"] { border-color: #d86150; color: #e99b8e; background: rgb(160 55 40 / 12%); }
-.scene-editor__issues .scene-editor__valid { border-color: #5fa88d; color: #85c7ad; background: rgb(39 118 90 / 10%); cursor: default; }
+.scene-editor .scene-editor__issues li > button {
+  display: grid;
+  gap: 5px;
+  width: 100%;
+  min-height: 0;
+  padding: 7px 8px;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+.scene-editor .scene-editor__issues li > button:hover { filter: none; background: rgb(255 255 255 / 4%); transform: none; }
+.scene-editor__issue-meta { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.scene-editor__issue-meta b { color: currentcolor; font: 800 9px/1 monospace; letter-spacing: .08em; }
+.scene-editor__issue-meta code { overflow: hidden; color: #8ba09c; font: 9px/1.2 monospace; text-overflow: ellipsis; white-space: nowrap; }
+.scene-editor__issues .scene-editor__valid,
+.scene-editor__issues .scene-editor__empty-issues { padding: 7px 8px; cursor: default; }
+.scene-editor__issues .scene-editor__valid { border-color: #5fa88d; color: #85c7ad; background: rgb(39 118 90 / 10%); }
+.scene-editor__issues .scene-editor__empty-issues { border-color: #537873; color: #78928e; background: rgb(36 74 74 / 12%); }
 .scene-editor__footer { padding: 14px 20px 17px; }
 .scene-editor__footer .scene-editor__actions + .scene-editor__actions { margin-top: 8px; }
 .scene-editor__keys { margin: 11px 0 0; color: #55706c; font: 9px/1.5 monospace; letter-spacing: .02em; }

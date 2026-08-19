@@ -21,7 +21,10 @@ import {
 } from './SceneEditorCamera';
 
 type EditorKind = 'furniture' | 'room' | 'wall';
+type IssueFilter = 'all' | 'error' | 'warning' | 'outside-room';
 const SCENE_DRAFT_STORAGE_KEY = 'i-am-a-ghost:house-scene-draft:v1';
+const LEGACY_DEFAULT_ROOM_WIDTH = 9.3;
+const LEGACY_DEFAULT_ROOM_DEPTH = 5.8;
 
 interface EditorSelection {
   kind: EditorKind;
@@ -68,6 +71,7 @@ export class SceneEditor {
   private readonly importInput: HTMLInputElement;
   private readonly cameraControls: SceneEditorCamera;
   private readonly cameraStatus: HTMLOutputElement;
+  private readonly issueFilterSelect: HTMLSelectElement;
   private sceneDefinition = cloneHouseScene(DEFAULT_HOUSE_SCENE);
   private library: FurnitureLibrary | null = null;
   private selection: EditorSelection | null = null;
@@ -80,6 +84,8 @@ export class SceneEditor {
   private dragOffset = { x: 0, z: 0 };
   private panelCollapsed = false;
   private frameRequest = 0;
+  private issueFilter: IssueFilter = 'all';
+  private readonly dismissedIssueKeys = new Set<string>();
   private history = [serializeScene(this.sceneDefinition)];
   private historyIndex = 0;
 
@@ -110,6 +116,7 @@ export class SceneEditor {
     this.assetSelect = requireEditorElement(this.panel, '[data-editor-asset]');
     this.importInput = requireEditorElement(this.panel, '[data-editor-import]');
     this.cameraStatus = requireEditorElement(this.panel, '[data-editor-camera-status]');
+    this.issueFilterSelect = requireEditorElement(this.panel, '[data-editor-issue-filter]');
     document.body.append(this.panel);
     document.documentElement.dataset.sceneEditor = 'true';
     document.documentElement.dataset.sceneEditorPanel = 'open';
@@ -203,6 +210,7 @@ export class SceneEditor {
           <button type="button" data-editor-frame-house>适配全屋</button>
         </div>
         <p class="scene-editor__camera-help">右键旋转 · 中键平移 · 滚轮缩放；漫游模式下左键也可平移。</p>
+        <p class="scene-editor__overlay-legend"><i data-mark="room"></i>房间范围 <i data-mark="collider"></i>家具碰撞 <i data-mark="safety"></i>安全区</p>
         <label><input type="checkbox" data-editor-colliders checked> 显示碰撞脚印</label>
         <label><input type="checkbox" data-editor-safety checked> 显示门洞与出生安全区</label>
         <label>网格吸附
@@ -215,7 +223,18 @@ export class SceneEditor {
         </label>
       </section>
       <section class="scene-editor__section scene-editor__issues">
-        <div class="scene-editor__section-title"><span>场景校验</span><output data-editor-status></output></div>
+        <div class="scene-editor__section-title"><span>当前问题</span><output data-editor-status></output></div>
+        <p class="scene-editor__issue-help">不是历史日志：修正摆放后问题会自动消失。点击条目可选择并定位对象。</p>
+        <div class="scene-editor__issue-tools">
+          <select data-editor-issue-filter aria-label="问题筛选">
+            <option value="all">全部问题</option>
+            <option value="outside-room">仅家具越界</option>
+            <option value="error">仅错误</option>
+            <option value="warning">仅警告</option>
+          </select>
+          <button type="button" data-editor-clear-issues>清除已读</button>
+          <button type="button" data-editor-restore-issues>恢复</button>
+        </div>
         <ol data-editor-issues></ol>
       </section>
       <footer class="scene-editor__footer">
@@ -251,6 +270,18 @@ export class SceneEditor {
       });
     }
     this.button('[data-editor-frame-house]').addEventListener('click', () => this.cameraControls.frameHouse());
+    this.issueFilterSelect.addEventListener('change', () => {
+      this.issueFilter = this.issueFilterSelect.value as IssueFilter;
+      this.renderIssues();
+    });
+    this.button('[data-editor-clear-issues]').addEventListener('click', () => {
+      for (const issue of this.filteredIssues()) this.dismissedIssueKeys.add(issueKey(issue));
+      this.renderIssues();
+    });
+    this.button('[data-editor-restore-issues]').addEventListener('click', () => {
+      this.dismissedIssueKeys.clear();
+      this.renderIssues();
+    });
     this.button('[data-editor-add-furniture]').addEventListener('click', () => this.addFurniture());
     this.button('[data-editor-add-wall]').addEventListener('click', () => this.addWall());
     this.button('[data-editor-delete]').addEventListener('click', () => this.deleteSelection());
@@ -283,6 +314,7 @@ export class SceneEditor {
   private renderPreview(): void {
     const compiled = compileHouseScene(this.sceneDefinition);
     this.issues = compiled.issues;
+    this.dismissedIssueKeys.clear();
     this.syncStructure();
     this.syncFurniture();
     this.renderOverlays();
@@ -356,6 +388,17 @@ export class SceneEditor {
   private renderOverlays(): void {
     disposeGeneratedGroup(this.overlayGroup);
     const compiled = compileHouseScene(this.sceneDefinition);
+    const selectedRoomId = this.selection?.kind === 'room'
+      ? this.selection.id
+      : this.selection?.kind === 'furniture'
+        ? this.selectedFurniture()?.roomId
+        : undefined;
+    for (const room of this.sceneDefinition.rooms) {
+      const selected = room.id === selectedRoomId;
+      const outline = roomOutline(room, selected);
+      outline.name = `editor-room-boundary-${room.id}`;
+      this.overlayGroup.add(outline);
+    }
     const invalidIds = new Set(compiled.issues
       .filter((issue) => issue.severity === 'error')
       .map((issue) => issue.subjectId));
@@ -387,17 +430,6 @@ export class SceneEditor {
         marker.rotation.x = -Math.PI / 2;
         marker.position.set(spawn.x, 0.085, spawn.z);
         this.overlayGroup.add(marker);
-      }
-    }
-    if (this.selection?.kind === 'room') {
-      const room = this.sceneDefinition.rooms.find((candidate) => candidate.id === this.selection?.id);
-      if (room) {
-        const outline = new THREE.LineSegments(
-          new THREE.EdgesGeometry(new THREE.BoxGeometry(room.width, 0.06, room.depth)),
-          new THREE.LineBasicMaterial({ color: 0xffd276 }),
-        );
-        outline.position.set(room.center.x, 0.12, room.center.z);
-        this.overlayGroup.add(outline);
       }
     }
     if (this.selection?.kind === 'wall') {
@@ -533,28 +565,67 @@ export class SceneEditor {
     const warnings = this.issues.length - errors;
     this.status.textContent = errors > 0 ? `${errors} 错误 · ${warnings} 警告` : warnings > 0 ? `${warnings} 条警告` : '可导出';
     this.status.dataset.valid = String(errors === 0);
-    const visibleIssues = this.issues.slice(0, 6);
+    const activeKeys = new Set(this.issues.map(issueKey));
+    for (const key of this.dismissedIssueKeys) {
+      if (!activeKeys.has(key)) this.dismissedIssueKeys.delete(key);
+    }
+    const filteredIssues = this.filteredIssues();
+    const visibleIssues = filteredIssues.filter((issue) => !this.dismissedIssueKeys.has(issueKey(issue)));
     this.issueList.replaceChildren(...visibleIssues.map((issue) => {
       const item = document.createElement('li');
       item.dataset.severity = issue.severity;
-      item.textContent = issue.message;
-      item.addEventListener('click', () => {
+      item.dataset.code = issue.code;
+      item.dataset.subjectId = issue.subjectId;
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.innerHTML = `
+        <span class="scene-editor__issue-meta"><b>${issueCodeLabel(issue.code)}</b><code>${escapeHtml(this.issueSubjectLabel(issue))}</code></span>
+        <span>${escapeHtml(issue.message)}</span>
+      `;
+      button.addEventListener('click', () => {
         const kind = this.kindForSubject(issue.subjectId);
-        if (kind) this.selectObject(kind, issue.subjectId);
+        if (!kind) return;
+        this.selectObject(kind, issue.subjectId);
+        const center = this.selectionCenter();
+        if (center) this.cameraControls.focusPoint(center);
       });
+      item.append(button);
       return item;
     }));
-    if (visibleIssues.length === 0) {
+    if (this.issues.length === 0) {
       const item = document.createElement('li');
       item.className = 'scene-editor__valid';
       item.textContent = '门洞畅通，出生点与电池点全部连通。';
       this.issueList.append(item);
+    } else if (visibleIssues.length === 0) {
+      const item = document.createElement('li');
+      item.className = 'scene-editor__empty-issues';
+      item.textContent = filteredIssues.length > 0
+        ? `已清除 ${filteredIssues.length} 条已读问题；点击“恢复”可重新显示。`
+        : '当前筛选下没有问题。';
+      this.issueList.append(item);
     }
+    this.button('[data-editor-clear-issues]').disabled = visibleIssues.length === 0;
+    this.button('[data-editor-restore-issues]').disabled = this.dismissedIssueKeys.size === 0;
     for (const selector of ['[data-editor-copy]', '[data-editor-download]']) {
       this.button(selector).disabled = errors > 0;
     }
     this.button('[data-editor-undo]').disabled = this.historyIndex <= 0;
     this.button('[data-editor-redo]').disabled = this.historyIndex >= this.history.length - 1;
+  }
+
+  private filteredIssues(): readonly HouseSceneIssue[] {
+    if (this.issueFilter === 'all') return this.issues;
+    if (this.issueFilter === 'outside-room') {
+      return this.issues.filter((issue) => issue.code === 'outside-room');
+    }
+    return this.issues.filter((issue) => issue.severity === this.issueFilter);
+  }
+
+  private issueSubjectLabel(issue: HouseSceneIssue): string {
+    const furniture = this.sceneDefinition.furniture.find((item) => item.id === issue.subjectId);
+    if (!furniture) return issue.subjectId;
+    return `${FURNITURE_CATALOG[furniture.asset]?.label ?? furniture.asset} · ${furniture.id}`;
   }
 
   private readonly handlePointerDown = (event: PointerEvent): void => {
@@ -971,6 +1042,39 @@ function markSelectable(root: THREE.Object3D, kind: EditorKind, id: string): voi
   });
 }
 
+const ISSUE_CODE_LABELS: Readonly<Record<HouseSceneIssue['code'], string>> = {
+  'duplicate-id': 'ID 重复',
+  'unknown-room': '房间缺失',
+  'unknown-asset': '模型缺失',
+  'outside-room': '家具越界',
+  'door-blocked': '门洞受阻',
+  'spawn-blocked': '出生点受阻',
+  'battery-blocked': '电池点受阻',
+  'furniture-overlap': '家具重叠',
+  'disconnected-map': '通路中断',
+};
+
+function issueCodeLabel(code: HouseSceneIssue['code']): string {
+  return ISSUE_CODE_LABELS[code];
+}
+
+function issueKey(issue: HouseSceneIssue): string {
+  return `${issue.severity}:${issue.code}:${issue.subjectId}:${issue.message}`;
+}
+
+function roomOutline(room: HouseRoomDefinition, selected: boolean): THREE.LineSegments {
+  const outline = new THREE.LineSegments(
+    new THREE.EdgesGeometry(new THREE.BoxGeometry(room.width, 0.06, room.depth)),
+    new THREE.LineBasicMaterial({
+      color: selected ? 0xffd276 : 0x54aaa3,
+      transparent: true,
+      opacity: selected ? 0.96 : 0.42,
+    }),
+  );
+  outline.position.set(room.center.x, 0.12, room.center.z);
+  return outline;
+}
+
 function footprintMesh(
   footprint: { center: { x: number; z: number }; halfWidth: number; halfDepth: number; yawRadians: number },
   color: number,
@@ -1107,10 +1211,47 @@ function loadStoredDraft(): HouseSceneDefinition | null {
     const serialized = localStorage.getItem(SCENE_DRAFT_STORAGE_KEY);
     if (!serialized) return null;
     const parsed = JSON.parse(serialized) as unknown;
-    return isHouseSceneDefinition(parsed) ? cloneHouseScene(parsed) : null;
+    if (!isHouseSceneDefinition(parsed)) return null;
+    const migrated = migrateLegacyDefaultRoomBounds(parsed);
+    if (serializeScene(migrated) !== serializeScene(parsed)) storeDraft(migrated);
+    return migrated;
   } catch {
     return null;
   }
+}
+
+function migrateLegacyDefaultRoomBounds(source: HouseSceneDefinition): HouseSceneDefinition {
+  const migrated = cloneHouseScene(source);
+  if (migrated.id !== DEFAULT_HOUSE_SCENE.id) return migrated;
+  for (const room of migrated.rooms) {
+    const currentDefault = DEFAULT_HOUSE_SCENE.rooms.find((candidate) => candidate.id === room.id);
+    if (!currentDefault) continue;
+    const legacyCenterX = currentDefault.center.x < 0
+      ? -10.5
+      : currentDefault.center.x > 0
+        ? 10.5
+        : 0;
+    const isLegacyDefault = approximately(room.width, LEGACY_DEFAULT_ROOM_WIDTH)
+      && approximately(room.depth, LEGACY_DEFAULT_ROOM_DEPTH)
+      && approximately(room.center.x, legacyCenterX)
+      && approximately(room.center.z, currentDefault.center.z);
+    if (!isLegacyDefault) continue;
+    const deltaX = room.center.x - currentDefault.center.x;
+    const deltaZ = room.center.z - currentDefault.center.z;
+    for (const placement of migrated.furniture) {
+      if (placement.roomId !== room.id) continue;
+      placement.offsetX += deltaX;
+      placement.offsetZ += deltaZ;
+    }
+    room.center = { ...currentDefault.center };
+    room.width = currentDefault.width;
+    room.depth = currentDefault.depth;
+  }
+  return migrated;
+}
+
+function approximately(left: number, right: number): boolean {
+  return Math.abs(left - right) <= 1e-6;
 }
 
 function storeDraft(scene: HouseSceneDefinition): void {
