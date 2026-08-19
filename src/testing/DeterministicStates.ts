@@ -1,3 +1,4 @@
+import { MATCH_RULES } from '../game/MatchEngine';
 import type {
   GhostViewerFrame,
   ViewerFrame,
@@ -126,7 +127,11 @@ export function createDeterministicViewerFrame(
     remainingTicks: ended ? 11_520 : common.remainingTicks,
     ghostHealth: ended ? 0 : common.ghostHealth,
     capture: state === 'capture'
-      ? { childPlayerId: 'child-1', ticksRemaining: 92, durationTicks: 156 }
+      ? {
+          childPlayerId: 'child-1',
+          ticksRemaining: Math.round(MATCH_RULES.captureAnimationTicks * 0.58),
+          durationTicks: MATCH_RULES.captureAnimationTicks,
+        }
       : null,
     viewerRole: 'child',
     viewerPlayerId: 'child-1',

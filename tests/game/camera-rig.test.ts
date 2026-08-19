@@ -62,7 +62,7 @@ test('camera diagnostics report human-readable tilt and azimuth', () => {
   );
 });
 
-test('ESDF movement stays screen-aligned after the camera orbits', () => {
+test('WASD movement stays screen-aligned after the camera orbits', () => {
   const screenUp = { x: 0, z: -1 };
   const screenRight = { x: 1, z: 0 };
   const idle = { x: 0, z: 0 };
@@ -85,7 +85,7 @@ test('ESDF movement stays screen-aligned after the camera orbits', () => {
   const diagonal = orientMovementToCamera({ x: 1, z: -1 }, yawedNortheast, origin);
   assert.ok(Math.abs(diagonal.x) <= 1);
   assert.ok(Math.abs(diagonal.z) <= 1);
-  assert.ok(Math.abs(diagonal.x) < 1e-6, '45-degree orbit turns ESDF diagonal into camera-forward');
+  assert.ok(Math.abs(diagonal.x) < 1e-6, '45-degree orbit turns WASD diagonal into camera-forward');
   assert.ok(diagonal.z < -0.99, '45-degree orbit keeps the diagonal on screen-up');
 });
 

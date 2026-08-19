@@ -10,6 +10,7 @@
     "dev": "concurrently --kill-others --names web,rooms \"npm:dev:web\" \"npm:dev:server\"",
     "dev:web": "vite",
     "dev:server": "tsx watch server/index.ts",
+    "stop": "node scripts/stop-local.mjs",
     "build": "tsc && vite build",
     "preview": "concurrently --kill-others --names web,rooms \"npm:preview:web\" \"npm:server\"",
     "preview:web": "vite preview",

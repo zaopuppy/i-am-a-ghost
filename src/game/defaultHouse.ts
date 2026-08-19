@@ -6,6 +6,29 @@ export interface HouseRoomLabel {
   center: Vec2;
 }
 
+export type RoomFamily = 'living' | 'sleep' | 'old';
+
+export interface HouseOpening {
+  id: string;
+  axis: 'x' | 'z';
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+}
+
+export const ROOM_FAMILY_BY_ID: Readonly<Record<string, RoomFamily>> = {
+  dining: 'living',
+  parlor: 'living',
+  foyer: 'living',
+  nursery: 'sleep',
+  bedroom: 'sleep',
+  library: 'old',
+  gallery: 'old',
+  pantry: 'old',
+  study: 'old',
+};
+
 export const HOUSE_ROOMS: readonly HouseRoomLabel[] = [
   { id: 'nursery', name: '育婴室', center: { x: -10.5, z: -6.7 } },
   { id: 'dining', name: '餐厅', center: { x: 0, z: -6.7 } },
@@ -61,3 +84,74 @@ export const DEFAULT_HOUSE_MAP: MatchMap = {
     { x: 2.2, z: 0 },
   ],
 };
+
+interface WallBox {
+  id: string;
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+}
+
+export function deriveHouseOpenings(
+  walls: readonly WallBox[],
+  gapMin = 0.9,
+  gapMax = 2.6,
+): HouseOpening[] {
+  const vertical = new Map<string, WallBox[]>();
+  const horizontal = new Map<string, WallBox[]>();
+  for (const wall of walls) {
+    const width = wall.maxX - wall.minX;
+    const depth = wall.maxZ - wall.minZ;
+    if (width <= depth) {
+      const key = ((wall.minX + wall.maxX) / 2).toFixed(1);
+      const group = vertical.get(key) ?? [];
+      group.push(wall);
+      vertical.set(key, group);
+    } else {
+      const key = ((wall.minZ + wall.maxZ) / 2).toFixed(1);
+      const group = horizontal.get(key) ?? [];
+      group.push(wall);
+      horizontal.set(key, group);
+    }
+  }
+
+  const openings: HouseOpening[] = [];
+  for (const [key, group] of vertical) {
+    const ordered = [...group].sort((left, right) => left.minZ - right.minZ);
+    for (let index = 0; index < ordered.length - 1; index += 1) {
+      const start = ordered[index].maxZ;
+      const end = ordered[index + 1].minZ;
+      const gap = end - start;
+      if (gap < gapMin || gap > gapMax) continue;
+      openings.push({
+        id: `opening-x-${key}-${start.toFixed(1)}`,
+        axis: 'x',
+        minX: Math.min(ordered[index].minX, ordered[index + 1].minX),
+        maxX: Math.max(ordered[index].maxX, ordered[index + 1].maxX),
+        minZ: start,
+        maxZ: end,
+      });
+    }
+  }
+  for (const [key, group] of horizontal) {
+    const ordered = [...group].sort((left, right) => left.minX - right.minX);
+    for (let index = 0; index < ordered.length - 1; index += 1) {
+      const start = ordered[index].maxX;
+      const end = ordered[index + 1].minX;
+      const gap = end - start;
+      if (gap < gapMin || gap > gapMax) continue;
+      openings.push({
+        id: `opening-z-${key}-${start.toFixed(1)}`,
+        axis: 'z',
+        minX: start,
+        maxX: end,
+        minZ: Math.min(ordered[index].minZ, ordered[index + 1].minZ),
+        maxZ: Math.max(ordered[index].maxZ, ordered[index + 1].maxZ),
+      });
+    }
+  }
+  return openings;
+}
+
+export const HOUSE_OPENINGS: readonly HouseOpening[] = deriveHouseOpenings(DEFAULT_HOUSE_MAP.walls);

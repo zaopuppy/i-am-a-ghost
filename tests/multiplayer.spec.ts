@@ -47,7 +47,7 @@ test('two browser pages join, start, and move through the authoritative input pa
     .poll(() => ghostPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.cameraMode))
     .toBe('whole-house');
   await expect(ghostPage.locator('#control-hint')).toContainText('接触孩子自动抓取');
-  await expect(childPage.locator('#control-hint')).toContainText('ESDF 移动并朝向');
+  await expect(childPage.locator('#control-hint')).toContainText('WASD 或方向键移动并朝向');
   await expect(childPage.locator('#control-hint')).not.toContainText('鼠标');
   await host.getByRole('button', { name: '感应与手电（房主）' }).click();
   const flashlightLengthInput = host
@@ -112,9 +112,9 @@ test('two browser pages join, start, and move through the authoritative input pa
   expect(childFrame?.viewerRole).toBe('child');
   if (childFrame?.viewerRole === 'child') expect(childFrame.ghost).toBeUndefined();
 
-  await childPage.keyboard.down('e');
+  await childPage.keyboard.down('w');
   await expect.poll(() => readOwnChildFacing(childPage)).toBeCloseTo(-Math.PI / 2, 2);
-  await childPage.keyboard.up('e');
+  await childPage.keyboard.up('w');
   const facingBeforePointerMove = await readOwnChildFacing(childPage);
   await childPage.mouse.move(20, 20);
   await childPage.mouse.move(1100, 650);
@@ -123,7 +123,7 @@ test('two browser pages join, start, and move through the authoritative input pa
 
   const initialX = await childPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.ownPosition?.x ?? null);
   expect(initialX).not.toBeNull();
-  await childPage.keyboard.down('f');
+  await childPage.keyboard.down('d');
   await expect
     .poll(async () => childPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.ownPosition?.x ?? null))
     .toBeGreaterThan((initialX ?? 0) + 0.1);
@@ -138,7 +138,7 @@ test('two browser pages join, start, and move through the authoritative input pa
   expect(positionAfterBlur).not.toBeNull();
   expect(settledPosition).not.toBeNull();
   expect(Math.abs((settledPosition ?? 0) - (positionAfterBlur ?? 0))).toBeLessThan(0.25);
-  await childPage.keyboard.up('f');
+  await childPage.keyboard.up('d');
 
   const batteryBefore = await childPage.evaluate(() => {
     const frame = window.__THREE_GAME_DIAGNOSTICS__?.viewerFrame;
@@ -152,7 +152,7 @@ test('two browser pages join, start, and move through the authoritative input pa
     () => window.__THREE_GAME_DIAGNOSTICS__?.ownPosition?.x ?? null,
   );
   expect(litMovementStartX).not.toBeNull();
-  await childPage.keyboard.down('f');
+  await childPage.keyboard.down('d');
   await expect
     .poll(() => childPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.ownPosition?.x ?? null))
     .toBeGreaterThan((litMovementStartX ?? 0) + 0.1);
@@ -160,7 +160,7 @@ test('two browser pages join, start, and move through the authoritative input pa
     .poll(() => childPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.world.beams ?? 0))
     .toBe(1);
   const movingFlashlightFrame = await childPage.locator('#game-canvas').screenshot();
-  await childPage.keyboard.up('f');
+  await childPage.keyboard.up('d');
   await expect
     .poll(() => childPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.world.beams ?? 0))
     .toBe(1);

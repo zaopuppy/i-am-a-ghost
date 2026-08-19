@@ -92,9 +92,9 @@ async function createCharacterAssetInstance(
       const material = source.clone();
       if (material instanceof THREE.MeshStandardMaterial) {
         if (kind === 'ghost') {
-          material.color.set(0x879bb5);
-          material.emissive.set(0x172d4d);
-          material.emissiveIntensity = 0.7;
+          material.color.set(0x9aadc6);
+          material.emissive.set(0x1c3558);
+          material.emissiveIntensity = 0.95;
           material.roughness = 0.68;
           material.metalness = 0.04;
           material.transparent = true;

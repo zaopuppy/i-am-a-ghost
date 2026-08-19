@@ -10,7 +10,7 @@ test('deterministic bot matches exercise one to four real child slots without so
     assert.deepEqual(left, right);
     assert.ok(left.winner === 'children' || left.winner === 'ghost');
     assert.ok(left.effectiveDurationSeconds > 0 && left.effectiveDurationSeconds <= 300);
-    assert.ok(left.wallDurationSeconds <= 311);
+    assert.ok(left.wallDurationSeconds <= 315);
     assert.ok(left.minimumHumanDistance >= 0.899);
     assert.equal(left.permanentOverlap, false);
     assert.equal(left.wallPenetrations, 0);

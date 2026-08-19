@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { RoomFamily } from '../game/defaultHouse';
 
 export const ART_COLORS = Object.freeze({
   bodyPrimary: 0x586477,
@@ -11,6 +12,12 @@ export const ART_COLORS = Object.freeze({
   groundContact: 0x090a0d,
   decalDark: 0x111319,
   decalLight: 0x777f90,
+  livingFloor: 0x1c1610,
+  sleepFloor: 0x14161c,
+  oldFloor: 0x121410,
+  doorFrame: 0x6d5a42,
+  threshold: 0x8a7348,
+  windowGlow: 0x7d8aa8,
 });
 
 export interface HouseMaterialKit {
@@ -18,7 +25,12 @@ export interface HouseMaterialKit {
   floor: THREE.MeshStandardMaterial;
   roomFloorA: THREE.MeshStandardMaterial;
   roomFloorB: THREE.MeshStandardMaterial;
+  roomFloors: Record<RoomFamily, THREE.MeshStandardMaterial>;
   trim: THREE.LineBasicMaterial;
+  doorFrame: THREE.MeshStandardMaterial;
+  threshold: THREE.MeshBasicMaterial;
+  windowGlow: THREE.MeshBasicMaterial;
+  dressing: Record<RoomFamily, THREE.MeshStandardMaterial>;
   ghostBody: THREE.MeshStandardMaterial;
   ghostTrim: THREE.MeshStandardMaterial;
   reward: THREE.MeshStandardMaterial;
@@ -52,6 +64,58 @@ export function createHouseMaterialKit(): HouseMaterialKit {
     color: 0x13151b,
     roughness: 0.92,
   });
+  const livingFloor = new THREE.MeshStandardMaterial({
+    map: floorPattern,
+    color: ART_COLORS.livingFloor,
+    roughness: 0.9,
+  });
+  const sleepFloor = new THREE.MeshStandardMaterial({
+    map: floorPattern,
+    color: ART_COLORS.sleepFloor,
+    roughness: 0.94,
+  });
+  const oldFloor = new THREE.MeshStandardMaterial({
+    map: floorPattern,
+    color: ART_COLORS.oldFloor,
+    roughness: 0.96,
+  });
+  const doorFrame = new THREE.MeshStandardMaterial({
+    color: ART_COLORS.doorFrame,
+    roughness: 0.84,
+    metalness: 0.04,
+    emissive: 0x1a140c,
+    emissiveIntensity: 0.35,
+  });
+  const threshold = new THREE.MeshBasicMaterial({
+    color: ART_COLORS.threshold,
+    transparent: true,
+    opacity: 0.48,
+    depthWrite: false,
+  });
+  const windowGlow = new THREE.MeshBasicMaterial({
+    color: ART_COLORS.windowGlow,
+    transparent: true,
+    opacity: 0.34,
+    depthWrite: false,
+  });
+  const livingDressing = new THREE.MeshStandardMaterial({
+    color: 0x4a3a28,
+    roughness: 0.78,
+    emissive: 0x1c140c,
+    emissiveIntensity: 0.28,
+  });
+  const sleepDressing = new THREE.MeshStandardMaterial({
+    color: 0x3a3440,
+    roughness: 0.82,
+    emissive: 0x121018,
+    emissiveIntensity: 0.22,
+  });
+  const oldDressing = new THREE.MeshStandardMaterial({
+    color: 0x2c3228,
+    roughness: 0.88,
+    emissive: 0x0c100c,
+    emissiveIntensity: 0.18,
+  });
   const trim = new THREE.LineBasicMaterial({ color: ART_COLORS.trim, transparent: true, opacity: 0.68 });
   const ghostBody = new THREE.MeshStandardMaterial({
     color: 0x9ba5bd,
@@ -84,6 +148,15 @@ export function createHouseMaterialKit(): HouseMaterialKit {
     floor,
     roomFloorA,
     roomFloorB,
+    livingFloor,
+    sleepFloor,
+    oldFloor,
+    doorFrame,
+    threshold,
+    windowGlow,
+    livingDressing,
+    sleepDressing,
+    oldDressing,
     trim,
     ghostBody,
     ghostTrim,
@@ -104,7 +177,12 @@ export function createHouseMaterialKit(): HouseMaterialKit {
     floor,
     roomFloorA,
     roomFloorB,
+    roomFloors: { living: livingFloor, sleep: sleepFloor, old: oldFloor },
     trim,
+    doorFrame,
+    threshold,
+    windowGlow,
+    dressing: { living: livingDressing, sleep: sleepDressing, old: oldDressing },
     ghostBody,
     ghostTrim,
     reward,

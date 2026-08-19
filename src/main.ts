@@ -77,6 +77,8 @@ let measuredFps = 0;
 let lastIngestedFrameKey = '';
 let lastAudioEvents: typeof client.latestEvents = null;
 let lastActionHeld = false;
+let lastGhostVisible = false;
+let lastGhostBurning = false;
 let debugGui: import('lil-gui').GUI | null = null;
 let debugGuiHidden = false;
 let debugTuningTimer: ReturnType<typeof setTimeout> | null = null;
@@ -148,6 +150,7 @@ const loop = new Loop(
     const actionHeld = input.actionHeld();
     if (actionHeld && !lastActionHeld && frame?.viewerRole === 'child') audio.play('flashlight', 0.52);
     lastActionHeld = actionHeld;
+    updateGhostAudio(frame);
     const presentationSeconds = deterministicState && (screenshotPaused || reducedMotion)
       ? 2.75
       : elapsedSeconds;
@@ -440,6 +443,21 @@ function ownActorPosition(frame: ViewerFrame): { x: number; z: number } | null {
   return frame.children.find((child) => child.playerId === frame.viewerPlayerId)?.position ?? null;
 }
 
+function updateGhostAudio(frame: ViewerFrame | null): void {
+  const ghost = frame?.ghost;
+  const visible = Boolean(ghost);
+  const burning = Boolean(ghost?.burning);
+  if (visible && burning && !lastGhostVisible && frame?.viewerRole === 'child') {
+    audio.playIgnition();
+  }
+  if (frame?.viewerRole === 'ghost' && burning && !lastGhostBurning) {
+    audio.playIgnition();
+  }
+  audio.setFireLoop(visible && burning, frame?.viewerRole === 'ghost' ? 0.26 : 0.16);
+  lastGhostVisible = visible;
+  lastGhostBurning = burning;
+}
+
 function isCaptureCinematicViewer(frame: ViewerFrame): boolean {
   return Boolean(
     frame.capture
@@ -451,9 +469,9 @@ function isCaptureCinematicViewer(frame: ViewerFrame): boolean {
 function updateControlHint(frame: ViewerFrame): void {
   controlHint.textContent = frame.viewerRole === 'ghost'
     ? frame.ghost.burning
-      ? '灼烧中 · 无法抓取 · ESDF 逃离光束'
-      : 'ESDF 移动 · 接触孩子自动抓取'
-    : 'ESDF 移动并朝向 · 空格手电';
+      ? '灼烧中 · 无法抓取 · WASD 或方向键逃离光束'
+      : 'WASD 或方向键移动 · 接触孩子自动抓取'
+    : 'WASD 或方向键移动并朝向 · 空格手电';
 }
 
 async function installDebugGui(): Promise<void> {

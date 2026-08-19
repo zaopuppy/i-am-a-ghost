@@ -143,7 +143,7 @@ export function cameraAngles(position: CameraVector, target: CameraVector): {
   };
 }
 
-/** Map screen-space ESDF into world XZ using the camera's current yaw. */
+/** Map screen-space WASD / arrow movement into world XZ using the camera's current yaw. */
 export function orientMovementToCamera(
   movement: { x: number; z: number },
   cameraPosition: Pick<CameraVector, 'x' | 'z'>,

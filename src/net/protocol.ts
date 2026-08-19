@@ -4,7 +4,7 @@ import type { ViewerFrame } from '../game/ViewerFrame';
 export type { GameplayTuning } from '../game/MatchEngine';
 
 export const PROTOCOL_VERSION = 3;
-export const BUILD_VERSION = '0.6.0-burning-tuning';
+export const BUILD_VERSION = '0.7.0-art-pass';
 export const MIN_PLAYERS = 2;
 export const MAX_PLAYERS = 5;
 export const INPUT_STALE_MS = 250;

@@ -1,5 +1,10 @@
 import type { Vec2 } from '../game/MatchEngine';
 
+const MOVE_LEFT = new Set(['KeyA', 'ArrowLeft']);
+const MOVE_RIGHT = new Set(['KeyD', 'ArrowRight']);
+const MOVE_UP = new Set(['KeyW', 'ArrowUp']);
+const MOVE_DOWN = new Set(['KeyS', 'ArrowDown']);
+
 export class GameInput {
   private readonly pressed = new Set<string>();
 
@@ -10,10 +15,7 @@ export class GameInput {
   }
 
   movement(): Vec2 {
-    return {
-      x: Number(this.pressed.has('KeyF')) - Number(this.pressed.has('KeyS')),
-      z: Number(this.pressed.has('KeyD')) - Number(this.pressed.has('KeyE')),
-    };
+    return movementFromPressed(this.pressed);
   }
 
   actionHeld(): boolean {
@@ -43,8 +45,26 @@ export class GameInput {
   };
 }
 
+export function movementFromPressed(pressed: ReadonlySet<string>): Vec2 {
+  return {
+    x: Number(hasAny(pressed, MOVE_RIGHT)) - Number(hasAny(pressed, MOVE_LEFT)),
+    z: Number(hasAny(pressed, MOVE_DOWN)) - Number(hasAny(pressed, MOVE_UP)),
+  };
+}
+
+function hasAny(pressed: ReadonlySet<string>, codes: ReadonlySet<string>): boolean {
+  for (const code of codes) {
+    if (pressed.has(code)) return true;
+  }
+  return false;
+}
+
 function isGameKey(code: string): boolean {
-  return code === 'KeyE' || code === 'KeyS' || code === 'KeyD' || code === 'KeyF' || code === 'Space';
+  return MOVE_LEFT.has(code)
+    || MOVE_RIGHT.has(code)
+    || MOVE_UP.has(code)
+    || MOVE_DOWN.has(code)
+    || code === 'Space';
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {

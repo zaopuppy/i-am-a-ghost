@@ -6,7 +6,16 @@ import {
   type CharacterAssetInstance,
 } from '../assets/ImportedAssets';
 import { createHouseMaterialKit, type HouseMaterialKit } from '../assets/MaterialLibrary';
+import {
+  CAPTURE_CAMERA_FACING_RADIANS,
+  captureChildOffset,
+  captureDurationSeconds,
+  capturePoseWeights,
+  clampCaptureHeadPitch,
+} from './CapturePresentation';
 import { DEFAULT_HOUSE_MAP, HOUSE_ROOMS } from './defaultHouse';
+import { ghostFadeOpacity } from './GhostPresentation';
+import { buildHouseStage } from './HouseStage';
 import { DEFAULT_GAMEPLAY_TUNING, MATCH_RULES, type HeadlampBand, type Vec2 } from './MatchEngine';
 import {
   advanceChildBodyFacing,
@@ -79,6 +88,7 @@ interface WorldMeter {
 interface GhostRig {
   fallbackVisual: THREE.Group;
   importedMount: THREE.Group;
+  silhouette: THREE.Group;
   leftShoulder: THREE.Group;
   rightShoulder: THREE.Group;
   leftElbow: THREE.Group;
@@ -86,8 +96,19 @@ interface GhostRig {
   captureAura: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
   captureVeil: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
   captureLight: THREE.PointLight;
-  burnAura: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
-  burnLight: THREE.PointLight;
+  fireGroup: THREE.Group;
+  flames: Array<THREE.Mesh<THREE.ConeGeometry, THREE.MeshBasicMaterial>>;
+  fireLight: THREE.PointLight;
+  leftEye: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
+  rightEye: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
+  groundGlow: THREE.Mesh<THREE.CircleGeometry, THREE.MeshBasicMaterial>;
+}
+
+interface GhostEcho {
+  position: Vec2;
+  facingRadians: number;
+  burning: boolean;
+  hideAt: number;
 }
 
 const HOUSE_WALLS = [
@@ -108,6 +129,7 @@ export class GameWorld {
   private flashlightLength = DEFAULT_GAMEPLAY_TUNING.flashlightLength;
   private flashlightConeDegrees = DEFAULT_GAMEPLAY_TUNING.flashlightConeDegrees;
   private pendingAssetUpgrades = 0;
+  private ghostEcho: GhostEcho | null = null;
 
   constructor() {
     this.scene.background = new THREE.Color(0x050608);
@@ -171,22 +193,38 @@ export class GameWorld {
       syncActor(actor, doll.position, 0, doll.headlamp, elapsedSeconds, frame.phase, true, false);
     }
     if (frame.ghost) {
-      const actor = this.actor('ghost', 'ghost', 0);
-      syncGhostActor(
-        actor,
+      this.ghostEcho = {
+        position: { ...frame.ghost.position },
+        facingRadians: frame.ghost.facingRadians,
+        burning: frame.ghost.burning,
+        hideAt: elapsedSeconds,
+      };
+      this.presentGhost(
         frame.ghost.position,
         frame.ghost.facingRadians,
         frame.ghost.burning,
         elapsedSeconds,
+        1,
+        frame.ghostHealth,
+        frame.phase,
       );
-      actor.body.scale.setScalar(1);
-      updateWorldMeter(
-        actor.statusMeter,
-        frame.ghostHealth / MATCH_RULES.ghostMaxHealth,
-        0xd96f5f,
-      );
-      if (actor.statusMeter) actor.statusMeter.root.visible = frame.phase === 'playing';
-      if (actor.ghostRig) poseGhostRig(actor.ghostRig, 0, 0, elapsedSeconds);
+    } else if (frame.viewerRole === 'child' && this.ghostEcho) {
+      const opacity = ghostFadeOpacity(elapsedSeconds - this.ghostEcho.hideAt);
+      if (opacity === null) {
+        this.ghostEcho = null;
+      } else {
+        this.presentGhost(
+          this.ghostEcho.position,
+          this.ghostEcho.facingRadians,
+          this.ghostEcho.burning,
+          elapsedSeconds,
+          opacity,
+          frame.ghostHealth,
+          frame.phase,
+        );
+      }
+    } else {
+      this.ghostEcho = null;
     }
     if (frame.capture && frame.ghost) this.applyCapturePresentation(frame);
 
@@ -275,17 +313,7 @@ export class GameWorld {
     floor.receiveShadow = true;
     this.scene.add(floor);
 
-    const roomGeometry = new THREE.PlaneGeometry(9.3, 5.8);
-    for (const [index, room] of HOUSE_ROOMS.entries()) {
-      const tile = new THREE.Mesh(
-        roomGeometry,
-        index % 2 === 0 ? this.materials.roomFloorA : this.materials.roomFloorB,
-      );
-      tile.rotation.x = -Math.PI / 2;
-      tile.position.set(room.center.x, 0.005, room.center.z);
-      tile.receiveShadow = true;
-      this.scene.add(tile);
-    }
+    this.scene.add(buildHouseStage(this.materials));
 
     this.walls.name = 'box-walls';
     for (const wall of HOUSE_WALLS) {
@@ -319,6 +347,27 @@ export class GameWorld {
     this.scene.add(visual.root);
     void this.upgradeActor(visual, kind, slot);
     return visual;
+  }
+
+  private presentGhost(
+    position: Vec2,
+    facingRadians: number,
+    burning: boolean,
+    elapsedSeconds: number,
+    opacity: number,
+    ghostHealth: number,
+    phase: ViewerFrame['phase'],
+  ): void {
+    const actor = this.actor('ghost', 'ghost', 0);
+    syncGhostActor(actor, position, facingRadians, burning, elapsedSeconds, opacity);
+    actor.body.scale.setScalar(1);
+    updateWorldMeter(
+      actor.statusMeter,
+      ghostHealth / MATCH_RULES.ghostMaxHealth,
+      0xd96f5f,
+    );
+    if (actor.statusMeter) actor.statusMeter.root.visible = phase === 'playing' && opacity > 0.35;
+    if (actor.ghostRig && !burning) poseGhostRig(actor.ghostRig, 0, 0, elapsedSeconds);
   }
 
   private async upgradeActor(
@@ -355,7 +404,7 @@ export class GameWorld {
       if (actor.captureProgress !== null) {
         const progress = actor.captureProgress;
         const impact = 1 - smoothstep(clamp01(progress / 0.12));
-        const captureSeconds = progress * 2.6;
+        const captureSeconds = progress * captureDurationSeconds();
         const reducedMotion = reducedMotionEnabled();
         const failingFlicker = reducedMotion
           ? 0
@@ -391,44 +440,37 @@ export class GameWorld {
 
     const target = frame.children.find((candidate) => candidate.playerId === capture.childPlayerId);
     if (!target) return;
-    const facing = Math.atan2(
-      target.position.z - frame.ghost.position.z,
-      target.position.x - frame.ghost.position.x,
-    );
+    const facing = CAPTURE_CAMERA_FACING_RADIANS;
     const progress = clamp01(1 - capture.ticksRemaining / Math.max(1, capture.durationTicks));
-    const captureSeconds = progress * capture.durationTicks / 60;
+    const captureSeconds = progress * capture.durationTicks / MATCH_RULES.tickRate;
     const reducedMotion = reducedMotionEnabled();
     const motionScale = reducedMotion ? 0.28 : 1;
-    const impact = 1 - smoothstep(clamp01(progress / 0.12));
-    const seized = smoothstep(clamp01((progress - 0.07) / 0.13));
-    const finish = smoothstep(clamp01((progress - 0.78) / 0.22));
-    const struggle = seized * (1 - finish * 0.86);
-    const grip = smoothstep(clamp01(progress / 0.18));
+    const { impact, struggle, hold, grip } = capturePoseWeights(progress);
     const thrash = Math.sin(captureSeconds * 19.5);
     const counterThrash = Math.sin(captureSeconds * 15.7 + 1.2);
-    const forwardX = Math.cos(facing);
-    const forwardZ = Math.sin(facing);
+    const offset = captureChildOffset(grip);
 
     ghost.facing.bodyRadians = facing;
     ghost.facing.initialized = true;
     ghost.bodyPivot.rotation.y = -facing;
-    const holdDistance = 0.7 - grip * 0.13;
     child.root.position.set(
-      frame.ghost.position.x + forwardX * holdDistance,
+      frame.ghost.position.x + offset.x,
       0.055 + grip * 0.045 + struggle * thrash * 0.024 * motionScale,
-      frame.ghost.position.z + forwardZ * holdDistance,
+      frame.ghost.position.z + offset.z,
     );
     child.facing.bodyRadians = facing;
     child.facing.lookRadians = facing;
     child.facing.initialized = true;
     child.bodyPivot.rotation.y = -facing;
-    child.bodyPivot.rotation.x = -impact * 0.24 + struggle * counterThrash * 0.075 * motionScale + finish * 0.13;
+    child.bodyPivot.rotation.x = -impact * 0.22 + struggle * counterThrash * 0.055 * motionScale;
     child.bodyPivot.rotation.z = struggle * thrash * 0.085 * motionScale;
     child.aimPivot.rotation.y = -facing;
     child.captureProgress = progress;
     playActorAnimation(ghost, 'Idle_A', 0.06);
-    if (child.imported) poseCapturedChild(child.imported, impact, struggle, finish, captureSeconds, motionScale);
-    if (ghost.imported) poseImportedGhostCapture(ghost.imported, grip, finish, captureSeconds, motionScale);
+    if (child.imported) {
+      poseCapturedChild(child.imported, impact, struggle, hold, captureSeconds, motionScale);
+    }
+    if (ghost.imported) poseImportedGhostCapture(ghost.imported, grip, hold, captureSeconds, motionScale);
     poseGhostRig(ghost.ghostRig, grip, progress, captureSeconds, motionScale);
   }
 }
@@ -631,18 +673,27 @@ function syncGhostActor(
   facingRadians: number,
   burning: boolean,
   elapsedSeconds: number,
+  opacity = 1,
 ): void {
   actor.root.visible = true;
-  actor.root.position.set(position.x, Math.sin(elapsedSeconds * 2.1) * 0.035, position.z);
+  const reducedMotion = reducedMotionEnabled();
+  const motionScale = reducedMotion ? 0.28 : 1;
+  const idleBob = Math.sin(elapsedSeconds * 2.1) * 0.035;
+  const burnHop = burning ? Math.abs(Math.sin(elapsedSeconds * 16.2)) * 0.13 * motionScale : 0;
+  actor.root.position.set(position.x, idleBob + burnHop, position.z);
   const elapsed = actorDeltaSeconds(actor, elapsedSeconds);
   advanceGhostBodyFacing(actor.facing, facingRadians, elapsed);
   actor.bodyPivot.rotation.y = -actor.facing.bodyRadians;
   const distance = actor.lastPosition
     ? Math.hypot(position.x - actor.lastPosition.x, position.z - actor.lastPosition.z)
     : 0;
-  playActorAnimation(actor, burning ? 'Hit_A' : distance > 0.012 ? 'Running_A' : 'Idle_A');
+  playActorAnimation(actor, distance > 0.012 ? 'Running_A' : 'Idle_A');
   actor.imported?.mixer.update(elapsed);
-  if (actor.ghostRig) applyGhostBurnPresentation(actor.ghostRig, burning, elapsedSeconds);
+  if (actor.ghostRig) {
+    applyGhostBurnPresentation(actor.ghostRig, burning, elapsedSeconds, motionScale, opacity);
+  }
+  if (burning && actor.imported) poseImportedGhostBurn(actor.imported, elapsedSeconds, motionScale);
+  setGhostOpacity(actor, opacity);
   if (actor.lastPosition) {
     actor.lastPosition.x = position.x;
     actor.lastPosition.z = position.z;
@@ -691,36 +742,42 @@ function poseCapturedChild(
   imported: CharacterAssetInstance,
   impact: number,
   struggle: number,
-  finish: number,
+  hold: number,
   captureSeconds: number,
   motionScale: number,
 ): void {
   const thrash = Math.sin(captureSeconds * 19.5) * struggle * motionScale;
   const counter = Math.sin(captureSeconds * 14.2 + 1.1) * struggle * motionScale;
   const kick = Math.sin(captureSeconds * 23.4 + 0.55) * struggle * motionScale;
-  applyJointRotation(imported.joints.chest, -impact * 0.2 + finish * 0.2, thrash * 0.26, counter * 0.12);
-  applyJointRotation(imported.joints.head, impact * 0.18 + finish * 0.32, -thrash * 0.48, counter * 0.22);
-  applyJointRotation(imported.joints.leftUpperArm, counter * 0.62, -thrash * 0.22, -struggle * 0.36);
-  applyJointRotation(imported.joints.rightUpperArm, -counter * 0.62, thrash * 0.22, struggle * 0.36);
-  applyJointRotation(imported.joints.leftLowerArm, -struggle * 0.42, 0, thrash * 0.28);
-  applyJointRotation(imported.joints.rightLowerArm, -struggle * 0.42, 0, -thrash * 0.28);
-  applyJointRotation(imported.joints.leftUpperLeg, kick * 0.48, 0, -counter * 0.12);
-  applyJointRotation(imported.joints.rightUpperLeg, -kick * 0.48, 0, counter * 0.12);
-  applyJointRotation(imported.joints.leftLowerLeg, Math.max(0, -kick) * 0.42, 0, 0);
-  applyJointRotation(imported.joints.rightLowerLeg, Math.max(0, kick) * 0.42, 0, 0);
+  const hug = hold * 0.08;
+  applyJointRotation(imported.joints.chest, -impact * 0.16 + hug, thrash * 0.18, counter * 0.08);
+  applyJointRotation(
+    imported.joints.head,
+    clampCaptureHeadPitch(impact * 0.14 + struggle * 0.03),
+    Math.max(-0.18, Math.min(0.18, -thrash * 0.22)),
+    Math.max(-0.12, Math.min(0.12, counter * 0.12)),
+  );
+  applyJointRotation(imported.joints.leftUpperArm, counter * 0.42, -thrash * 0.16, -struggle * 0.28 - hug);
+  applyJointRotation(imported.joints.rightUpperArm, -counter * 0.42, thrash * 0.16, struggle * 0.28 + hug);
+  applyJointRotation(imported.joints.leftLowerArm, -struggle * 0.28 - hug, 0, thrash * 0.18);
+  applyJointRotation(imported.joints.rightLowerArm, -struggle * 0.28 - hug, 0, -thrash * 0.18);
+  applyJointRotation(imported.joints.leftUpperLeg, kick * 0.28, 0, -counter * 0.08);
+  applyJointRotation(imported.joints.rightUpperLeg, -kick * 0.28, 0, counter * 0.08);
+  applyJointRotation(imported.joints.leftLowerLeg, Math.max(0, -kick) * 0.24, 0, 0);
+  applyJointRotation(imported.joints.rightLowerLeg, Math.max(0, kick) * 0.24, 0, 0);
 }
 
 function poseImportedGhostCapture(
   imported: CharacterAssetInstance,
   grip: number,
-  finish: number,
+  hold: number,
   captureSeconds: number,
   motionScale: number,
 ): void {
-  const tightening = grip * (0.86 + finish * 0.14);
-  const breath = Math.sin(captureSeconds * 6.4) * 0.035 * motionScale * (1 - finish);
+  const tightening = grip * (0.86 + hold * 0.14);
+  const breath = Math.sin(captureSeconds * 6.4) * 0.035 * motionScale * (1 - hold);
   applyJointRotation(imported.joints.chest, 0.08 * tightening, breath, -0.06 * tightening);
-  applyJointRotation(imported.joints.head, 0.08 * tightening + finish * 0.2, 0.04 * tightening, -0.24 * tightening);
+  applyJointRotation(imported.joints.head, 0.08 * tightening + hold * 0.06, 0.04 * tightening, -0.18 * tightening);
   applyJointRotation(imported.joints.leftUpperArm, 0.58 * tightening, 0.08, -0.42 * tightening);
   applyJointRotation(imported.joints.rightUpperArm, -0.58 * tightening, -0.08, 0.42 * tightening);
   applyJointRotation(imported.joints.leftLowerArm, 0.5 * tightening, 0, -0.24 * tightening);
@@ -760,13 +817,6 @@ function createGhost(materials: HouseMaterialKit): { root: THREE.Group; rig: Gho
   leftEye.position.set(0.33, 0.94, -0.12);
   const rightEye = leftEye.clone();
   rightEye.position.z = 0.12;
-  const wispMaterial = new THREE.MeshBasicMaterial({ color: 0x8793b0, transparent: true, opacity: 0.6 });
-  for (const side of [-1, 0, 1]) {
-    const wisp = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.36, 7), wispMaterial);
-    wisp.position.set(side * 0.35, -0.12 + Math.abs(side) * 0.05, side * 0.08);
-    wisp.rotation.z = side * 0.2;
-    ghost.add(wisp);
-  }
   const leftArm = createGhostArm(materials, -1);
   const rightArm = createGhostArm(materials, 1);
   const captureAura = new THREE.Mesh(
@@ -797,29 +847,24 @@ function createGhost(materials: HouseMaterialKit): { root: THREE.Group; rig: Gho
   captureVeil.visible = false;
   const captureLight = new THREE.PointLight(0xaebfff, 0, 3.2, 2);
   captureLight.position.set(0.4, 0.9, 0);
-  const burnAura = new THREE.Mesh(
-    new THREE.SphereGeometry(0.78, 20, 14),
-    new THREE.MeshBasicMaterial({
-      color: 0xff6b1a,
-      transparent: true,
-      opacity: 0,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      side: THREE.BackSide,
-    }),
-  );
-  burnAura.position.y = 0.5;
-  burnAura.scale.y = 1.16;
-  burnAura.visible = false;
-  const burnLight = new THREE.PointLight(0xff5a18, 0, 4.2, 2);
-  burnLight.position.y = 0.72;
+  const silhouette = createGhostSilhouette();
+  const fire = createGhostFire();
   fallbackVisual.add(leftArm.shoulder, rightArm.shoulder, hood, robe, collar, leftEye, rightEye);
-  ghost.add(fallbackVisual, importedMount, captureAura, captureVeil, captureLight, burnAura, burnLight);
+  ghost.add(
+    fallbackVisual,
+    importedMount,
+    silhouette.group,
+    captureAura,
+    captureVeil,
+    captureLight,
+    fire.group,
+  );
   return {
     root: ghost,
     rig: {
       fallbackVisual,
       importedMount,
+      silhouette: silhouette.group,
       leftShoulder: leftArm.shoulder,
       rightShoulder: rightArm.shoulder,
       leftElbow: leftArm.elbow,
@@ -827,8 +872,12 @@ function createGhost(materials: HouseMaterialKit): { root: THREE.Group; rig: Gho
       captureAura,
       captureVeil,
       captureLight,
-      burnAura,
-      burnLight,
+      fireGroup: fire.group,
+      flames: fire.flames,
+      fireLight: fire.light,
+      leftEye: silhouette.leftEye,
+      rightEye: silhouette.rightEye,
+      groundGlow: silhouette.groundGlow,
     },
   };
 }
@@ -861,33 +910,184 @@ function poseGhostRig(
   animationSeconds: number,
   motionScale = 1,
 ): void {
-  const impact = 1 - smoothstep(clamp01(progress / 0.12));
-  const finish = smoothstep(clamp01((progress - 0.78) / 0.22));
-  const pulse = 1 + Math.sin(animationSeconds * 12) * 0.04 * motionScale * (1 - finish);
-  const armGrip = grip * (1 + finish * 0.12);
+  const { impact, hold } = capturePoseWeights(progress);
+  const pulse = 1 + Math.sin(animationSeconds * 12) * 0.04 * motionScale * (1 - hold);
+  const armGrip = grip * (1 + hold * 0.12);
   rig.leftShoulder.rotation.set(0.46 * armGrip, 0, 1.36 * armGrip - 0.08);
   rig.rightShoulder.rotation.set(-0.46 * armGrip, 0, 1.36 * armGrip + 0.08);
   rig.leftElbow.rotation.set(0.72 * armGrip, 0, 0.56 * armGrip);
   rig.rightElbow.rotation.set(-0.72 * armGrip, 0, 0.56 * armGrip);
   rig.captureAura.visible = grip > 0.01;
-  rig.captureAura.scale.setScalar((0.9 + impact * 1.8 + grip * 1.05 - finish * 0.48) * pulse);
-  rig.captureAura.material.opacity = grip * (0.14 + impact * 0.62 + (1 - finish) * 0.2);
+  rig.captureAura.scale.setScalar((0.9 + impact * 1.8 + grip * 1.05 - hold * 0.48) * pulse);
+  rig.captureAura.material.opacity = grip * (0.14 + impact * 0.62 + (1 - hold) * 0.2);
   rig.captureVeil.visible = grip > 0.04;
-  rig.captureVeil.material.opacity = grip * (0.025 + finish * 0.13);
+  rig.captureVeil.material.opacity = grip * (0.025 + hold * 0.13);
   rig.captureVeil.scale.set(
-    1.35 - finish * 0.14,
-    1.25 - finish * 0.1,
-    1.05 - finish * 0.08,
+    1.35 - hold * 0.14,
+    1.25 - hold * 0.1,
+    1.05 - hold * 0.08,
   );
-  rig.captureLight.intensity = grip * (1.15 + impact * 3.8 + (1 - finish) * 0.35 * pulse);
+  rig.captureLight.intensity = grip * (1.15 + impact * 3.8 + (1 - hold) * 0.35 * pulse);
 }
 
-function applyGhostBurnPresentation(rig: GhostRig, burning: boolean, elapsedSeconds: number): void {
-  rig.burnAura.visible = burning;
-  rig.burnAura.material.opacity = burning ? 0.16 + Math.sin(elapsedSeconds * 18) * 0.055 : 0;
-  const pulse = 1 + Math.sin(elapsedSeconds * 13) * 0.07;
-  rig.burnAura.scale.set(pulse, 1.16 * pulse, pulse);
-  rig.burnLight.intensity = burning ? 2.1 + Math.sin(elapsedSeconds * 21) * 0.45 : 0;
+function applyGhostBurnPresentation(
+  rig: GhostRig,
+  burning: boolean,
+  elapsedSeconds: number,
+  motionScale = 1,
+  opacity = 1,
+): void {
+  rig.fireGroup.visible = burning;
+  rig.fireLight.intensity = burning ? 2.6 + Math.sin(elapsedSeconds * 18) * 0.55 : 0;
+  const eyeBoost = burning ? 1 : 0;
+  rig.leftEye.material.color.set(burning ? 0xfff1c2 : 0xdce8ff);
+  rig.rightEye.material.color.set(burning ? 0xfff1c2 : 0xdce8ff);
+  rig.leftEye.scale.setScalar(1 + eyeBoost * 0.35);
+  rig.rightEye.scale.setScalar(1 + eyeBoost * 0.35);
+  rig.groundGlow.material.opacity = burning ? 0.5 : 0.34;
+  rig.groundGlow.material.color.set(burning ? 0xff7a2a : 0x93a9df);
+  if (burning) {
+    const flail = Math.sin(elapsedSeconds * 20.4) * motionScale;
+    const counter = Math.sin(elapsedSeconds * 15.1 + 0.7) * motionScale;
+    rig.leftShoulder.rotation.set(0.85 + flail * 0.55, 0.1, 1.15 + counter * 0.35);
+    rig.rightShoulder.rotation.set(-0.85 - counter * 0.55, -0.1, 1.15 + flail * 0.35);
+    rig.leftElbow.rotation.set(0.55 + counter * 0.4, 0, 0.7);
+    rig.rightElbow.rotation.set(-0.55 - flail * 0.4, 0, 0.7);
+  }
+  for (const [index, flame] of rig.flames.entries()) {
+    const wave = Math.sin(elapsedSeconds * (14 + index * 1.7) + index);
+    flame.scale.set(0.85 + wave * 0.18, 1.05 + wave * 0.45, 0.85 + wave * 0.18);
+    flame.position.y = 0.28 + index * 0.09 + Math.max(0, wave) * 0.12;
+    flame.material.opacity = burning ? (0.42 + wave * 0.18) * opacity : 0;
+  }
+}
+
+function poseImportedGhostBurn(
+  imported: CharacterAssetInstance,
+  elapsedSeconds: number,
+  motionScale: number,
+): void {
+  const hop = Math.abs(Math.sin(elapsedSeconds * 16.2));
+  const flail = Math.sin(elapsedSeconds * 21.5) * motionScale;
+  const counter = Math.sin(elapsedSeconds * 17.2 + 0.8) * motionScale;
+  applyJointRotation(imported.joints.chest, 0.1 * hop, flail * 0.08, counter * 0.06);
+  applyJointRotation(
+    imported.joints.head,
+    clampCaptureHeadPitch(0.08 * hop),
+    Math.max(-0.16, Math.min(0.16, -flail * 0.14)),
+    0,
+  );
+  applyJointRotation(imported.joints.leftUpperArm, 0.95 + flail * 0.55, 0.12, -0.85);
+  applyJointRotation(imported.joints.rightUpperArm, 0.95 - counter * 0.55, -0.12, 0.85);
+  applyJointRotation(imported.joints.leftLowerArm, 0.35 + counter * 0.3, 0, -0.2);
+  applyJointRotation(imported.joints.rightLowerArm, 0.35 + flail * 0.3, 0, 0.2);
+}
+
+function setGhostOpacity(actor: ActorVisual, opacity: number): void {
+  actor.root.traverse((object) => {
+    if (!(object instanceof THREE.Mesh) && !(object instanceof THREE.Sprite)) return;
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    for (const material of materials) {
+      if (!('opacity' in material) || !('transparent' in material)) continue;
+      const fadeable = material as THREE.Material & {
+        opacity: number;
+        transparent: boolean;
+        userData: { baseOpacity?: number; animatedOpacity?: boolean };
+      };
+      if (fadeable.userData.animatedOpacity) continue;
+      fadeable.transparent = true;
+      fadeable.userData.baseOpacity ??= fadeable.opacity;
+      fadeable.opacity = fadeable.userData.baseOpacity * opacity;
+    }
+  });
+}
+
+function createGhostSilhouette(): {
+  group: THREE.Group;
+  leftEye: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
+  rightEye: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
+  groundGlow: THREE.Mesh<THREE.CircleGeometry, THREE.MeshBasicMaterial>;
+} {
+  const group = new THREE.Group();
+  group.name = 'ghost-silhouette';
+  const cloak = new THREE.Mesh(
+    new THREE.ConeGeometry(0.72, 1.35, 18, 1, true),
+    new THREE.MeshBasicMaterial({
+      color: 0x6d7c99,
+      transparent: true,
+      opacity: 0.3,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    }),
+  );
+  cloak.position.y = 0.62;
+  const leftEye = new THREE.Mesh(
+    new THREE.SphereGeometry(0.11, 10, 8),
+    new THREE.MeshBasicMaterial({ color: 0xe8f2ff }),
+  );
+  leftEye.position.set(0.2, 1.42, -0.13);
+  const rightEye = leftEye.clone();
+  rightEye.position.z = 0.12;
+  const groundGlow = new THREE.Mesh(
+    new THREE.CircleGeometry(0.74, 24),
+    new THREE.MeshBasicMaterial({
+      color: 0x93a9df,
+      transparent: true,
+      opacity: 0.34,
+      depthWrite: false,
+    }),
+  );
+  groundGlow.rotation.x = -Math.PI / 2;
+  groundGlow.position.y = 0.03;
+  const wispMaterial = new THREE.MeshBasicMaterial({
+    color: 0x8793b0,
+    transparent: true,
+    opacity: 0.45,
+    depthWrite: false,
+  });
+  for (const side of [-1, 0, 1]) {
+    const wisp = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.38, 7), wispMaterial);
+    wisp.position.set(side * 0.22, 0.02, side * 0.05);
+    wisp.rotation.z = side * 0.28;
+    group.add(wisp);
+  }
+  group.add(cloak, leftEye, rightEye, groundGlow);
+  return { group, leftEye, rightEye, groundGlow };
+}
+
+function createGhostFire(): {
+  group: THREE.Group;
+  flames: Array<THREE.Mesh<THREE.ConeGeometry, THREE.MeshBasicMaterial>>;
+  light: THREE.PointLight;
+} {
+  const group = new THREE.Group();
+  group.name = 'ghost-fire';
+  group.visible = false;
+  const flames: Array<THREE.Mesh<THREE.ConeGeometry, THREE.MeshBasicMaterial>> = [];
+  const flameGeometry = new THREE.ConeGeometry(0.16, 0.52, 6);
+  for (let index = 0; index < 8; index += 1) {
+    const hue = index % 2 === 0 ? 0xfff3c0 : 0xff7a2a;
+    const flame = new THREE.Mesh(
+      flameGeometry,
+      new THREE.MeshBasicMaterial({
+        color: hue,
+        transparent: true,
+        opacity: 0.5,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    flame.material.userData.animatedOpacity = true;
+    const angle = (index / 8) * Math.PI * 2;
+    flame.position.set(Math.cos(angle) * 0.28, 0.35 + (index % 3) * 0.12, Math.sin(angle) * 0.28);
+    flame.rotation.z = Math.cos(angle) * 0.2;
+    group.add(flame);
+    flames.push(flame);
+  }
+  const light = new THREE.PointLight(0xff8a32, 0, 4.6, 2);
+  light.position.y = 0.82;
+  group.add(light);
+  return { group, flames, light };
 }
 
 function smoothstep(value: number): number {

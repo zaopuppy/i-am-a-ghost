@@ -117,6 +117,8 @@ test('capture presentation advances from impact through struggle to tightening w
         childPitch: child.bodyPivot.rotation.x,
         childRoll: child.bodyPivot.rotation.z,
         childHeight: child.root.position.y,
+        childZ: child.root.position.z,
+        ghostZ: ghost.root.position.z,
         shoulderGrip: ghost.ghostRig.leftShoulder.rotation.z,
         auraOpacity: ghost.ghostRig.captureAura.material.opacity,
       };
@@ -140,12 +142,12 @@ test('capture presentation advances from impact through struggle to tightening w
   expect(samples.struggle.childHeight).not.toBeCloseTo(samples.impact.childHeight, 3);
 
   expect(samples.tighten.progress).toBeGreaterThan(0.9);
-  expect(samples.tighten.childPitch).toBeGreaterThan(0.08);
+  expect(Math.abs(samples.tighten.childPitch)).toBeLessThan(0.08);
   expect(Math.abs(samples.tighten.childRoll)).toBeLessThan(Math.abs(samples.struggle.childRoll));
+  expect(samples.tighten.childZ).toBeGreaterThan(samples.tighten.ghostZ + 0.4);
   expect(samples.impact.shoulderGrip).toBeLessThan(samples.struggle.shoulderGrip);
   expect(samples.struggle.shoulderGrip).toBeLessThan(samples.tighten.shoulderGrip);
   expect(samples.struggle.auraOpacity).toBeGreaterThan(samples.impact.auraOpacity);
-  expect(samples.struggle.auraOpacity).toBeGreaterThan(samples.tighten.auraOpacity);
 });
 
 test('laptop PC viewport keeps the HUD bands separated and visible', async ({ page }) => {

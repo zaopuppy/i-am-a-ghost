@@ -109,7 +109,7 @@ export const MATCH_RULES = Object.freeze({
   illuminatedGhostSpeedMultiplier: 0.8,
   ghostBurnDurationTicks: 90,
   matchDurationTicks: 18_000,
-  captureAnimationTicks: 156,
+  captureAnimationTicks: 210,
   protectionTicks: 120,
   captureContactRange: 0.98,
   capturesToWin: 3,
