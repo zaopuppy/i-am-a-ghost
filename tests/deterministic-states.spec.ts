@@ -42,14 +42,14 @@ for (const state of VISUAL_STATES) {
     }
     if (state === 'capture') {
       const diagnostics = await page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__);
-      expect(diagnostics?.cameraMode).toBe('whole-house');
-      expect(diagnostics?.cameraViewHeight).toBeCloseTo(23.5, 3);
+      expect(diagnostics?.cameraMode).toBe('capture-closeup');
+      expect(diagnostics?.cameraViewHeight).toBeCloseTo(5.2, 3);
       expect(diagnostics?.camera.pointerMode).toBe(false);
       expect(diagnostics?.camera.relativePosition).toEqual(
-        diagnostics?.tuning.cameraPresets['whole-house'].position,
+        diagnostics?.tuning.cameraPresets['capture-closeup'].position,
       );
       expect(diagnostics?.camera.relativeTarget).toEqual(
-        diagnostics?.tuning.cameraPresets['whole-house'].target,
+        diagnostics?.tuning.cameraPresets['capture-closeup'].target,
       );
       expect(diagnostics?.capturedChildPlayerId).toBe('child-1');
       const frame = diagnostics?.viewerFrame;

@@ -7,6 +7,7 @@ import {
   orientMovementToCamera,
   type CameraMode,
   type CameraPreset,
+  type CameraVector,
 } from './core/CameraRig';
 import { GameInput } from './core/GameInput';
 import { Loop } from './core/Loop';
@@ -416,19 +417,40 @@ function showBanner(text: string, tone: 'danger' | 'safe'): void {
   eventBanner.hidden = false;
 }
 
-function updateCamera(_frame: ViewerFrame | null, deltaSeconds: number, immediate = false): void {
-  const mode: CameraMode = 'whole-house';
+function updateCamera(frame: ViewerFrame | null, deltaSeconds: number, immediate = false): void {
+  const captureActive = Boolean(frame && isCaptureCinematicViewer(frame));
+  if (captureActive && cameraRig.snapshot().pointerMode) {
+    runtimeTuning.cameraPresets['whole-house'] = cameraRig.stopDeveloperControl();
+    syncCameraDebugState(runtimeTuning.cameraPresets['whole-house']);
+  }
+  const mode: CameraMode = captureActive ? 'capture-closeup' : 'whole-house';
   cameraRig.update({
     mode,
-    captureActive: false,
-    baseTarget: { x: 0, y: 0, z: 0 },
+    captureActive,
+    baseTarget: captureActive && frame ? captureCameraTarget(frame) : { x: 0, y: 0, z: 0 },
     preset: runtimeTuning.cameraPresets[mode],
     deltaSeconds,
-    responsiveness: runtimeTuning.cameraFollowResponsiveness,
+    responsiveness: captureActive
+      ? runtimeTuning.captureCameraResponsiveness
+      : runtimeTuning.cameraFollowResponsiveness,
     immediate: immediate || cameraSnapRequested,
   });
   cameraSnapRequested = false;
   refreshCameraMetrics();
+}
+
+function captureCameraTarget(frame: ViewerFrame): CameraVector {
+  const ghost = frame.ghost;
+  const child = frame.capture
+    ? frame.children.find((candidate) => candidate.playerId === frame.capture?.childPlayerId)
+    : undefined;
+  if (!ghost) return { x: 0, y: 1, z: 0 };
+  if (!child) return { x: ghost.position.x, y: 1, z: ghost.position.z };
+  return {
+    x: (ghost.position.x + child.position.x) / 2,
+    y: 1,
+    z: (ghost.position.z + child.position.z) / 2,
+  };
 }
 
 function calculateFacing(movement: { x: number; z: number }): number {

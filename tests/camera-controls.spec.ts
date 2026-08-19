@@ -88,16 +88,6 @@ test('the map-centered camera keeps mouse orbit, pan, and zoom behind a toggle b
   expect(Math.abs((edited?.azimuthDegrees ?? 0) - (orbited?.azimuthDegrees ?? 0))).toBeLessThan(0.5);
   expectCameraValuesAreFinite(edited);
 
-  await page.evaluate(() => window.__THREE_GAME_TEST_HOOKS__?.setState('capture'));
-  await page.waitForFunction(() => {
-    const camera = window.__THREE_GAME_DIAGNOSTICS__?.camera;
-    return camera?.mode === 'whole-house' && camera.pointerMode === true;
-  });
-  const capture = await page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__);
-  expect(capture?.cameraMode).toBe('whole-house');
-  expect(capture?.camera.pointerMode).toBe(true);
-  expectCameraValuesAreFinite(capture?.camera);
-
   const cameraToggleOff = page
     .locator('.lil-gui .lil-controller')
     .filter({ hasText: '退出鼠标调镜头' })
@@ -110,6 +100,19 @@ test('the map-centered camera keeps mouse orbit, pan, and zoom behind a toggle b
   expect(saved?.camera.relativeTarget).toEqual(saved?.tuning.cameraPresets['whole-house'].target);
   expect(saved?.camera.viewHeight).toBe(saved?.tuning.cameraPresets['whole-house'].viewHeight);
   expectCameraValuesAreFinite(saved?.camera);
+
+  await cameraToggle.click();
+  await page.waitForFunction(() => window.__THREE_GAME_DIAGNOSTICS__?.camera.pointerMode === true);
+  await page.evaluate(() => window.__THREE_GAME_TEST_HOOKS__?.setState('capture'));
+  await page.waitForFunction(() => {
+    const camera = window.__THREE_GAME_DIAGNOSTICS__?.camera;
+    return camera?.mode === 'capture-closeup' && camera.pointerMode === false;
+  });
+  const capture = await page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__);
+  expect(capture?.cameraMode).toBe('capture-closeup');
+  expect(capture?.camera.pointerMode).toBe(false);
+  expect(capture?.cameraViewHeight).toBeCloseTo(5.2, 1);
+  expectCameraValuesAreFinite(capture?.camera);
   expect(errors).toEqual([]);
 });
 
