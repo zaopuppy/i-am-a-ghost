@@ -6,7 +6,11 @@ import {
   importedAssetMetrics,
   type CharacterAssetInstance,
 } from '../assets/ImportedAssets';
-import { createHouseMaterialKit, type HouseMaterialKit } from '../assets/MaterialLibrary';
+import {
+  createHouseMaterialKit,
+  createWallpaperWallGeometry,
+  type HouseMaterialKit,
+} from '../assets/MaterialLibrary';
 import {
   CAPTURE_CAMERA_FACING_RADIANS,
   captureChildOffset,
@@ -337,7 +341,7 @@ export class GameWorld {
     this.walls.name = 'box-walls';
     for (const wall of HOUSE_WALLS) {
       const mesh = new THREE.Mesh(
-        new THREE.BoxGeometry(wall.maxX - wall.minX, WALL_HEIGHT, wall.maxZ - wall.minZ),
+        createWallpaperWallGeometry(wall, WALL_HEIGHT),
         this.materials.wall,
       );
       mesh.position.set((wall.minX + wall.maxX) / 2, WALL_HEIGHT / 2, (wall.minZ + wall.maxZ) / 2);

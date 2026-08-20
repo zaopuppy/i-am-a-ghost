@@ -20,6 +20,15 @@ export const ART_COLORS = Object.freeze({
   windowGlow: 0x7d8aa8,
 });
 
+export const WALLPAPER_TILE_METERS = Object.freeze({ width: 1.2, height: 1.4 });
+
+export interface WallpaperWallBounds {
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+}
+
 export interface HouseMaterialKit {
   wall: THREE.MeshStandardMaterial;
   floor: THREE.MeshStandardMaterial;
@@ -40,15 +49,15 @@ export interface HouseMaterialKit {
 }
 
 export function createHouseMaterialKit(): HouseMaterialKit {
-  const wallPattern = createWallPatternTexture();
+  const wallPattern = createWallpaperTexture();
   const floorPattern = createFloorPatternTexture();
   const wall = new THREE.MeshStandardMaterial({
     color: ART_COLORS.bodyPrimary,
     map: wallPattern,
     emissive: 0x30394d,
-    emissiveIntensity: 1.05,
-    roughness: 0.82,
-    metalness: 0.03,
+    emissiveIntensity: 0.86,
+    roughness: 0.92,
+    metalness: 0,
   });
   const floor = new THREE.MeshStandardMaterial({
     map: floorPattern,
@@ -123,7 +132,7 @@ export function createHouseMaterialKit(): HouseMaterialKit {
     emissive: 0x10160b,
     emissiveIntensity: 0.12,
   });
-  const trim = new THREE.LineBasicMaterial({ color: ART_COLORS.trim, transparent: true, opacity: 0.68 });
+  const trim = new THREE.LineBasicMaterial({ color: ART_COLORS.trim, transparent: true, opacity: 0.34 });
   const floorTrim = new THREE.LineBasicMaterial({
     color: 0xa89476,
     transparent: true,
@@ -179,7 +188,11 @@ export function createHouseMaterialKit(): HouseMaterialKit {
   const textures: THREE.Texture[] = [wallPattern, floorPattern];
   wallPattern.wrapS = THREE.RepeatWrapping;
   wallPattern.wrapT = THREE.RepeatWrapping;
-  wallPattern.repeat.set(8, 4);
+  wallPattern.repeat.set(1, 1);
+  wallPattern.magFilter = THREE.LinearFilter;
+  wallPattern.minFilter = THREE.LinearMipmapLinearFilter;
+  wallPattern.generateMipmaps = true;
+  wallPattern.anisotropy = 4;
   floorPattern.wrapS = THREE.RepeatWrapping;
   floorPattern.wrapT = THREE.RepeatWrapping;
   floorPattern.repeat.set(14, 16);
@@ -208,36 +221,65 @@ export function createHouseMaterialKit(): HouseMaterialKit {
   };
 }
 
-function createWallPatternTexture(): THREE.DataTexture {
+export function createWallpaperWallGeometry(
+  bounds: WallpaperWallBounds,
+  height: number,
+): THREE.BoxGeometry {
+  const width = bounds.maxX - bounds.minX;
+  const depth = bounds.maxZ - bounds.minZ;
+  const centerX = (bounds.minX + bounds.maxX) / 2;
+  const centerZ = (bounds.minZ + bounds.maxZ) / 2;
+  const geometry = new THREE.BoxGeometry(width, height, depth);
+  const positions = geometry.getAttribute('position');
+  const normals = geometry.getAttribute('normal');
+  const uvs = geometry.getAttribute('uv');
+  for (let index = 0; index < positions.count; index += 1) {
+    const worldX = positions.getX(index) + centerX;
+    const worldY = positions.getY(index) + height / 2;
+    const worldZ = positions.getZ(index) + centerZ;
+    const normalX = Math.abs(normals.getX(index));
+    const normalZ = Math.abs(normals.getZ(index));
+    if (normalX > 0.5) {
+      uvs.setXY(index, worldZ / WALLPAPER_TILE_METERS.width, worldY / WALLPAPER_TILE_METERS.height);
+    } else if (normalZ > 0.5) {
+      uvs.setXY(index, worldX / WALLPAPER_TILE_METERS.width, worldY / WALLPAPER_TILE_METERS.height);
+    } else {
+      uvs.setXY(index, worldX / WALLPAPER_TILE_METERS.width, worldZ / WALLPAPER_TILE_METERS.width);
+    }
+  }
+  uvs.needsUpdate = true;
+  return geometry;
+}
+
+function createWallpaperTexture(): THREE.DataTexture {
   const width = 256;
   const height = 256;
   const data = new Uint8ClampedArray(width * height * 4);
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
       const i = (y * width + x) * 4;
-      const offset = (Math.floor(y / 32) % 2) * 7;
-      const localX = (x + offset) % 32;
-      const localY = y % 20;
-      const mortar = localX < 3 || localX > 27 || localY < 3 || localY > 16;
-      const noise = (pseudoNoise(x * 12.7, y * 8.3) - 0.5) * 6;
-      const isCrack = ((x * 11 + y * 7) % 127) < 2;
-      let r: number;
-      let g: number;
-      let b: number;
-      if (mortar) {
-        r = 64;
-        g = 72;
-        b = 84;
-      } else {
-        r = 95 + noise;
-        g = 102 + noise;
-        b = 116 + noise;
-      }
-      if (isCrack) {
-        r = Math.max(0, r - 22);
-        g = Math.max(0, g - 15);
-        b = Math.max(0, b - 15);
-      }
+      const cellX = ((x + 32) % 64) - 32;
+      const cellY = ((y + 32) % 64) - 32;
+      const seamDistance = Math.min(x % 64, 64 - (x % 64));
+      const stripe = Math.cos(x * Math.PI * 2 / 64) * 4;
+      const grain = Math.sin((x * 17 + y * 23) * Math.PI * 2 / 256) * 2.2
+        + Math.cos((x * 7 - y * 19) * Math.PI * 2 / 256) * 1.6;
+      const vineCenter = 13 + Math.sin(y * Math.PI * 2 / 64) * 3.2;
+      const vine = Math.abs(Math.abs(cellX) - vineCenter) < 1.35;
+      const diamond = Math.abs(cellX) / 7 + Math.abs(cellY) / 11 < 1;
+      const leaf = (
+        ((Math.abs(cellX) - 8) / 4.5) ** 2
+        + ((Math.abs(cellY) - 13) / 7) ** 2
+      ) < 1;
+      const ornament = vine || diamond || leaf;
+      const seamShade = seamDistance < 1.5 ? -13 : 0;
+      const ornamentLift = ornament ? 13 : 0;
+      const age = Math.sin(x * Math.PI * 2 / 256) * Math.cos(y * Math.PI * 2 / 128) * 3;
+      const base = 151 + stripe + grain + seamShade + ornamentLift + age;
+      const warmth = ornament ? 4 : 0;
+      const r = base + warmth;
+      const g = base + 1;
+      const b = base + 5 - warmth;
       data[i] = clampByte(r);
       data[i + 1] = clampByte(g);
       data[i + 2] = clampByte(b);

@@ -1,6 +1,10 @@
 import * as THREE from 'three';
 import { loadFurnitureLibrary, type FurnitureLibrary } from '../assets/EnvironmentAssets';
-import { createHouseMaterialKit, type HouseMaterialKit } from '../assets/MaterialLibrary';
+import {
+  createHouseMaterialKit,
+  createWallpaperWallGeometry,
+  type HouseMaterialKit,
+} from '../assets/MaterialLibrary';
 import {
   batterySpawnSubjectId,
   cloneHouseScene,
@@ -338,10 +342,8 @@ export class SceneEditor {
       this.structureGroup.add(floor);
     }
     for (const wall of [...this.sceneDefinition.walls, ...boundaryWalls(this.sceneDefinition)]) {
-      const width = wall.maxX - wall.minX;
-      const depth = wall.maxZ - wall.minZ;
       const mesh = new THREE.Mesh(
-        new THREE.BoxGeometry(width, 2.8, depth),
+        createWallpaperWallGeometry(wall, 2.8),
         this.materials.wall,
       );
       mesh.name = `editor-wall-${wall.id}`;
