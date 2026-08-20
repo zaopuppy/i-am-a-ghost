@@ -10,6 +10,7 @@ import {
 
 export const HOUSE_SCENE_VERSION = 1 as const;
 export const HOUSE_SCENE_PLAYER_RADIUS = 0.45;
+export const GHOST_SPAWN_SUBJECT_ID = 'ghost-spawn';
 const DOOR_CLEARANCE_DEPTH = 1.25;
 const CONNECTIVITY_GRID_SIZE = 0.4;
 const ROOM_BOUNDS_EPSILON = 1e-6;
@@ -33,6 +34,10 @@ export const FURNITURE_ASSET_IDS = [
   'table_medium_long',
   'table_small',
 ] as const;
+
+export function batterySpawnSubjectId(index: number): string {
+  return `battery-spawn-${index + 1}`;
+}
 
 export type FurnitureAssetId = typeof FURNITURE_ASSET_IDS[number];
 export type RoomFamily = 'living' | 'sleep' | 'old';
@@ -227,6 +232,7 @@ export function compileHouseScene(source: HouseSceneDefinition): CompiledHouseSc
     ],
     batterySpawns: definition.batterySpawns.map((spawn) => ({ ...spawn })),
   };
+  validateSpawnStructure(map, issues);
   if (!allProtectedPointsConnected(map)) {
     issues.push(issue('error', 'disconnected-map', definition.id, '出生点或电池点之间不存在可通行路径。'));
   }
@@ -239,6 +245,35 @@ export function compileHouseScene(source: HouseSceneDefinition): CompiledHouseSc
     doorClearances,
     issues,
   };
+}
+
+function validateSpawnStructure(map: MatchMap, issues: HouseSceneIssue[]): void {
+  if (!positionClearsMapStructure(map.ghostSpawn, map)) {
+    issues.push(issue(
+      'error',
+      'spawn-blocked',
+      GHOST_SPAWN_SUBJECT_ID,
+      '鬼出生点侵入了墙体或地图边界。',
+    ));
+  }
+  for (const [index, spawn] of map.childSpawns.entries()) {
+    if (positionClearsMapStructure(spawn, map)) continue;
+    issues.push(issue(
+      'error',
+      'spawn-blocked',
+      `child-spawn-${index + 1}`,
+      `小孩出生点 ${index + 1} 侵入了墙体或地图边界。`,
+    ));
+  }
+  for (const [index, spawn] of map.batterySpawns.entries()) {
+    if (positionClearsMapStructure(spawn, map)) continue;
+    issues.push(issue(
+      'error',
+      'battery-blocked',
+      batterySpawnSubjectId(index),
+      `电池刷新点 ${index + 1} 侵入了墙体或地图边界。`,
+    ));
+  }
 }
 
 export function cloneHouseScene(source: HouseSceneDefinition): HouseSceneDefinition {
@@ -516,6 +551,13 @@ function allProtectedPointsConnected(map: MatchMap): boolean {
 }
 
 function positionIsOpen(position: Vec2, map: MatchMap): boolean {
+  if (!positionClearsMapStructure(position, map)) return false;
+  return !(map.movementObstacles ?? []).some((obstacle) =>
+    circleIntersectsOrientedRect(position, HOUSE_SCENE_PLAYER_RADIUS, obstacle),
+  );
+}
+
+function positionClearsMapStructure(position: Vec2, map: MatchMap): boolean {
   const radius = HOUSE_SCENE_PLAYER_RADIUS;
   if (
     position.x - radius < map.bounds.minX
@@ -524,9 +566,7 @@ function positionIsOpen(position: Vec2, map: MatchMap): boolean {
     || position.z + radius > map.bounds.maxZ
   ) return false;
   if (map.walls.some((wall) => circleIntersectsAxisAlignedRect(position, radius, wall))) return false;
-  return !(map.movementObstacles ?? []).some((obstacle) =>
-    circleIntersectsOrientedRect(position, radius, obstacle),
-  );
+  return true;
 }
 
 function normalizeYaw(value: number): number {

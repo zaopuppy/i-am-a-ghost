@@ -3,9 +3,11 @@ import test from 'node:test';
 import defaultHouseSceneSource from '../../assets/maps/m3-nine-room-house.scene.json' with { type: 'json' };
 import { COMPILED_DEFAULT_HOUSE } from '../../src/game/defaultHouse';
 import {
+  batterySpawnSubjectId,
   cloneHouseScene,
   compileHouseScene,
   FURNITURE_CATALOG,
+  GHOST_SPAWN_SUBJECT_ID,
   isHouseSceneDefinition,
 } from '../../src/game/HouseScene';
 import { DEFAULT_HOUSE_SCENE } from '../../src/game/defaultHouseScene';
@@ -48,6 +50,23 @@ test('the compiler rejects furniture placed inside a doorway safety zone', () =>
     issue.severity === 'error'
     && issue.code === 'door-blocked'
     && issue.subjectId === cabinet.id,
+  ));
+});
+
+test('the compiler rejects ghost and battery points inside walls or map edges', () => {
+  const scene = cloneHouseScene(DEFAULT_HOUSE_SCENE);
+  scene.ghostSpawn = { x: -5, z: -8 };
+  scene.batterySpawns[0] = { x: scene.bounds.minX, z: 0 };
+
+  const compiled = compileHouseScene(scene);
+
+  assert.ok(compiled.issues.some((issue) =>
+    issue.code === 'spawn-blocked'
+    && issue.subjectId === GHOST_SPAWN_SUBJECT_ID,
+  ));
+  assert.ok(compiled.issues.some((issue) =>
+    issue.code === 'battery-blocked'
+    && issue.subjectId === batterySpawnSubjectId(0),
   ));
 });
 
