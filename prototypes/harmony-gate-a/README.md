@@ -18,6 +18,12 @@ files through a private `https://game.local/` origin; the native page resolves
 that origin synchronously to HAP `$rawfile` resources so module scripts, styles,
 and assets share one origin.
 
+While the ability is in the foreground, the native layer also starts a small
+TCP echo probe on an OS-assigned port and advertises it as
+`_iamaghost._tcp` through mDNS. It stops both on background. This validates the
+LAN-hosting boundary only; the authoritative Socket.IO game server remains in
+`server/` and is not duplicated in this prototype.
+
 Run from the repository root:
 
 ```powershell

@@ -16,6 +16,7 @@
 import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
+import { lanHostProbe } from '../network/LanHostProbe';
 
 const DOMAIN = 0x0000;
 
@@ -30,6 +31,7 @@ export default class EntryAbility extends UIAbility {
   }
 
   onDestroy(): void {
+    void lanHostProbe.stop(this.context);
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onDestroy');
   }
 
@@ -52,12 +54,14 @@ export default class EntryAbility extends UIAbility {
   }
 
   onForeground(): void {
-    // Ability has brought to foreground
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onForeground');
+    void lanHostProbe.start(this.context).then((status) => {
+      hilog.info(DOMAIN, 'HarmonyGateA', 'LAN host status: %{public}s', JSON.stringify(status));
+    });
   }
 
   onBackground(): void {
-    // Ability has back to background
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onBackground');
+    void lanHostProbe.stop(this.context);
   }
 }

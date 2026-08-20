@@ -1,4 +1,5 @@
 import { webview } from '@kit.ArkWeb';
+import { lanHostProbe } from '../network/LanHostProbe';
 
 const BRIDGE_PERMISSION = '{"javascriptProxyPermission":{"urlPermissionList":' +
   '[{"scheme":"https","host":"game.local","port":"","path":""}]}}';
@@ -12,6 +13,10 @@ class HarmonyHostBridge {
 
   runtimeInfo(): string {
     return '{"platform":"HarmonyOS","prototype":"gate-a","bridgeVersion":1}';
+  }
+
+  lanStatus(): string {
+    return JSON.stringify(lanHostProbe.status());
   }
 
   reportReady(payload: string): string {
@@ -82,7 +87,7 @@ struct Index {
         .javaScriptProxy({
           object: this.hostBridge,
           name: 'harmonyHost',
-          methodList: ['ping', 'runtimeInfo', 'reportReady'],
+          methodList: ['ping', 'runtimeInfo', 'lanStatus', 'reportReady'],
           controller: this.controller,
           asyncMethodList: [],
           permission: BRIDGE_PERMISSION,

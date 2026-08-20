@@ -3,11 +3,19 @@ export interface HarmonyHostState {
   bridgeVersion: number | null;
   platform: string;
   error: string | null;
+  lan: HarmonyLanHostStatus | null;
+}
+
+interface HarmonyLanHostStatus {
+  listening?: unknown;
+  port?: unknown;
+  mdnsRegistered?: unknown;
 }
 
 interface HarmonyHostApi {
   ping(message: string): string;
   runtimeInfo(): string;
+  lanStatus(): string;
   reportReady(payload: string): string;
 }
 
@@ -20,17 +28,19 @@ interface HarmonyRuntimeInfo {
 export function initializeHarmonyHost(): HarmonyHostState {
   const host = (window as Window & { harmonyHost?: HarmonyHostApi }).harmonyHost;
   if (!host) {
-    return { active: false, bridgeVersion: null, platform: 'browser', error: null };
+    return { active: false, bridgeVersion: null, platform: 'browser', error: null, lan: null };
   }
 
   try {
     const pong = host.ping('web-ready');
     const rawInfo = JSON.parse(host.runtimeInfo()) as HarmonyRuntimeInfo;
+    const rawLan = JSON.parse(host.lanStatus()) as HarmonyLanHostStatus;
     const state: HarmonyHostState = {
       active: pong === 'pong:web-ready',
       bridgeVersion: typeof rawInfo.bridgeVersion === 'number' ? rawInfo.bridgeVersion : null,
       platform: typeof rawInfo.platform === 'string' ? rawInfo.platform : 'HarmonyOS',
       error: null,
+      lan: rawLan,
     };
     const report = JSON.stringify({
       href: window.location.href,
@@ -48,6 +58,7 @@ export function initializeHarmonyHost(): HarmonyHostState {
       bridgeVersion: null,
       platform: 'HarmonyOS',
       error: message,
+      lan: null,
     };
     surfaceState(state);
     console.error(`[HarmonyGateA] bridge failed: ${message}`);
@@ -60,7 +71,7 @@ function surfaceState(state: HarmonyHostState): void {
   const output = document.createElement('output');
   output.dataset.harmonyGateA = state.active ? 'ready' : 'failed';
   output.textContent = state.active
-    ? `Harmony Gate A · bridge v${state.bridgeVersion ?? '?'}`
+    ? `Harmony Gate A · bridge v${state.bridgeVersion ?? '?'} · ${formatLanStatus(state.lan)}`
     : `Harmony Gate A · bridge failed: ${state.error ?? 'unknown'}`;
   output.style.cssText = [
     'position:fixed',
@@ -76,4 +87,9 @@ function surfaceState(state: HarmonyHostState): void {
     'pointer-events:none',
   ].join(';');
   document.body.append(output);
+}
+
+function formatLanStatus(status: HarmonyLanHostStatus | null): string {
+  if (!status || status.listening !== true || typeof status.port !== 'number') return 'LAN starting';
+  return `LAN :${status.port}${status.mdnsRegistered === true ? ' + mDNS' : ''}`;
 }
