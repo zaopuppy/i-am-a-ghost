@@ -118,13 +118,17 @@ test('the developer scene editor edits furniture, rooms, and walls with live val
   await expect.poll(() => page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.snapshot().errors ?? -1)).toBe(0);
   await expect.poll(() => page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.snapshot().furnitureCount ?? 0)).toBe(34);
 
-  const rotatedYaw = await page.evaluate(() => {
+  const rotation = await page.evaluate(() => {
     const editor = window.__HOUSE_SCENE_EDITOR__;
     editor?.select('furniture', 'nursery-bed');
+    const before = editor?.snapshot().scene.furniture
+      .find((item) => item.id === 'nursery-bed')?.yawRadians ?? 0;
     editor?.rotateSelected(15);
-    return editor?.snapshot().scene.furniture.find((item) => item.id === 'nursery-bed')?.yawRadians;
+    const after = editor?.snapshot().scene.furniture
+      .find((item) => item.id === 'nursery-bed')?.yawRadians ?? 0;
+    return { before, after };
   });
-  expect(rotatedYaw).toBeCloseTo(Math.PI / 12, 5);
+  expect(rotation.after - rotation.before).toBeCloseTo(Math.PI / 12, 5);
 
   const roomCenter = await page.evaluate(() => {
     const editor = window.__HOUSE_SCENE_EDITOR__;
@@ -145,8 +149,14 @@ test('the developer scene editor edits furniture, rooms, and walls with live val
 test('legacy editor drafts gain structural room bounds without moving furniture', async ({ page }) => {
   await page.goto('/?sceneEditor=1');
   await expect.poll(() => page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.snapshot().furnitureCount ?? 0)).toBe(34);
-  const legacyBedPosition = await page.evaluate(() => {
+  const migrationExpectation = await page.evaluate(() => {
     const scene = window.__HOUSE_SCENE_EDITOR__!.snapshot().scene;
+    const defaultNursery = scene.rooms.find((room) => room.id === 'nursery')!;
+    const expectedRoom = {
+      center: { ...defaultNursery.center },
+      width: defaultNursery.width,
+      depth: defaultNursery.depth,
+    };
     for (const room of scene.rooms) {
       room.center.x = room.center.x < 0 ? -10.5 : room.center.x > 0 ? 10.5 : 0;
       room.width = 9.3;
@@ -155,7 +165,10 @@ test('legacy editor drafts gain structural room bounds without moving furniture'
     const bed = scene.furniture.find((item) => item.id === 'nursery-bed')!;
     const nursery = scene.rooms.find((room) => room.id === bed.roomId)!;
     localStorage.setItem('i-am-a-ghost:house-scene-draft:v1', JSON.stringify(scene));
-    return { x: nursery.center.x + bed.offsetX, z: nursery.center.z + bed.offsetZ };
+    return {
+      expectedRoom,
+      legacyBedPosition: { x: nursery.center.x + bed.offsetX, z: nursery.center.z + bed.offsetZ },
+    };
   });
 
   await page.reload();
@@ -169,9 +182,9 @@ test('legacy editor drafts gain structural room bounds without moving furniture'
       bedPosition: { x: nursery.center.x + bed.offsetX, z: nursery.center.z + bed.offsetZ },
     };
   });
-  expect(migrated.room.center).toEqual({ x: -10.45, z: -6.7 });
-  expect(migrated.room.width).toBe(10.7);
-  expect(migrated.room.depth).toBe(6.2);
-  expect(migrated.bedPosition.x).toBeCloseTo(legacyBedPosition.x, 6);
-  expect(migrated.bedPosition.z).toBeCloseTo(legacyBedPosition.z, 6);
+  expect(migrated.room.center).toEqual(migrationExpectation.expectedRoom.center);
+  expect(migrated.room.width).toBe(migrationExpectation.expectedRoom.width);
+  expect(migrated.room.depth).toBe(migrationExpectation.expectedRoom.depth);
+  expect(migrated.bedPosition.x).toBeCloseTo(migrationExpectation.legacyBedPosition.x, 6);
+  expect(migrated.bedPosition.z).toBeCloseTo(migrationExpectation.legacyBedPosition.z, 6);
 });
