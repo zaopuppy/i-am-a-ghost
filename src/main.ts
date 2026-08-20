@@ -78,6 +78,7 @@ const scenePlaytestHouse = scenePlaytestRole ? loadPlayableHouseDraft() : null;
 
 const stage = createRenderStage(canvas);
 const world = new GameWorld(scenePlaytestHouse ?? undefined);
+world.prewarmCharacterAssets((objects) => stage.prewarm(world.scene, objects));
 const client = new GameClient();
 const presenter = new FramePresenter();
 const input = new GameInput();

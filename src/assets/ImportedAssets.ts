@@ -59,6 +59,14 @@ const diagnostics: {
 };
 const characterPromises: Partial<Record<CharacterAssetKind, Promise<GLTF>>> = {};
 
+/** Starts network fetch and GLTF parsing before the first match needs character instances. */
+export async function preloadCharacterAssets(): Promise<void> {
+  await Promise.allSettled([
+    loadCharacterAsset('kid'),
+    loadCharacterAsset('ghost'),
+  ]);
+}
+
 export async function createKidAssetInstance(slot: number, doll: boolean): Promise<KidAssetInstance> {
   return createCharacterAssetInstance('kid', slot, doll);
 }

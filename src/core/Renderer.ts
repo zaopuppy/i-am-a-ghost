@@ -140,6 +140,7 @@ export interface RenderStage {
   renderer: THREE.WebGLRenderer;
   camera: THREE.OrthographicCamera;
   setCameraPose(position: THREE.Vector3, target: THREE.Vector3, viewHeight: number): void;
+  prewarm(scene: THREE.Scene, objects: readonly THREE.Object3D[]): Promise<void>;
   render(scene: THREE.Scene, flashlights: readonly THREE.SpotLight[]): void;
   resize(): void;
   dispose(): void;
@@ -354,6 +355,55 @@ export function createRenderStage(canvas: HTMLCanvasElement): RenderStage {
     renderer.autoClear = previousAutoClear;
   };
 
+  const prewarm = async (scene: THREE.Scene, objects: readonly THREE.Object3D[]): Promise<void> => {
+    if (objects.length === 0) return;
+    const warmupLayer = 31;
+    const warmupGroup = new THREE.Group();
+    const objectLayers = new Map<THREE.Object3D, number>();
+    const lightLayers = new Map<THREE.Light, number>();
+    const shadowLayers = new Map<THREE.Camera, number>();
+    for (const root of objects) {
+      root.traverse((object) => {
+        objectLayers.set(object, object.layers.mask);
+        object.layers.set(warmupLayer);
+      });
+      warmupGroup.add(root);
+    }
+    scene.traverse((object) => {
+      if (!(object instanceof THREE.Light)) return;
+      lightLayers.set(object, object.layers.mask);
+      object.layers.enable(warmupLayer);
+      if (
+        object instanceof THREE.DirectionalLight
+        || object instanceof THREE.SpotLight
+        || object instanceof THREE.PointLight
+      ) {
+        shadowLayers.set(object.shadow.camera, object.shadow.camera.layers.mask);
+        object.shadow.camera.layers.set(warmupLayer);
+      }
+    });
+    scene.add(warmupGroup);
+
+    const warmupCamera = camera.clone();
+    warmupCamera.layers.set(warmupLayer);
+    const previousTarget = renderer.getRenderTarget();
+    const previousAutoClear = renderer.autoClear;
+    try {
+      renderer.setRenderTarget(sceneTarget);
+      renderer.autoClear = true;
+      await renderer.compileAsync(scene, warmupCamera);
+      renderer.render(scene, warmupCamera);
+    } finally {
+      renderer.setRenderTarget(previousTarget);
+      renderer.autoClear = previousAutoClear;
+      scene.remove(warmupGroup);
+      for (const root of objects) warmupGroup.remove(root);
+      for (const [light, mask] of lightLayers) light.layers.mask = mask;
+      for (const [object, mask] of objectLayers) object.layers.mask = mask;
+      for (const [shadowCamera, mask] of shadowLayers) shadowCamera.layers.mask = mask;
+    }
+  };
+
   resize();
 
   return {
@@ -368,6 +418,7 @@ export function createRenderStage(canvas: HTMLCanvasElement): RenderStage {
         updateProjection(Math.max(1, canvas.clientWidth), Math.max(1, canvas.clientHeight));
       }
     },
+    prewarm,
     render,
     resize,
     dispose: () => {

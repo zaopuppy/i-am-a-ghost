@@ -4,6 +4,7 @@ import {
   createGhostAssetInstance,
   createKidAssetInstance,
   importedAssetMetrics,
+  preloadCharacterAssets,
   type CharacterAssetInstance,
 } from '../assets/ImportedAssets';
 import {
@@ -11,6 +12,7 @@ import {
   createWallpaperWallGeometry,
   type HouseMaterialKit,
 } from '../assets/MaterialLibrary';
+import { FrameTaskQueue } from '../core/FrameTaskQueue';
 import {
   CAPTURE_CAMERA_FACING_RADIANS,
   captureChildOffset,
@@ -150,10 +152,16 @@ export class GameWorld {
   private readonly batteries = [createBattery(this.materials), createBattery(this.materials)];
   private readonly walls = new THREE.Group();
   private readonly activeFlashlights = new Array<THREE.SpotLight>();
+  private readonly actorUpgradeQueue = new FrameTaskQueue();
+  private readonly preparedActorPromises = new Map<string, Promise<ActorVisual>>();
+  private readonly preparedActors = new Map<string, ActorVisual>();
+  private readonly claimedPreparedActors = new Set<string>();
+  private characterPrewarmStarted = false;
   private flashlightLength = DEFAULT_GAMEPLAY_TUNING.flashlightLength;
   private flashlightConeDegrees = DEFAULT_GAMEPLAY_TUNING.flashlightConeDegrees;
   private pendingAssetUpgrades = 0;
   private ghostEcho: GhostEcho | null = null;
+  private disposed = false;
 
   constructor(private readonly house: CompiledHouseScene = COMPILED_DEFAULT_HOUSE) {
     this.scene.background = new THREE.Color(0x050608);
@@ -177,6 +185,64 @@ export class GameWorld {
       battery.root.visible = false;
       this.scene.add(battery.root);
     }
+  }
+
+  prewarmCharacterAssets(
+    prewarm: (objects: readonly THREE.Object3D[]) => Promise<void>,
+  ): void {
+    if (this.characterPrewarmStarted) return;
+    this.characterPrewarmStarted = true;
+    void preloadCharacterAssets();
+    this.pendingAssetUpgrades += 1;
+    const specs: Array<{ kind: ActorVisual['kind']; slot: number }> = [];
+    for (let slot = 0; slot < CHILD_COLORS.length; slot += 1) {
+      specs.push({ kind: 'child', slot }, { kind: 'doll', slot });
+    }
+    specs.push({ kind: 'ghost', slot: 0 });
+    const builds = new Map<string, Promise<ActorVisual>>();
+    for (const { kind, slot } of specs) {
+      const key = preparedActorKey(kind, slot);
+      const promise = this.actorUpgradeQueue.enqueue(async () => {
+        const visual = createActor(
+          kind,
+          slot,
+          this.materials,
+          this.flashlightLength,
+          this.flashlightConeDegrees,
+        );
+        await this.installImportedActor(visual, kind, slot);
+        return visual;
+      });
+      builds.set(key, promise);
+    }
+    const ready = Promise.all(builds.values()).then(async (visuals) => {
+      if (this.disposed) return;
+      const children = visuals.filter((visual) => visual.kind === 'child');
+      const ghost = visuals.find((visual) => visual.kind === 'ghost');
+      for (const child of children) child.lampHalo.visible = true;
+      try {
+        await prewarm(children.map((visual) => visual.root));
+        if (ghost) await prewarm([...children, ghost].map((visual) => visual.root));
+      } finally {
+        for (const child of children) child.lampHalo.visible = false;
+      }
+      for (const [index, { kind, slot }] of specs.entries()) {
+        this.preparedActors.set(preparedActorKey(kind, slot), visuals[index]);
+      }
+      return visuals;
+    });
+    for (const [index, { kind, slot }] of specs.entries()) {
+      this.preparedActorPromises.set(
+        preparedActorKey(kind, slot),
+        ready.then((visuals) => {
+          if (!visuals) throw new Error('Character prewarm was disposed.');
+          return visuals[index];
+        }),
+      );
+    }
+    void ready.catch(() => undefined).finally(() => {
+      this.pendingAssetUpgrades -= 1;
+    });
   }
 
   sync(frame: ViewerFrame | null, elapsedSeconds: number): void {
@@ -335,9 +401,12 @@ export class GameWorld {
   }
 
   dispose(): void {
-    for (const actor of this.actors.values()) {
+    this.disposed = true;
+    const allActors = new Set([...this.actors.values(), ...this.preparedActors.values()]);
+    for (const actor of allActors) {
       actor.imported?.mixer.stopAllAction();
       actor.beam?.light.shadow.dispose();
+      if (!actor.root.parent) this.scene.add(actor.root);
     }
     this.scene.traverse((object) => {
       if (!(object instanceof THREE.Mesh || object instanceof THREE.Sprite)) return;
@@ -390,6 +459,14 @@ export class GameWorld {
   private actor(id: string, kind: 'child' | 'ghost' | 'doll', slot: number): ActorVisual {
     const existing = this.actors.get(id);
     if (existing) return existing;
+    const preparedKey = preparedActorKey(kind, slot);
+    const prepared = this.preparedActors.get(preparedKey);
+    if (prepared && !this.claimedPreparedActors.has(preparedKey)) {
+      this.claimedPreparedActors.add(preparedKey);
+      this.actors.set(id, prepared);
+      this.scene.add(prepared.root);
+      return prepared;
+    }
     const visual = createActor(
       kind,
       slot,
@@ -399,8 +476,33 @@ export class GameWorld {
     );
     this.actors.set(id, visual);
     this.scene.add(visual.root);
-    void this.upgradeActor(visual, kind, slot);
+    const pendingPrepared = this.preparedActorPromises.get(preparedKey);
+    if (pendingPrepared && !this.claimedPreparedActors.has(preparedKey)) {
+      this.claimedPreparedActors.add(preparedKey);
+      this.queueActorUpgrade(visual, kind, slot);
+      void pendingPrepared.then((ready) => {
+        if (this.disposed || this.actors.get(id) !== visual) return;
+        visual.imported?.mixer.stopAllAction();
+        ready.root.visible = false;
+        this.scene.remove(visual.root);
+        this.actors.set(id, ready);
+        this.scene.add(ready.root);
+      }).catch(() => undefined);
+    } else {
+      this.queueActorUpgrade(visual, kind, slot);
+    }
     return visual;
+  }
+
+  private queueActorUpgrade(
+    actor: ActorVisual,
+    kind: 'child' | 'ghost' | 'doll',
+    slot: number,
+  ): void {
+    this.pendingAssetUpgrades += 1;
+    void this.upgradeActor(actor, kind, slot).finally(() => {
+      this.pendingAssetUpgrades -= 1;
+    });
   }
 
   private presentGhost(
@@ -429,11 +531,19 @@ export class GameWorld {
     kind: 'child' | 'ghost' | 'doll',
     slot: number,
   ): Promise<void> {
-    this.pendingAssetUpgrades += 1;
+    await this.installImportedActor(actor, kind, slot);
+  }
+
+  private async installImportedActor(
+    actor: ActorVisual,
+    kind: 'child' | 'ghost' | 'doll',
+    slot: number,
+  ): Promise<void> {
     try {
       const imported = kind === 'ghost'
         ? await createGhostAssetInstance()
         : await createKidAssetInstance(slot, kind === 'doll');
+      if (this.disposed) return;
       actor.imported = imported;
       actor.currentAnimation = 'Idle_A';
       if (kind === 'ghost' && actor.ghostRig) {
@@ -454,8 +564,6 @@ export class GameWorld {
       }
     } catch {
       actor.imported = null;
-    } finally {
-      this.pendingAssetUpgrades -= 1;
     }
   }
 
@@ -533,6 +641,10 @@ export class GameWorld {
     if (ghost.imported) poseImportedGhostCapture(ghost.imported, grip, hold, captureSeconds, motionScale);
     poseGhostRig(ghost.ghostRig, grip, progress, captureSeconds, motionScale);
   }
+}
+
+function preparedActorKey(kind: ActorVisual['kind'], slot: number): string {
+  return kind === 'ghost' ? 'ghost' : `${kind}:${slot}`;
 }
 
 function createActor(
