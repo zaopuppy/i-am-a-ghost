@@ -34,7 +34,7 @@ export function initializeHarmonyHost(): HarmonyHostState {
   try {
     const pong = host.ping('web-ready');
     const rawInfo = JSON.parse(host.runtimeInfo()) as HarmonyRuntimeInfo;
-    const rawLan = JSON.parse(host.lanStatus()) as HarmonyLanHostStatus;
+    const rawLan = readLanStatus(host);
     const state: HarmonyHostState = {
       active: pong === 'pong:web-ready',
       bridgeVersion: typeof rawInfo.bridgeVersion === 'number' ? rawInfo.bridgeVersion : null,
@@ -48,7 +48,11 @@ export function initializeHarmonyHost(): HarmonyHostState {
       webgl2: Boolean(document.createElement('canvas').getContext('webgl2')),
     });
     host.reportReady(report);
-    surfaceState(state);
+    const output = surfaceState(state);
+    window.setInterval(() => {
+      state.lan = readLanStatus(host);
+      output.textContent = readyLabel(state);
+    }, 1_000);
     console.info(`[HarmonyGateA] bridge ready ${report}`);
     return state;
   } catch (error) {
@@ -66,13 +70,11 @@ export function initializeHarmonyHost(): HarmonyHostState {
   }
 }
 
-function surfaceState(state: HarmonyHostState): void {
+function surfaceState(state: HarmonyHostState): HTMLOutputElement {
   document.documentElement.dataset.harmonyHost = state.active ? 'ready' : 'failed';
   const output = document.createElement('output');
   output.dataset.harmonyGateA = state.active ? 'ready' : 'failed';
-  output.textContent = state.active
-    ? `Harmony Gate A · bridge v${state.bridgeVersion ?? '?'} · ${formatLanStatus(state.lan)}`
-    : `Harmony Gate A · bridge failed: ${state.error ?? 'unknown'}`;
+  output.textContent = state.active ? readyLabel(state) : failedLabel(state);
   output.style.cssText = [
     'position:fixed',
     'z-index:10000',
@@ -87,6 +89,20 @@ function surfaceState(state: HarmonyHostState): void {
     'pointer-events:none',
   ].join(';');
   document.body.append(output);
+  return output;
+}
+
+function readLanStatus(host: HarmonyHostApi): HarmonyLanHostStatus | null {
+  const parsed = JSON.parse(host.lanStatus()) as HarmonyLanHostStatus;
+  return typeof parsed === 'object' && parsed !== null ? parsed : null;
+}
+
+function readyLabel(state: HarmonyHostState): string {
+  return `Harmony Gate A · bridge v${state.bridgeVersion ?? '?'} · ${formatLanStatus(state.lan)}`;
+}
+
+function failedLabel(state: HarmonyHostState): string {
+  return `Harmony Gate A · bridge failed: ${state.error ?? 'unknown'}`;
 }
 
 function formatLanStatus(status: HarmonyLanHostStatus | null): string {
