@@ -333,7 +333,7 @@ input { width: 100%; padding: 0 12px; color: #f3f0e8; background: rgb(255 255 25
   font-weight: 800;
   letter-spacing: .04em;
 }
-.scene-editor button:hover:not(:disabled) { filter: brightness(1.12); transform: translateY(-1px); }
+.scene-editor button:hover:not(:disabled) { filter: brightness(1.12); }
 .scene-editor__actions--quiet button { border-color: rgb(106 170 165 / 25%); color: #9bb0ac; background: rgb(36 74 74 / 24%); }
 
 .scene-editor__section-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 11px; }
@@ -381,7 +381,48 @@ input { width: 100%; padding: 0 12px; color: #f3f0e8; background: rgb(255 255 25
 .scene-editor__issues .scene-editor__empty-issues { border-color: #537873; color: #78928e; background: rgb(36 74 74 / 12%); }
 .scene-editor__footer { padding: 14px 20px 17px; }
 .scene-editor__footer .scene-editor__actions + .scene-editor__actions { margin-top: 8px; }
+.scene-editor__playtest {
+  padding: 10px;
+  margin-bottom: 10px;
+  border: 1px solid rgb(240 187 98 / 32%);
+  background: linear-gradient(110deg, rgb(240 187 98 / 10%), rgb(50 104 100 / 13%));
+}
+.scene-editor__playtest > div:first-child { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.scene-editor__playtest b { color: #f1d39a; font: 600 13px/1 "STSong", "Songti SC", serif; letter-spacing: .08em; }
+.scene-editor__playtest span { color: #718a85; font: 9px/1.3 monospace; }
+.scene-editor__playtest .scene-editor__actions { margin-top: 9px; }
 .scene-editor__keys { margin: 11px 0 0; color: #55706c; font: 9px/1.5 monospace; letter-spacing: .02em; }
+
+.scene-playtest-toolbar {
+  position: fixed;
+  z-index: 30;
+  left: 28px;
+  bottom: 24px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px;
+  border: 1px solid rgb(240 187 98 / 30%);
+  color: #d9e5df;
+  background: rgb(7 15 17 / 92%);
+  box-shadow: 0 12px 36px rgb(0 0 0 / 42%);
+  font-family: "Microsoft YaHei UI", "Noto Sans CJK SC", sans-serif;
+}
+.scene-playtest-toolbar__label { padding: 0 8px; color: #e8c882; font-size: 10px; letter-spacing: .08em; }
+.scene-playtest-toolbar button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid rgb(103 170 164 / 32%);
+  color: #a9c0ba;
+  background: rgb(31 65 65 / 48%);
+  font-size: 10px;
+  font-weight: 700;
+}
+.scene-playtest-toolbar button:last-child {
+  border-color: #d0a253;
+  color: #15150f;
+  background: linear-gradient(#f1c778, #d8a64f);
+}
 
 .scene-editor[data-collapsed="true"] {
   width: 44px;

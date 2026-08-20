@@ -137,6 +137,8 @@ test('the developer scene editor edits furniture, rooms, and walls with live val
   await page.locator('[data-editor-add-furniture]').click();
   await expect.poll(() => page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.snapshot().furnitureCount ?? 0)).toBe(35);
   await expect.poll(() => page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.snapshot().errors ?? 0)).toBeGreaterThan(0);
+  await expect(page.locator('[data-editor-playtest="child"]')).toBeDisabled();
+  await expect(page.locator('[data-editor-playtest="ghost"]')).toBeDisabled();
 
   const addedFurnitureId = await page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.snapshot().selection?.id ?? '');
   expect(addedFurnitureId).not.toBe('');
@@ -157,6 +159,7 @@ test('the developer scene editor edits furniture, rooms, and walls with live val
   await page.locator('[data-editor-undo]').click();
   await expect.poll(() => page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.snapshot().errors ?? -1)).toBe(0);
   await expect.poll(() => page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.snapshot().furnitureCount ?? 0)).toBe(34);
+  await expect(page.locator('[data-editor-playtest="child"]')).toBeEnabled();
 
   const rotation = await page.evaluate(() => {
     const editor = window.__HOUSE_SCENE_EDITOR__;
@@ -183,6 +186,56 @@ test('the developer scene editor edits furniture, rooms, and walls with live val
 
   const exported = await page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.exportJson() ?? '');
   expect(JSON.parse(exported).version).toBe(1);
+  expect(pageErrors).toEqual([]);
+});
+
+test('an unsaved editor draft can be played with real rules and reopened for editing', async ({ page }) => {
+  const pageErrors: string[] = [];
+  page.on('pageerror', (error) => pageErrors.push(error.message));
+  page.on('console', (message) => {
+    if (message.type() === 'error') pageErrors.push(message.text());
+  });
+
+  await page.goto('/?sceneEditor=1');
+  await expect.poll(() => page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.snapshot().errors ?? -1)).toBe(0);
+  const draft = await page.evaluate(() => {
+    const editor = window.__HOUSE_SCENE_EDITOR__!;
+    const scene = editor.snapshot().scene;
+    const target = { ...scene.batterySpawns[0] };
+    editor.select('ghost-spawn', 'ghost-spawn');
+    editor.moveSelected(target.x, target.z);
+    return { target, sceneId: scene.id };
+  });
+  await expect.poll(() => page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.snapshot().errors ?? -1)).toBe(0);
+  await expect(page.locator('[data-editor-playtest="child"]')).toBeEnabled();
+  await expect(page.locator('[data-editor-playtest="ghost"]')).toBeEnabled();
+
+  await page.locator('[data-editor-playtest="ghost"]').click();
+  await expect(page).toHaveURL(/scenePlaytest=ghost/);
+  await expect(page.getByTestId('scene-playtest-toolbar')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.scenePlaytestRole)).toBe('ghost');
+  const playing = await page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__);
+  expect(playing?.role).toBe('ghost');
+  expect(playing?.world.sceneId).toBe(draft.sceneId);
+  expect(playing?.ownPosition?.x).toBeCloseTo(draft.target.x, 5);
+  expect(playing?.ownPosition?.z).toBeCloseTo(draft.target.z, 5);
+
+  const beforeMove = playing?.ownPosition;
+  await page.keyboard.down('d');
+  await page.waitForTimeout(350);
+  await page.keyboard.up('d');
+  await expect.poll(async () => {
+    const position = await page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.ownPosition);
+    return Math.hypot(
+      (position?.x ?? 0) - (beforeMove?.x ?? 0),
+      (position?.z ?? 0) - (beforeMove?.z ?? 0),
+    );
+  }).toBeGreaterThan(0.3);
+
+  await page.locator('[data-scene-playtest-return]').click();
+  await expect(page).toHaveURL(/sceneEditor=1/);
+  await expect.poll(() => page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.snapshot().scene.ghostSpawn))
+    .toEqual(draft.target);
   expect(pageErrors).toEqual([]);
 });
 

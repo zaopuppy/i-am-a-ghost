@@ -20,6 +20,7 @@ interface GhostGameDiagnostics {
   phase: 'lobby' | 'playing' | 'ended';
   matchPhase: ViewerFrame['phase'] | null;
   deterministicState: string | null;
+  scenePlaytestRole: 'child' | 'ghost' | null;
   frame: number;
   fps: number;
   networkConnected: boolean;
@@ -35,6 +36,7 @@ interface GhostGameDiagnostics {
   capturedChildPlayerId: string | null;
   tuning: RuntimeTuning;
   world: {
+    sceneId: string;
     actors: number;
     walls: number;
     rooms: number;

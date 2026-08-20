@@ -13,8 +13,16 @@ import { GameInput } from './core/GameInput';
 import { Loop } from './core/Loop';
 import { createRenderStage } from './core/Renderer';
 import { GameWorld } from './game/GameWorld';
+import { compileHouseScene, type CompiledHouseScene } from './game/HouseScene';
+import { loadHouseSceneDraft } from './game/HouseSceneDraft';
 import type { GameplayTuning } from './game/MatchEngine';
 import { createRuntimeTuning } from './game/RuntimeTuning';
+import {
+  parseScenePlaytestRole,
+  SCENE_PLAYTEST_QUERY_PARAM,
+  ScenePlaytest,
+  type ScenePlaytestRole,
+} from './game/ScenePlaytest';
 import type { ViewerFrame } from './game/ViewerFrame';
 import { GameClient } from './net/GameClient';
 import { FramePresenter } from './net/FramePresenter';
@@ -60,8 +68,15 @@ const audioButton = requireElement<HTMLButtonElement>('#audio-toggle');
 const milestone = requireElement<HTMLElement>('#milestone');
 const controlHint = requireElement<HTMLElement>('#control-hint');
 
+const query = new URLSearchParams(window.location.search);
+const sceneEditorRequested = import.meta.env.DEV && query.get('sceneEditor') === '1';
+const scenePlaytestRole = import.meta.env.DEV
+  ? parseScenePlaytestRole(query.get(SCENE_PLAYTEST_QUERY_PARAM))
+  : null;
+const scenePlaytestHouse = scenePlaytestRole ? loadPlayableHouseDraft() : null;
+
 const stage = createRenderStage(canvas);
-const world = new GameWorld();
+const world = new GameWorld(scenePlaytestHouse ?? undefined);
 const client = new GameClient();
 const presenter = new FramePresenter();
 const input = new GameInput();
@@ -69,6 +84,9 @@ const audio = new GameAudio();
 const batteryScreenPoint = new THREE.Vector3();
 const ownScreenPoint = new THREE.Vector3();
 const runtimeTuning = createRuntimeTuning();
+const scenePlaytest = scenePlaytestRole && scenePlaytestHouse
+  ? new ScenePlaytest(scenePlaytestHouse.map, scenePlaytestRole, runtimeTuning)
+  : null;
 const cameraRig = new CameraRig(stage);
 const nickname = createTemporaryNickname();
 let renderFrame = 0;
@@ -91,9 +109,8 @@ let cameraPointerController: import('lil-gui').Controller | null = null;
 let infiniteGhostHealthController: import('lil-gui').Controller | null = null;
 let infiniteFlashlightEnergyController: import('lil-gui').Controller | null = null;
 let sceneEditor: import('./game/SceneEditor').SceneEditor | null = null;
+let scenePlaytestToolbar: HTMLElement | null = null;
 const cameraDebugState = createCameraDebugState(runtimeTuning.cameraPresets['whole-house']);
-const query = new URLSearchParams(window.location.search);
-const sceneEditorRequested = import.meta.env.DEV && query.get('sceneEditor') === '1';
 const requestedTestState = query.get('testState');
 let deterministicState: DeterministicStateName | null = import.meta.env.DEV
   && isDeterministicStateName(requestedTestState)
@@ -114,7 +131,13 @@ roomCodeInput.addEventListener('keydown', (event) => {
   if (event.key === 'Enter') joinRoom();
 });
 startButton.addEventListener('click', () => void client.startMatch());
-readyButton.addEventListener('click', () => void client.setReady(true));
+readyButton.addEventListener('click', () => {
+  if (scenePlaytest) {
+    scenePlaytest.reset();
+    return;
+  }
+  void client.setReady(true);
+});
 audioButton.addEventListener('click', () => {
   void audio.unlock();
   const muted = audio.toggleMuted();
@@ -143,14 +166,21 @@ const loop = new Loop(
     const movement = deterministicState
       ? { x: 0, z: 0 }
       : orientMovementToCamera(input.movement(), cameraPose.position, cameraPose.target);
+    const actionHeld = input.actionHeld();
     const frame = deterministicState
       ? createDeterministicViewerFrame(deterministicState, deterministicSeed)
-      : presenter.present(deltaSeconds, movement, runtimeTuning);
-    if (!deterministicState && client.latestEvents && client.latestEvents !== lastAudioEvents) {
+      : scenePlaytest
+        ? scenePlaytest.update(
+            deltaSeconds,
+            movement,
+            calculateFacing(movement),
+            actionHeld,
+          )
+        : presenter.present(deltaSeconds, movement, runtimeTuning);
+    if (!deterministicState && !scenePlaytest && client.latestEvents && client.latestEvents !== lastAudioEvents) {
       lastAudioEvents = client.latestEvents;
       audio.handleEvents(client.latestEvents.events, frame?.viewerPlayerId);
     }
-    const actionHeld = input.actionHeld();
     if (actionHeld && !lastActionHeld && frame?.viewerRole === 'child') audio.play('flashlight', 0.52);
     lastActionHeld = actionHeld;
     updateGhostAudio(frame);
@@ -162,7 +192,8 @@ const loop = new Loop(
     updateCamera(frame, deltaSeconds, Boolean(deterministicState));
     updateHud(frame);
     if (deterministicState && frame) renderDeterministicState(frame);
-    if (!deterministicState && frame && client.roomState?.phase === 'playing' && elapsedSeconds - lastInputSentAt >= 1 / 30) {
+    if (scenePlaytest && frame) renderScenePlaytestState(frame);
+    if (!deterministicState && !scenePlaytest && frame && client.roomState?.phase === 'playing' && elapsedSeconds - lastInputSentAt >= 1 / 30) {
       lastInputSentAt = elapsedSeconds;
       client.sendInput({
         moveX: movement.x,
@@ -211,7 +242,8 @@ if (import.meta.env.DEV) {
   };
   window.__THREE_GAME_TEST_HOOKS__ = testHooks;
   if (sceneEditorRequested) void installSceneEditor();
-  else if (!deterministicState) void installDebugGui();
+  else if (scenePlaytestRole) installScenePlaytestUi();
+  else if (!deterministicState && !scenePlaytestRole) void installDebugGui();
 }
 loop.start();
 
@@ -229,6 +261,8 @@ if (import.meta.hot) {
     resizeObserver.disconnect();
     cameraRig.dispose();
     sceneEditor?.dispose();
+    scenePlaytestToolbar?.remove();
+    window.removeEventListener('keydown', handleScenePlaytestKeyDown);
     world.dispose();
     stage.dispose();
     delete window.__THREE_GAME_DIAGNOSTICS__;
@@ -243,7 +277,7 @@ function joinRoom(): void {
 }
 
 function renderClientState(): void {
-  if (deterministicState || sceneEditorRequested) return;
+  if (deterministicState || sceneEditorRequested || scenePlaytestRole) return;
   connectionRow.dataset.connected = String(client.connected);
   networkStatus.textContent = client.connected ? '局域网房间服务已连接' : '等待局域网房间服务';
   errorMessage.textContent = client.roomState?.notice === 'ghost-disconnected'
@@ -324,6 +358,24 @@ function renderDeterministicState(frame: ViewerFrame): void {
     : '第三次抓取完成，房子归于寂静。';
   readyButton.textContent = '准备下一局';
   readyCount.textContent = '确定性验收状态';
+}
+
+function renderScenePlaytestState(frame: ViewerFrame): void {
+  lobbyPanel.hidden = true;
+  gameHud.hidden = frame.phase === 'ended';
+  resultOverlay.hidden = frame.phase !== 'ended';
+  roleLabel.textContent = frame.viewerRole === 'ghost' ? '试玩 · 你是鬼' : '试玩 · 你是小孩';
+  objectiveLabel.textContent = frame.viewerRole === 'ghost' ? '检查追逐、碰撞与抓捕路线' : '检查移动、手电与躲藏路线';
+  updateControlHint(frame);
+  milestone.hidden = true;
+  if (frame.phase !== 'ended') return;
+  const won = (frame.viewerRole === 'ghost' && frame.winner === 'ghost')
+    || (frame.viewerRole === 'child' && frame.winner === 'children');
+  resultTitle.textContent = won ? '试玩完成' : '试玩结束';
+  resultDetail.textContent = '可以重新试玩，或返回编辑器继续调整草稿。';
+  readyButton.textContent = '重新试玩';
+  readyButton.disabled = false;
+  readyCount.textContent = '本地草稿试玩';
 }
 
 function updateHud(frame: ViewerFrame | null): void {
@@ -602,8 +654,80 @@ async function installSceneEditor(): Promise<void> {
     scene: world.scene,
     camera: stage.camera,
     canvas,
+    onPlaytest: navigateToScenePlaytest,
   });
   await sceneEditor.ready;
+}
+
+function installScenePlaytestUi(): void {
+  lobbyPanel.hidden = Boolean(scenePlaytest);
+  gameHud.hidden = !scenePlaytest;
+  eventBanner.hidden = true;
+  resultOverlay.hidden = true;
+  milestone.hidden = true;
+  document.documentElement.dataset.scenePlaytest = 'true';
+  const toolbar = document.createElement('nav');
+  toolbar.className = 'scene-playtest-toolbar';
+  toolbar.dataset.testid = 'scene-playtest-toolbar';
+  const roleLabelText = scenePlaytestRole === 'ghost' ? '鬼' : '小孩';
+  toolbar.innerHTML = `
+    <span class="scene-playtest-toolbar__label">草稿试玩 · ${escapeHtml(scenePlaytestHouse?.definition.id ?? '草稿不可用')} · ${roleLabelText}</span>
+    <button type="button" data-scene-playtest-switch>${scenePlaytestRole === 'ghost' ? '改用小孩' : '改用鬼'}</button>
+    <button type="button" data-scene-playtest-return>返回编辑器</button>
+  `;
+  toolbar.querySelector<HTMLButtonElement>('[data-scene-playtest-switch]')?.addEventListener('click', () => {
+    navigateToScenePlaytest(scenePlaytestRole === 'ghost' ? 'child' : 'ghost');
+  });
+  toolbar.querySelector<HTMLButtonElement>('[data-scene-playtest-return]')?.addEventListener('click', navigateToSceneEditor);
+  document.body.append(toolbar);
+  scenePlaytestToolbar = toolbar;
+  window.addEventListener('keydown', handleScenePlaytestKeyDown);
+  if (!scenePlaytest) {
+    lobbyActions.hidden = true;
+    roomPanel.hidden = true;
+    errorMessage.textContent = '没有可试玩的有效草稿，请返回编辑器修正场景问题。';
+  }
+}
+
+function handleScenePlaytestKeyDown(event: KeyboardEvent): void {
+  if (event.key !== 'Escape') return;
+  event.preventDefault();
+  navigateToSceneEditor();
+}
+
+function navigateToScenePlaytest(role: ScenePlaytestRole): void {
+  const url = cleanModeUrl();
+  url.searchParams.set(SCENE_PLAYTEST_QUERY_PARAM, role);
+  window.location.assign(url);
+}
+
+function navigateToSceneEditor(): void {
+  const url = cleanModeUrl();
+  url.searchParams.set('sceneEditor', '1');
+  window.location.assign(url);
+}
+
+function cleanModeUrl(): URL {
+  const url = new URL(window.location.href);
+  url.search = '';
+  return url;
+}
+
+function loadPlayableHouseDraft(): CompiledHouseScene | null {
+  const draft = loadHouseSceneDraft();
+  if (!draft) return null;
+  const compiled = compileHouseScene(draft);
+  return compiled.issues.some((issue) => issue.severity === 'error') ? null : compiled;
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>'"]/g, (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    "'": '&#39;',
+    '"': '&quot;',
+  })[character] ?? character);
 }
 
 function applyCameraDebugPreset(): void {
@@ -742,9 +866,12 @@ function updateDiagnostics(frame: ViewerFrame | null): void {
   const diagnostics: NonNullable<typeof window.__THREE_GAME_DIAGNOSTICS__> & {
     camera: ReturnType<CameraRig['snapshot']>;
   } = {
-    phase: deterministicState ? (frame?.phase === 'ended' ? 'ended' : 'playing') : client.roomState?.phase ?? 'lobby',
+    phase: deterministicState || scenePlaytest
+      ? (frame?.phase === 'ended' ? 'ended' : 'playing')
+      : client.roomState?.phase ?? 'lobby',
     matchPhase: frame?.phase ?? null,
     deterministicState,
+    scenePlaytestRole: scenePlaytest?.role ?? null,
     frame: renderFrame,
     fps: measuredFps,
     networkConnected: client.connected,

@@ -256,6 +256,7 @@ export class GameWorld {
   }
 
   metrics(): {
+    sceneId: string;
     actors: number;
     walls: number;
     rooms: number;
@@ -283,6 +284,7 @@ export class GameWorld {
       for (const material of meshMaterials) materials.add(material);
     });
     return {
+      sceneId: this.house.definition.id,
       actors: [...this.actors.values()].filter((actor) => actor.root.visible).length,
       walls: this.house.map.walls.length + 4,
       rooms: this.house.rooms.length,

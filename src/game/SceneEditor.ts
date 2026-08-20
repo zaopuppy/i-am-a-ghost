@@ -31,6 +31,7 @@ import {
   type SceneEditorCameraSnapshot,
   type SceneEditorViewportMode,
 } from './SceneEditorCamera';
+import type { ScenePlaytestRole } from './ScenePlaytest';
 
 type EditorKind = 'furniture' | 'room' | 'wall' | 'ghost-spawn' | 'battery-spawn';
 type IssueFilter = 'all' | 'error' | 'warning' | 'outside-room';
@@ -44,6 +45,7 @@ export interface SceneEditorOptions {
   scene: THREE.Scene;
   camera: THREE.OrthographicCamera;
   canvas: HTMLCanvasElement;
+  onPlaytest(role: ScenePlaytestRole): void;
 }
 
 export interface SceneEditorSnapshot {
@@ -200,7 +202,7 @@ export class SceneEditor {
           </div>
           <button type="button" class="scene-editor__collapse" data-editor-collapse aria-label="收起面板" aria-expanded="true" title="收起面板">‹</button>
         </div>
-        <p>拖动画布中的家具、房间、墙体或出生/刷新点。橙色区域必须保持畅通。</p>
+        <p>拖动画布中的家具、房间、墙体或出生/刷新点。草稿自动保存，可随时进入真实规则试玩。</p>
       </header>
       <section class="scene-editor__section scene-editor__palette">
         <label>目标房间<select data-editor-room></select></label>
@@ -247,6 +249,16 @@ export class SceneEditor {
         <ol data-editor-issues></ol>
       </section>
       <footer class="scene-editor__footer">
+        <div class="scene-editor__playtest">
+          <div>
+            <b>试玩当前草稿</b>
+            <span>无需导出；返回后继续编辑</span>
+          </div>
+          <div class="scene-editor__actions">
+            <button type="button" data-editor-playtest="child">作为小孩</button>
+            <button type="button" data-editor-playtest="ghost">作为鬼</button>
+          </div>
+        </div>
         <div class="scene-editor__actions scene-editor__actions--quiet">
           <button type="button" data-editor-undo>撤销</button>
           <button type="button" data-editor-redo>重做</button>
@@ -305,6 +317,12 @@ export class SceneEditor {
     this.button('[data-editor-redo]').addEventListener('click', () => this.redo());
     this.button('[data-editor-copy]').addEventListener('click', () => void this.copyJson());
     this.button('[data-editor-download]').addEventListener('click', () => this.downloadJson());
+    for (const button of this.panel.querySelectorAll<HTMLButtonElement>('[data-editor-playtest]')) {
+      button.addEventListener('click', () => {
+        const role = button.dataset.editorPlaytest;
+        if (role === 'child' || role === 'ghost') this.startPlaytest(role);
+      });
+    }
     this.button('[data-editor-import-button]').addEventListener('click', () => this.importInput.click());
     this.importInput.addEventListener('change', () => void this.importJson());
     this.checkbox('[data-editor-colliders]').addEventListener('change', (event) => {
@@ -623,7 +641,11 @@ export class SceneEditor {
   private renderIssues(): void {
     const errors = this.issues.filter((issue) => issue.severity === 'error').length;
     const warnings = this.issues.length - errors;
-    this.status.textContent = errors > 0 ? `${errors} 错误 · ${warnings} 警告` : warnings > 0 ? `${warnings} 条警告` : '可导出';
+    this.status.textContent = errors > 0
+      ? `${errors} 错误 · ${warnings} 警告`
+      : warnings > 0
+        ? `${warnings} 条警告`
+        : '可试玩 / 导出';
     this.status.dataset.valid = String(errors === 0);
     const activeKeys = new Set(this.issues.map(issueKey));
     for (const key of this.dismissedIssueKeys) {
@@ -667,7 +689,12 @@ export class SceneEditor {
     }
     this.button('[data-editor-clear-issues]').disabled = visibleIssues.length === 0;
     this.button('[data-editor-restore-issues]').disabled = this.dismissedIssueKeys.size === 0;
-    for (const selector of ['[data-editor-copy]', '[data-editor-download]']) {
+    for (const selector of [
+      '[data-editor-copy]',
+      '[data-editor-download]',
+      '[data-editor-playtest="child"]',
+      '[data-editor-playtest="ghost"]',
+    ]) {
       this.button(selector).disabled = errors > 0;
     }
     this.button('[data-editor-undo]').disabled = this.historyIndex <= 0;
@@ -997,6 +1024,13 @@ export class SceneEditor {
       document.execCommand('copy');
       textarea.remove();
     }
+  }
+
+  private startPlaytest(role: ScenePlaytestRole): void {
+    if (this.issues.some((issue) => issue.severity === 'error')) return;
+    storeHouseSceneDraft(this.sceneDefinition);
+    this.status.textContent = role === 'child' ? '正在以小孩身份试玩…' : '正在以鬼身份试玩…';
+    this.options.onPlaytest(role);
   }
 
   private downloadJson(): void {
