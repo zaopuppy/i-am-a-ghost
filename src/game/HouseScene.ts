@@ -112,6 +112,25 @@ export interface HouseSceneDefinition {
   batterySpawns: Vec2[];
 }
 
+export function isHouseSceneDefinition(value: unknown): value is HouseSceneDefinition {
+  if (!isRecord(value)) return false;
+  return value.version === HOUSE_SCENE_VERSION
+    && typeof value.id === 'string'
+    && isBounds(value.bounds)
+    && Array.isArray(value.walls)
+    && value.walls.every(isAxisAlignedRect)
+    && Array.isArray(value.rooms)
+    && value.rooms.every(isHouseRoomDefinition)
+    && Array.isArray(value.furniture)
+    && value.furniture.every(isFurniturePlacement)
+    && isVec2(value.ghostSpawn)
+    && Array.isArray(value.childSpawns)
+    && value.childSpawns.length === 4
+    && value.childSpawns.every(isVec2)
+    && Array.isArray(value.batterySpawns)
+    && value.batterySpawns.every(isVec2);
+}
+
 export interface HouseOpening extends AxisAlignedRect {
   axis: 'x' | 'z';
 }
@@ -300,6 +319,58 @@ function furniture(
       ? null
       : { width: colliderWidth, depth: colliderDepth },
   };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isVec2(value: unknown): value is Vec2 {
+  return isRecord(value) && isFiniteNumber(value.x) && isFiniteNumber(value.z);
+}
+
+function isBounds(value: unknown): value is MatchMap['bounds'] {
+  return isRecord(value)
+    && isFiniteNumber(value.minX)
+    && isFiniteNumber(value.maxX)
+    && isFiniteNumber(value.minZ)
+    && isFiniteNumber(value.maxZ);
+}
+
+function isAxisAlignedRect(value: unknown): value is AxisAlignedRect {
+  return isRecord(value)
+    && typeof value.id === 'string'
+    && isFiniteNumber(value.minX)
+    && isFiniteNumber(value.maxX)
+    && isFiniteNumber(value.minZ)
+    && isFiniteNumber(value.maxZ);
+}
+
+function isHouseRoomDefinition(value: unknown): value is HouseRoomDefinition {
+  return isRecord(value)
+    && typeof value.id === 'string'
+    && typeof value.name === 'string'
+    && (value.family === 'living' || value.family === 'sleep' || value.family === 'old')
+    && isVec2(value.center)
+    && isFiniteNumber(value.width)
+    && isFiniteNumber(value.depth);
+}
+
+function isFurniturePlacement(value: unknown): value is FurniturePlacement {
+  return isRecord(value)
+    && typeof value.id === 'string'
+    && typeof value.roomId === 'string'
+    && typeof value.asset === 'string'
+    && FURNITURE_ASSET_IDS.some((assetId) => assetId === value.asset)
+    && isFiniteNumber(value.offsetX)
+    && isFiniteNumber(value.offsetZ)
+    && (value.yawRadians === undefined || isFiniteNumber(value.yawRadians))
+    && (value.scale === undefined || isFiniteNumber(value.scale))
+    && (value.elevation === undefined || isFiniteNumber(value.elevation));
 }
 
 function validatePlacements(

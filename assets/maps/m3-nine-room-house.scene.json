@@ -1,0 +1,615 @@
+{
+  "version": 1,
+  "id": "m3-nine-room-house",
+  "bounds": {
+    "minX": -16,
+    "maxX": 16,
+    "minZ": -10,
+    "maxZ": 10
+  },
+  "walls": [
+    {
+      "id": "left-lower-a",
+      "minX": -5.1,
+      "maxX": -4.9,
+      "minZ": -10,
+      "maxZ": -5.6
+    },
+    {
+      "id": "left-lower-b",
+      "minX": -5.1,
+      "maxX": -4.9,
+      "minZ": -4,
+      "maxZ": 1.2
+    },
+    {
+      "id": "left-upper-a",
+      "minX": -5.1,
+      "maxX": -4.9,
+      "minZ": 2.8,
+      "maxZ": 7.1
+    },
+    {
+      "id": "left-upper-b",
+      "minX": -5.1,
+      "maxX": -4.9,
+      "minZ": 8.7,
+      "maxZ": 10
+    },
+    {
+      "id": "right-lower-a",
+      "minX": 4.9,
+      "maxX": 5.1,
+      "minZ": -10,
+      "maxZ": -7.5
+    },
+    {
+      "id": "right-lower-b",
+      "minX": 4.9,
+      "maxX": 5.1,
+      "minZ": -5.9,
+      "maxZ": -0.8
+    },
+    {
+      "id": "right-upper-a",
+      "minX": 4.9,
+      "maxX": 5.1,
+      "minZ": 0.8,
+      "maxZ": 5.5
+    },
+    {
+      "id": "right-upper-b",
+      "minX": 4.9,
+      "maxX": 5.1,
+      "minZ": 7.1,
+      "maxZ": 10
+    },
+    {
+      "id": "lower-west-a",
+      "minX": -16,
+      "maxX": -12,
+      "minZ": -3.6,
+      "maxZ": -3.4
+    },
+    {
+      "id": "lower-west-b",
+      "minX": -10,
+      "maxX": -3,
+      "minZ": -3.6,
+      "maxZ": -3.4
+    },
+    {
+      "id": "lower-east-a",
+      "minX": -1,
+      "maxX": 7,
+      "minZ": -3.6,
+      "maxZ": -3.4
+    },
+    {
+      "id": "lower-east-b",
+      "minX": 9,
+      "maxX": 16,
+      "minZ": -3.6,
+      "maxZ": -3.4
+    },
+    {
+      "id": "upper-west-a",
+      "minX": -16,
+      "maxX": -9,
+      "minZ": 3.4,
+      "maxZ": 3.6
+    },
+    {
+      "id": "upper-west-b",
+      "minX": -7,
+      "maxX": 0,
+      "minZ": 3.4,
+      "maxZ": 3.6
+    },
+    {
+      "id": "upper-east-a",
+      "minX": 2,
+      "maxX": 10,
+      "minZ": 3.4,
+      "maxZ": 3.6
+    },
+    {
+      "id": "upper-east-b",
+      "minX": 12,
+      "maxX": 16,
+      "minZ": 3.4,
+      "maxZ": 3.6
+    },
+    {
+      "id": "northwest-dead-end",
+      "minX": -11.2,
+      "maxX": -11,
+      "minZ": 5.2,
+      "maxZ": 10
+    },
+    {
+      "id": "southeast-dead-end",
+      "minX": 11,
+      "maxX": 11.2,
+      "minZ": -10,
+      "maxZ": -5.2
+    }
+  ],
+  "rooms": [
+    {
+      "id": "nursery",
+      "name": "育婴室",
+      "family": "sleep",
+      "center": {
+        "x": -10.45,
+        "z": -6.7
+      },
+      "width": 10.6,
+      "depth": 6.2
+    },
+    {
+      "id": "dining",
+      "name": "餐厅",
+      "family": "living",
+      "center": {
+        "x": 0,
+        "z": -6.7
+      },
+      "width": 9.8,
+      "depth": 6.2
+    },
+    {
+      "id": "pantry",
+      "name": "储藏室",
+      "family": "old",
+      "center": {
+        "x": 10.45,
+        "z": -6.7
+      },
+      "width": 10.7,
+      "depth": 6.2
+    },
+    {
+      "id": "library",
+      "name": "书房",
+      "family": "old",
+      "center": {
+        "x": -10.45,
+        "z": 0
+      },
+      "width": 10.7,
+      "depth": 6.8
+    },
+    {
+      "id": "foyer",
+      "name": "门厅",
+      "family": "living",
+      "center": {
+        "x": 0,
+        "z": 0
+      },
+      "width": 9.8,
+      "depth": 6.8
+    },
+    {
+      "id": "parlor",
+      "name": "会客室",
+      "family": "living",
+      "center": {
+        "x": 10.45,
+        "z": 0
+      },
+      "width": 10.7,
+      "depth": 6.8
+    },
+    {
+      "id": "bedroom",
+      "name": "卧室",
+      "family": "sleep",
+      "center": {
+        "x": -10.45,
+        "z": 6.7
+      },
+      "width": 10.7,
+      "depth": 6.2
+    },
+    {
+      "id": "gallery",
+      "name": "画廊",
+      "family": "old",
+      "center": {
+        "x": 0,
+        "z": 6.7
+      },
+      "width": 9.8,
+      "depth": 6.2
+    },
+    {
+      "id": "study",
+      "name": "旧书斋",
+      "family": "old",
+      "center": {
+        "x": 10.45,
+        "z": 6.7
+      },
+      "width": 10.7,
+      "depth": 6.2
+    }
+  ],
+  "furniture": [
+    {
+      "id": "nursery-bed",
+      "roomId": "nursery",
+      "asset": "bed_single_A",
+      "offsetX": 4.449999999999999,
+      "offsetZ": -1.5000000000000009,
+      "yawRadians": 6.283185307179586,
+      "scale": 1
+    },
+    {
+      "id": "nursery-cabinet",
+      "roomId": "nursery",
+      "asset": "cabinet_medium_decorated",
+      "offsetX": 2.549999999999999,
+      "offsetZ": -2.3,
+      "yawRadians": 3.141592653589793,
+      "scale": 1
+    },
+    {
+      "id": "nursery-rug",
+      "roomId": "nursery",
+      "asset": "rug_oval_A",
+      "offsetX": -0.5500000000000007,
+      "offsetZ": 0.8999999999999995,
+      "yawRadians": 0,
+      "scale": 1
+    },
+    {
+      "id": "dining-rug",
+      "roomId": "dining",
+      "asset": "rug_rectangle_stripes_A",
+      "offsetX": 0,
+      "offsetZ": -1.2000000000000002,
+      "yawRadians": 0,
+      "scale": 1
+    },
+    {
+      "id": "dining-table",
+      "roomId": "dining",
+      "asset": "table_medium_long",
+      "offsetX": 0,
+      "offsetZ": -1,
+      "yawRadians": 0,
+      "scale": 1
+    },
+    {
+      "id": "dining-chair-west",
+      "roomId": "dining",
+      "asset": "chair_A_wood",
+      "offsetX": -2,
+      "offsetZ": -1,
+      "yawRadians": 1.5707963267948966,
+      "scale": 1
+    },
+    {
+      "id": "dining-chair-east",
+      "roomId": "dining",
+      "asset": "chair_A_wood",
+      "offsetX": 1.9000000000000001,
+      "offsetZ": -1,
+      "yawRadians": 4.71238898038469,
+      "scale": 1
+    },
+    {
+      "id": "dining-chair-south",
+      "roomId": "dining",
+      "asset": "chair_A_wood",
+      "offsetX": -0.1,
+      "offsetZ": -2.500000000000001,
+      "yawRadians": 6.283185307179586,
+      "scale": 1
+    },
+    {
+      "id": "pantry-shelf-north",
+      "roomId": "pantry",
+      "asset": "shelf_B_large_decorated",
+      "offsetX": 4.850000000000001,
+      "offsetZ": -1.1000000000000005,
+      "yawRadians": -1.5707963267948966,
+      "scale": 1
+    },
+    {
+      "id": "pantry-shelf-south",
+      "roomId": "pantry",
+      "asset": "shelf_B_large_decorated",
+      "offsetX": 4.850000000000001,
+      "offsetZ": 1.3999999999999995,
+      "yawRadians": -1.5707963267948966,
+      "scale": 1
+    },
+    {
+      "id": "pantry-cabinet",
+      "roomId": "pantry",
+      "asset": "cabinet_medium_decorated",
+      "offsetX": -2.549999999999999,
+      "offsetZ": -2.3999999999999995,
+      "yawRadians": 3.141592653589793,
+      "scale": 1
+    },
+    {
+      "id": "library-shelf-north",
+      "roomId": "library",
+      "asset": "shelf_B_large_decorated",
+      "offsetX": -4.550000000000001,
+      "offsetZ": -0.30000000000000004,
+      "yawRadians": 1.5707963267948966,
+      "scale": 1
+    },
+    {
+      "id": "library-shelf-south",
+      "roomId": "library",
+      "asset": "shelf_B_large_decorated",
+      "offsetX": -4.650000000000002,
+      "offsetZ": 1.7000000000000002,
+      "yawRadians": 1.5707963267948966,
+      "scale": 1
+    },
+    {
+      "id": "library-rug",
+      "roomId": "library",
+      "asset": "rug_rectangle_A",
+      "offsetX": -0.3500000000000014,
+      "offsetZ": -0.2,
+      "yawRadians": 0,
+      "scale": 1
+    },
+    {
+      "id": "library-chair",
+      "roomId": "library",
+      "asset": "armchair_pillows",
+      "offsetX": -2.8500000000000014,
+      "offsetZ": -2.5,
+      "yawRadians": -1.1102230246251565e-16,
+      "scale": 1
+    },
+    {
+      "id": "library-lamp",
+      "roomId": "library",
+      "asset": "lamp_standing",
+      "offsetX": -4.650000000000002,
+      "offsetZ": -2.8000000000000003,
+      "yawRadians": 0,
+      "scale": 1
+    },
+    {
+      "id": "foyer-rug",
+      "roomId": "foyer",
+      "asset": "rug_oval_A",
+      "offsetX": 0,
+      "offsetZ": 0,
+      "yawRadians": 0,
+      "scale": 1
+    },
+    {
+      "id": "parlor-rug",
+      "roomId": "parlor",
+      "asset": "rug_rectangle_A",
+      "offsetX": -0.5499999999999989,
+      "offsetZ": -0.2,
+      "yawRadians": 0,
+      "scale": 1
+    },
+    {
+      "id": "parlor-couch",
+      "roomId": "parlor",
+      "asset": "couch_pillows",
+      "offsetX": 4.350000000000001,
+      "offsetZ": 0,
+      "yawRadians": 4.71238898038469,
+      "scale": 1
+    },
+    {
+      "id": "parlor-chair-north",
+      "roomId": "parlor",
+      "asset": "armchair_pillows",
+      "offsetX": 2.5500000000000007,
+      "offsetZ": 1.9000000000000001,
+      "yawRadians": 9.42477796076938,
+      "scale": 1
+    },
+    {
+      "id": "parlor-chair-south",
+      "roomId": "parlor",
+      "asset": "armchair_pillows",
+      "offsetX": 1.950000000000001,
+      "offsetZ": -2.5,
+      "yawRadians": 6.2831853071795845,
+      "scale": 1
+    },
+    {
+      "id": "parlor-table",
+      "roomId": "parlor",
+      "asset": "table_low",
+      "offsetX": -3.6499999999999986,
+      "offsetZ": 2.1,
+      "yawRadians": 3.141592653589793,
+      "scale": 1
+    },
+    {
+      "id": "bedroom-bed",
+      "roomId": "bedroom",
+      "asset": "bed_double_A",
+      "offsetX": 2.1499999999999986,
+      "offsetZ": 1.7999999999999998,
+      "yawRadians": 9.42477796076938,
+      "scale": 0.8
+    },
+    {
+      "id": "bedroom-cabinet",
+      "roomId": "bedroom",
+      "asset": "cabinet_medium_decorated",
+      "offsetX": -4.750000000000002,
+      "offsetZ": -1.7999999999999998,
+      "yawRadians": 1.5707963267948966,
+      "scale": 1
+    },
+    {
+      "id": "gallery-rug",
+      "roomId": "gallery",
+      "asset": "rug_rectangle_stripes_A",
+      "offsetX": 0,
+      "offsetZ": -0.4,
+      "yawRadians": 0,
+      "scale": 1
+    },
+    {
+      "id": "gallery-console",
+      "roomId": "gallery",
+      "asset": "table_low",
+      "offsetX": 0,
+      "offsetZ": 2.25,
+      "yawRadians": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "gallery-frame-west",
+      "roomId": "gallery",
+      "asset": "pictureframe_standing_A",
+      "offsetX": -0.65,
+      "offsetZ": 2.25,
+      "yawRadians": 0,
+      "scale": 0.9,
+      "elevation": 0.4
+    },
+    {
+      "id": "gallery-frame-center",
+      "roomId": "gallery",
+      "asset": "pictureframe_standing_A",
+      "offsetX": 0,
+      "offsetZ": 2.25,
+      "yawRadians": 0,
+      "scale": 0.9,
+      "elevation": 0.4
+    },
+    {
+      "id": "gallery-frame-east",
+      "roomId": "gallery",
+      "asset": "pictureframe_standing_A",
+      "offsetX": 0.65,
+      "offsetZ": 2.25,
+      "yawRadians": 0,
+      "scale": 0.9,
+      "elevation": 0.4
+    },
+    {
+      "id": "study-rug",
+      "roomId": "study",
+      "asset": "rug_rectangle_A",
+      "offsetX": -1.4499999999999993,
+      "offsetZ": 1.1,
+      "yawRadians": 0,
+      "scale": 1
+    },
+    {
+      "id": "study-shelf",
+      "roomId": "study",
+      "asset": "shelf_B_large_decorated",
+      "offsetX": 5.050000000000001,
+      "offsetZ": 0.7999999999999998,
+      "yawRadians": -1.5707963267948966,
+      "scale": 1
+    },
+    {
+      "id": "study-desk",
+      "roomId": "study",
+      "asset": "table_medium",
+      "offsetX": 3.8500000000000014,
+      "offsetZ": -1.7999999999999998,
+      "yawRadians": 0,
+      "scale": 1
+    },
+    {
+      "id": "study-chair",
+      "roomId": "study",
+      "asset": "chair_A_wood",
+      "offsetX": 2.2500000000000018,
+      "offsetZ": -1.8999999999999995,
+      "yawRadians": 1.5707963267948966,
+      "scale": 1
+    },
+    {
+      "id": "study-lamp",
+      "roomId": "study",
+      "asset": "lamp_table",
+      "offsetX": 3.8500000000000014,
+      "offsetZ": -1.7999999999999998,
+      "yawRadians": 0,
+      "scale": 0.65,
+      "elevation": 1
+    }
+  ],
+  "ghostSpawn": {
+    "x": 0,
+    "z": 0
+  },
+  "childSpawns": [
+    {
+      "x": -13.5,
+      "z": -7.2
+    },
+    {
+      "x": 13.5,
+      "z": -7.2
+    },
+    {
+      "x": -13.5,
+      "z": 7.2
+    },
+    {
+      "x": 13.5,
+      "z": 7.2
+    }
+  ],
+  "batterySpawns": [
+    {
+      "x": -13,
+      "z": 0
+    },
+    {
+      "x": 13,
+      "z": 0
+    },
+    {
+      "x": 0,
+      "z": -6
+    },
+    {
+      "x": 0,
+      "z": 7
+    },
+    {
+      "x": -8,
+      "z": -6.5
+    },
+    {
+      "x": 8,
+      "z": -6.5
+    },
+    {
+      "x": -8,
+      "z": 6.5
+    },
+    {
+      "x": 8,
+      "z": 6.5
+    },
+    {
+      "x": -2.2,
+      "z": 0
+    },
+    {
+      "x": 2.2,
+      "z": 0
+    }
+  ]
+}

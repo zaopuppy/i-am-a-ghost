@@ -6,7 +6,7 @@ import {
   compileHouseScene,
   FURNITURE_ASSET_IDS,
   FURNITURE_CATALOG,
-  HOUSE_SCENE_VERSION,
+  isHouseSceneDefinition,
   type FurnitureAssetId,
   type FurniturePlacement,
   type HouseRoomDefinition,
@@ -1191,19 +1191,6 @@ function escapeHtml(value: string): string {
     "'": '&#39;',
     '"': '&quot;',
   })[character] ?? character);
-}
-
-function isHouseSceneDefinition(value: unknown): value is HouseSceneDefinition {
-  if (!value || typeof value !== 'object') return false;
-  const candidate = value as Partial<HouseSceneDefinition>;
-  return candidate.version === HOUSE_SCENE_VERSION
-    && typeof candidate.id === 'string'
-    && Array.isArray(candidate.rooms)
-    && Array.isArray(candidate.walls)
-    && Array.isArray(candidate.furniture)
-    && Array.isArray(candidate.childSpawns)
-    && candidate.childSpawns.length === 4
-    && Array.isArray(candidate.batterySpawns);
 }
 
 function loadStoredDraft(): HouseSceneDefinition | null {

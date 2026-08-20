@@ -3,7 +3,11 @@
 .codegraph/
 
 # Locally downloaded source asset packs. Only processed runtime assets belong in public/.
-/assets/
+# Versioned scene definitions are source data shared by the client and room server.
+/assets/*
+!/assets/maps/
+/assets/maps/*
+!/assets/maps/*.scene.json
 
 node_modules/
 dist/

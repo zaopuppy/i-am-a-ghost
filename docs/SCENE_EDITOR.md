@@ -48,12 +48,21 @@ http://127.0.0.1:5189/?sceneEditor=1
 
 ## 保存为默认地图
 
-编辑器导出的 JSON 是完整 `HouseSceneDefinition`。当前仓库的默认场景保存在 `src/game/defaultHouseScene.ts`；确认导出结果后，可将其中的房间、墙体、家具和刷新点数据替换为导出内容，并运行：
+编辑器导出的 JSON 是完整 `HouseSceneDefinition`。仓库当前默认场景的唯一数据源是：
+
+```text
+assets/maps/m3-nine-room-house.scene.json
+```
+
+将编辑器下载的同名文件复制到该路径并覆盖原文件，然后运行：
 
 ```powershell
+npm run validate:map
 npm run build
 npm test
 npm run test:balance
 ```
 
-编辑器本身不会直接写入源码，避免浏览器中的误操作覆盖仓库文件。
+`npm run validate:map -- assets/maps/其他地图.scene.json` 可以校验任意尚未设为默认的地图。默认文件改变后需要重启 `npm run dev`；客户端、房间服务器、编辑器「复原」和自动平衡模拟随后都会读取新地图。
+
+编辑器本身不会直接写入仓库，避免浏览器中的误操作覆盖默认地图。浏览器 `localStorage` 中已有的编辑草稿也不会被自动覆盖；如需查看新的仓库默认地图，请在编辑器中点击「复原」。
