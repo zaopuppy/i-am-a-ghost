@@ -26,6 +26,11 @@ test('the map-centered camera keeps mouse orbit, pan, and zoom behind a toggle b
 
   await expect(page.locator('.lil-gui .lil-controller').filter({ hasText: '编辑 / 预览' })).toHaveCount(0);
   await expect(page.locator('.lil-gui .lil-controller').filter({ hasText: '鼠标操作' })).toHaveCount(0);
+  await expect(page.locator('.lil-gui .lil-controller').filter({ hasText: '倾角' })).toHaveCount(0);
+  await expect(page.locator('.lil-gui .lil-controller').filter({ hasText: '方位角' })).toHaveCount(0);
+  await expect(page.locator('.lil-gui .lil-controller').filter({ hasText: '镜头距离' })).toHaveCount(0);
+  await expect(page.locator('.lil-gui .lil-controller').filter({ hasText: '复制 TypeScript' })).toHaveCount(0);
+  await expect(page.locator('.lil-gui .lil-controller').filter({ hasText: '复制 JSON' })).toHaveCount(1);
 
   const cameraToggle = page
     .locator('.lil-gui .lil-controller')

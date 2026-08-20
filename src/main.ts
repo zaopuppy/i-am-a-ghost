@@ -104,7 +104,6 @@ let debugTuningTimer: ReturnType<typeof setTimeout> | null = null;
 let lastSyncedDebugGameplayTuning: GameplayTuning | null = null;
 let cameraSnapRequested = false;
 let cameraValueControllers: import('lil-gui').Controller[] = [];
-let cameraMetricControllers: import('lil-gui').Controller[] = [];
 let cameraPointerController: import('lil-gui').Controller | null = null;
 let infiniteGhostHealthController: import('lil-gui').Controller | null = null;
 let infiniteFlashlightEnergyController: import('lil-gui').Controller | null = null;
@@ -498,7 +497,6 @@ function updateCamera(frame: ViewerFrame | null, deltaSeconds: number, immediate
     immediate: immediate || cameraSnapRequested,
   });
   cameraSnapRequested = false;
-  refreshCameraMetrics();
 }
 
 function captureCameraTarget(frame: ViewerFrame): CameraVector {
@@ -588,12 +586,8 @@ async function installDebugGui(): Promise<void> {
     .name('目标 Z').onChange(applyCameraDebugPreset);
   const viewHeight = cameraFolder.add(cameraDebugState, 'viewHeight', 3, 36, 0.05)
     .name('正交视野高度').onChange(applyCameraDebugPreset);
-  const tilt = cameraFolder.add(cameraDebugState, 'tiltDegrees', 0, 90, 0.01).name('倾角°').disable();
-  const azimuth = cameraFolder.add(cameraDebugState, 'azimuthDegrees', -180, 180, 0.01).name('方位角°').disable();
-  const distance = cameraFolder.add(cameraDebugState, 'distance', 0, 100, 0.01).name('镜头距离').disable();
   cameraFolder.add({ restore: restoreRecommendedCameraPresets }, 'restore').name('恢复推荐值');
-  cameraFolder.add({ copy: () => void copySelectedCameraPreset('typescript') }, 'copy').name('复制 TypeScript');
-  cameraFolder.add({ copy: () => void copySelectedCameraPreset('json') }, 'copy').name('复制 JSON');
+  cameraFolder.add({ copy: () => void copySelectedCameraPreset() }, 'copy').name('复制 JSON');
   cameraValueControllers = [
     positionX,
     positionY,
@@ -603,7 +597,6 @@ async function installDebugGui(): Promise<void> {
     targetZ,
     viewHeight,
   ];
-  cameraMetricControllers = [tilt, azimuth, distance];
   positionFolder.close();
   targetFolder.close();
   const movementFolder = gui.addFolder('房间移动（房主）');
@@ -638,7 +631,6 @@ async function installDebugGui(): Promise<void> {
   movementFolder.close();
   sensingFolder.close();
   debugGui = gui;
-  refreshCameraMetrics();
   setDebugUiHidden(debugGuiHidden);
 }
 
@@ -753,7 +745,6 @@ function setCameraPointerMode(enabled: boolean): void {
 function handleDeveloperCameraPoseChanged(): void {
   runtimeTuning.cameraPresets['whole-house'] = cameraRig.currentPreset();
   syncCameraDebugState(runtimeTuning.cameraPresets['whole-house']);
-  refreshCameraMetrics();
 }
 
 function handleCameraPointerModeChanged(enabled: boolean): void {
@@ -773,9 +764,9 @@ function restoreRecommendedCameraPresets(): void {
   cameraSnapRequested = true;
 }
 
-async function copySelectedCameraPreset(format: 'typescript' | 'json'): Promise<void> {
+async function copySelectedCameraPreset(): Promise<void> {
   const mode: CameraMode = 'whole-house';
-  const text = formatCameraPreset(mode, runtimeTuning.cameraPresets[mode], format);
+  const text = formatCameraPreset(mode, runtimeTuning.cameraPresets[mode], 'json');
   if (navigator.clipboard?.writeText) {
     try {
       await navigator.clipboard.writeText(text);
@@ -792,15 +783,6 @@ async function copySelectedCameraPreset(format: 'typescript' | 'json'): Promise<
   textarea.select();
   document.execCommand('copy');
   textarea.remove();
-}
-
-function refreshCameraMetrics(): void {
-  if (!debugGui) return;
-  const snapshot = cameraRig.snapshot();
-  cameraDebugState.tiltDegrees = snapshot.tiltDegrees;
-  cameraDebugState.azimuthDegrees = snapshot.azimuthDegrees;
-  cameraDebugState.distance = snapshot.distance;
-  for (const controller of cameraMetricControllers) controller.updateDisplay();
 }
 
 function syncCameraDebugState(preset: CameraPreset): void {
@@ -953,9 +935,6 @@ interface CameraDebugState {
   targetY: number;
   targetZ: number;
   viewHeight: number;
-  tiltDegrees: number;
-  azimuthDegrees: number;
-  distance: number;
 }
 
 function createCameraDebugState(preset: CameraPreset): CameraDebugState {
@@ -968,9 +947,6 @@ function createCameraDebugState(preset: CameraPreset): CameraDebugState {
     targetY: preset.target.y,
     targetZ: preset.target.z,
     viewHeight: preset.viewHeight,
-    tiltDegrees: 0,
-    azimuthDegrees: 0,
-    distance: 0,
   };
 }
 
