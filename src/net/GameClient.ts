@@ -44,9 +44,10 @@ export class GameClient {
   private nickname = '';
   private reconnecting = false;
 
-  constructor() {
+  constructor(serverUrl?: string) {
     this.restoreStoredSession();
-    this.socket = io({ transports: ['websocket'], reconnectionDelay: 500 });
+    const options = { transports: ['websocket'], reconnectionDelay: 500 };
+    this.socket = serverUrl ? io(serverUrl, options) : io(options);
     this.socket.on('connect', () => {
       this.connected = true;
       this.notify();

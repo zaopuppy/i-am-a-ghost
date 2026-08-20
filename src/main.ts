@@ -10,6 +10,7 @@ import {
   type CameraVector,
 } from './core/CameraRig';
 import { GameInput } from './core/GameInput';
+import { initializeHarmonyHost } from './core/HarmonyHostBridge';
 import { Loop } from './core/Loop';
 import { createRenderStage } from './core/Renderer';
 import { GameWorld } from './game/GameWorld';
@@ -68,6 +69,7 @@ const captureMarks = [...document.querySelectorAll<HTMLElement>('.capture-mark')
 const audioButton = requireElement<HTMLButtonElement>('#audio-toggle');
 const milestone = requireElement<HTMLElement>('#milestone');
 const controlHint = requireElement<HTMLElement>('#control-hint');
+const harmonyHost = initializeHarmonyHost();
 
 const query = new URLSearchParams(window.location.search);
 const sceneEditorRequested = import.meta.env.DEV && query.get('sceneEditor') === '1';
@@ -79,7 +81,7 @@ const scenePlaytestHouse = scenePlaytestRole ? loadPlayableHouseDraft() : null;
 const stage = createRenderStage(canvas);
 const world = new GameWorld(scenePlaytestHouse ?? undefined);
 world.prewarmCharacterAssets((objects) => stage.prewarm(world.scene, objects));
-const client = new GameClient();
+const client = new GameClient(harmonyHost.active ? 'http://127.0.0.1:5191' : undefined);
 const presenter = new FramePresenter();
 const input = new GameInput();
 const audio = new GameAudio();

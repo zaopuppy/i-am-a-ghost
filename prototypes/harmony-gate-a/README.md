@@ -11,15 +11,15 @@ lifecycle, bridge, and LAN hosting experiments?
 - Compatible SDK: HarmonyOS 6.1.0 / API 23
 - Target device for Gate A: the connected Pura X reporting API 26 through HDC
 
-The desktop Vite application remains authoritative. Generated web assets will be
-copied into the HAP by the repository-level prototype packaging command rather
-than edited in this directory.
+The desktop Vite application remains authoritative. Generated web assets are
+copied into the HAP by the repository-level prototype packaging command and are
+ignored by Git rather than edited in this directory.
 
-Run from this directory:
+Run from the repository root:
 
 ```powershell
-devecocli build
-devecocli run --module entry
+npm run prototype:harmony:build
+npm run prototype:harmony:run
 ```
 
 The prototype and its verdict live on the `prototype/harmony-gate-a` branch.

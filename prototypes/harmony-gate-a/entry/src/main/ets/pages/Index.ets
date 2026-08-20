@@ -1,38 +1,80 @@
-/*
- * Copyright (c) 2026 Huawei Device Co., Ltd.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+import { webview } from '@kit.ArkWeb';
+
+const BRIDGE_PERMISSION = '{"javascriptProxyPermission":{"urlPermissionList":' +
+  '[{"scheme":"resource","host":"rawfile","port":"","path":"game/"}]}}';
+
+class HarmonyHostBridge {
+  ping(message: string): string {
+    console.info(`[HarmonyGateA] bridge ping: ${message}`);
+    return `pong:${message}`;
+  }
+
+  runtimeInfo(): string {
+    return '{"platform":"HarmonyOS","prototype":"gate-a","bridgeVersion":1}';
+  }
+
+  reportReady(payload: string): string {
+    console.info(`[HarmonyGateA] web ready: ${payload}`);
+    return 'accepted';
+  }
+}
 
 @Entry
 @Component
 struct Index {
-  @State message: string = 'Hello World';
+  private controller: webview.WebviewController = new webview.WebviewController();
+  private hostBridge: HarmonyHostBridge = new HarmonyHostBridge();
+
+  aboutToAppear(): void {
+    webview.WebviewController.setWebDebuggingAccess(true);
+  }
+
+  aboutToDisappear(): void {
+    try {
+      this.controller.deleteJavaScriptRegister('harmonyHost');
+    } catch (error) {
+      console.warn(`[HarmonyGateA] bridge cleanup skipped: ${JSON.stringify(error)}`);
+    }
+  }
 
   build() {
-    RelativeContainer() {
-      Text(this.message)
-        .id('HelloWorld')
-        .fontSize($r('app.float.page_text_font_size'))
-        .fontWeight(FontWeight.Bold)
-        .alignRules({
-          center: { anchor: '__container__', align: VerticalAlign.Center },
-          middle: { anchor: '__container__', align: HorizontalAlign.Center }
+    Stack() {
+      Web({
+        src: 'resource://rawfile/game/index.html',
+        controller: this.controller,
+      })
+        .javaScriptAccess(true)
+        .domStorageAccess(true)
+        .fileAccess(true)
+        .javaScriptProxy({
+          object: this.hostBridge,
+          name: 'harmonyHost',
+          methodList: ['ping', 'runtimeInfo', 'reportReady'],
+          controller: this.controller,
+          asyncMethodList: [],
+          permission: BRIDGE_PERMISSION,
         })
-        .onClick(() => {
-          this.message = 'Welcome';
+        .onPageBegin((event) => {
+          console.info(`[HarmonyGateA] page begin: ${event?.url ?? 'unknown'}`);
         })
+        .onPageEnd((event) => {
+          console.info(`[HarmonyGateA] page end: ${event?.url ?? 'unknown'}`);
+        })
+        .onConsole((event) => {
+          console.info(`[HarmonyGateA][Web] ${event.message.getMessage()}`);
+          return false;
+        })
+        .onErrorReceive((event) => {
+          if (!event) return;
+          console.error(
+            `[HarmonyGateA] resource error ${event.error.getErrorCode()}: ` +
+              `${event.error.getErrorInfo()} @ ${event.request.getRequestUrl()}`,
+          );
+        })
+        .width('100%')
+        .height('100%')
     }
-    .height('100%')
     .width('100%')
+    .height('100%')
   }
 }
