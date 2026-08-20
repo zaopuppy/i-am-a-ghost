@@ -343,7 +343,7 @@ XComponent 应只在 ArkWeb 真机验证失败后进入讨论。它能换来更�
 
 **事实**：华为当前版本表将 HarmonyOS 6.1.0 标为 `6.1.0(23)`，将 HarmonyOS 6.1.1 标为 `6.1.1(24)`；华为 2026 年 6 月发布的是 HarmonyOS 7（API 26）Developer Beta。因此，不能把“HarmonyOS 6.1 / API 26”当作官方固定映射。[HarmonyOS 版本说明](https://developer.huawei.com/consumer/cn/doc/harmonyos-releases/changelogs-600)列出了 6.1.0(23) 和 6.1.1(24)，[HarmonyOS 7（API 26）官方招募说明](https://developer.huawei.com/consumer/cn/activity/developerbeta/harmonyos-developer-beta-7-1)则明确把 API 26 归入 HarmonyOS 7。
 
-**工程要求**：创建工程前以真机实际返回的 API version 为准。当前开发环境和目标机实测可使用 API 26 作为 `compileSdkVersion` / `targetSdkVersion`，但为了覆盖项目约定的 HarmonyOS 6.1.0 最低基线，`compatibleSdkVersion` 应设为 `6.1.0(23)`；若最终决定最低只支持 6.1.1，才可提高到 `6.1.1(24)`。可用 `hdc shell param get const.ohos.apiversion` 只读核验每台真机。当前目标机曾同时显示“6.1”产品版本信息和 API 26 系统参数；该组合只记录为目标机实测状态，不外推为官方版本映射。
+**工程要求**：创建工程前以真机实际返回的 API version 和本机工具链可用范围为准。2026-08-21 实测 `devecocli create --api-level 26` 明确拒绝并报告当前脚手架只支持 API 17–24，API 24 脚手架创建成功。因此 Gate A 使用 API 24 作为 `compileSdkVersion` / `targetSdkVersion`，以 `6.1.0(23)` 作为 `compatibleSdkVersion`，并在 API 26 真机上验证向上兼容；若后续安装可用的 API 26 工程 SDK，再单独做升级兼容检查。可用 `hdc shell param get const.ohos.apiversion` 只读核验每台真机。当前目标机曾同时显示“6.1”产品版本信息和 API 26 系统参数；该组合只记录为目标机实测状态，不外推为官方版本映射。
 
 ### 11.2 “能编译”与“能装到真机”是两道门槛
 

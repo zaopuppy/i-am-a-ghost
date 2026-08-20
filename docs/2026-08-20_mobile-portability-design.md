@@ -18,7 +18,7 @@
 7. 桌面端必须继续支持键盘、开发调参、场景编辑、确定性状态和自动化测试。
 8. ArkUI 原生 HAP 内嵌 ArkWeb 运行本地 Three.js 满足原生交付要求，只要玩家打开 APP 即可直接游玩。
 9. 房间主机 APP 一旦进入后台或锁屏，本房间立即结束；首版不提供后台恢复或主机迁移。
-10. 当前原型目标机为 HUAWEI Pura X（VDE-AL00）；用户在系统界面确认其显示为 HarmonyOS 6.1，而 HDC 实测为 OpenHarmony 26.0.0.16、API 26、arm64-v8a。官方版本映射中 HarmonyOS 6.1.0/6.1.1 分别对应 API 23/24，API 26 对应 HarmonyOS 7，因此文档不把“6.1”和“API 26”写成官方等价关系。工程使用 API 26 编译和目标 SDK，并以 API 23 作为兼容基线；SoC 名称未通过已查询系统参数暴露，不作为原型启动阻塞项。
+10. 当前原型目标机为 HUAWEI Pura X（VDE-AL00）；用户在系统界面确认其显示为 HarmonyOS 6.1，而 HDC 实测为 OpenHarmony 26.0.0.16、API 26、arm64-v8a。官方版本映射中 HarmonyOS 6.1.0/6.1.1 分别对应 API 23/24，API 26 对应 HarmonyOS 7，因此文档不把“6.1”和“API 26”写成官方等价关系。当前 DevEco 脚手架实测只接受 API 17–24，Gate A 使用 API 24 编译和目标 SDK、API 23 兼容基线，并在 API 26 真机上验证向上兼容；SoC 名称未通过已查询系统参数暴露，不作为原型启动阻塞项。
 11. 当前交付物只是受控局域网原型，传输认证、加密、TLS/pinning 和对抗性威胁模型暂不进入范围；若转向对外分发或正式产品，必须重新打开安全设计。
 
 ## 2. 修订后的结论
@@ -304,7 +304,7 @@ interface PlayerIntent {
 - 系统界面版本：HarmonyOS 6.1（用户确认）。
 - HDC 实测：`const.ohos.fullname=OpenHarmony-26.0.0.16`、API 26；安全补丁 2026-03-01。
 - 官方版本映射：HarmonyOS 6.1.0 = API 23、HarmonyOS 6.1.1 = API 24、HarmonyOS 7 Developer Beta = API 26；因此上述两项分别记录，不推导为官方对应关系。
-- SDK 策略：`compileSdkVersion` / `targetSdkVersion` 使用 API 26，`compatibleSdkVersion` 使用 HarmonyOS 6.1.0 对应的 API 23。
+- SDK 策略：当前 DevEco 脚手架实测拒绝 API 26，只接受 API 17–24；Gate A 的编译/目标 SDK 使用 API 24，`compatibleSdkVersion` 使用 HarmonyOS 6.1.0 对应的 API 23，并在 API 26 真机上验证。
 - 架构：`arm64-v8a`；硬件版本 HL1DJYM。
 - 工具与连接：`hdc 3.2.0d` 和 `devecocli` 均已识别该 active device。
 - `const.product.chipname`、`const.product.socmodel` 和 `const.product.board` 未暴露有效值；不根据商品资料猜测 SoC，Gate A 以实测性能为准。
