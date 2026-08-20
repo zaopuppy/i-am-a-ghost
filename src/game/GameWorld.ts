@@ -20,6 +20,7 @@ import {
   capturePoseWeights,
   clampCaptureHeadPitch,
 } from './CapturePresentation';
+import { stabilizeChildFlashlightArm } from './ChildAnimation';
 import { COMPILED_DEFAULT_HOUSE } from './defaultHouse';
 import {
   advanceFlashlightPresentation,
@@ -54,12 +55,6 @@ const FLASHLIGHT_OCCLUDER_LAYER = 1;
 const FLASHLIGHT_SHADOW_SIZE = 512;
 const FLASHLIGHT_LENS_OFF = new THREE.Color(0x332f28);
 const FLASHLIGHT_LENS_ON = new THREE.Color(0xffefb0);
-// Additive KayKit Idle_A offsets that place the right-hand slot on the actor's +X aim axis.
-const FLASHLIGHT_ARM_POSE = {
-  upper: [1.74, -0.013, 0.71],
-  lower: [1.31, -0.16, 0.055],
-  wrist: [-0.61, -0.69, 0.15],
-} as const;
 const WALL_HEIGHT = 2.8;
 const HEADLAMP_SPIN_RADIANS_PER_SECOND = {
   off: 0,
@@ -848,37 +843,17 @@ function syncFlashlightPresentation(
     elapsedSeconds,
   );
   if (actor.imported && actor.kind === 'child') {
-    poseChildFlashlightArm(actor.imported, frame.poseProgress);
+    stabilizeChildFlashlightArm(
+      actor.imported.joints,
+      actor.imported.jointRestRotations,
+      frame.poseProgress,
+    );
   }
   if (actor.flashlight) updateFlashlightProp(actor.flashlight, frame.lightStrength);
   if (actor.flashlight && actor.beam) {
     syncBeamToFlashlight(actor.root, actor.flashlight, actor.beam);
   }
   return frame;
-}
-
-function poseChildFlashlightArm(
-  imported: CharacterAssetInstance,
-  progress: number,
-): void {
-  applyJointRotation(
-    imported.joints.rightUpperArm,
-    FLASHLIGHT_ARM_POSE.upper[0] * progress,
-    FLASHLIGHT_ARM_POSE.upper[1] * progress,
-    FLASHLIGHT_ARM_POSE.upper[2] * progress,
-  );
-  applyJointRotation(
-    imported.joints.rightLowerArm,
-    FLASHLIGHT_ARM_POSE.lower[0] * progress,
-    FLASHLIGHT_ARM_POSE.lower[1] * progress,
-    FLASHLIGHT_ARM_POSE.lower[2] * progress,
-  );
-  applyJointRotation(
-    imported.joints.rightWrist,
-    FLASHLIGHT_ARM_POSE.wrist[0] * progress,
-    FLASHLIGHT_ARM_POSE.wrist[1] * progress,
-    FLASHLIGHT_ARM_POSE.wrist[2] * progress,
-  );
 }
 
 function updateFlashlightProp(flashlight: FlashlightProp, strength: number): void {
