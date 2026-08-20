@@ -843,11 +843,7 @@ function syncFlashlightPresentation(
     elapsedSeconds,
   );
   if (actor.imported && actor.kind === 'child') {
-    stabilizeChildFlashlightArm(
-      actor.imported.joints,
-      actor.imported.jointRestRotations,
-      frame.poseProgress,
-    );
+    stabilizeChildFlashlightArm(actor.imported, frame.poseProgress);
   }
   if (actor.flashlight) updateFlashlightProp(actor.flashlight, frame.lightStrength);
   if (actor.flashlight && actor.beam) {

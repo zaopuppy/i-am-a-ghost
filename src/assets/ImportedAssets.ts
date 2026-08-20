@@ -45,6 +45,7 @@ export interface CharacterAssetInstance {
   actions: Map<string, THREE.AnimationAction>;
   joints: CharacterJoints;
   captureJointRotations: ReadonlyMap<THREE.Object3D, THREE.Quaternion>;
+  jointRestModelRotations: ReadonlyMap<THREE.Object3D, THREE.Quaternion>;
   jointRestRotations: ReadonlyMap<THREE.Object3D, THREE.Quaternion>;
   lookJoints: Pick<CharacterJoints, 'chest' | 'head'>;
 }
@@ -169,11 +170,14 @@ async function createCharacterAssetInstance(
     rightLowerLeg: findObjectByName(scene, 'lowerlegr'),
   };
   mixer.update(0);
+  root.updateMatrixWorld(true);
   const jointRestRotations = new Map<THREE.Object3D, THREE.Quaternion>();
+  const jointRestModelRotations = new Map<THREE.Object3D, THREE.Quaternion>();
   const captureJointRotations = new Map<THREE.Object3D, THREE.Quaternion>();
   for (const joint of Object.values(joints)) {
     if (!joint) continue;
     jointRestRotations.set(joint, joint.quaternion.clone());
+    jointRestModelRotations.set(joint, joint.getWorldQuaternion(new THREE.Quaternion()));
     captureJointRotations.set(joint, joint.quaternion.clone());
   }
   return {
@@ -183,6 +187,7 @@ async function createCharacterAssetInstance(
     actions,
     joints,
     captureJointRotations,
+    jointRestModelRotations,
     jointRestRotations,
     lookJoints: { chest: joints.chest, head: joints.head },
   };
