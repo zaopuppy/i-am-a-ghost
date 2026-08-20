@@ -19,6 +19,11 @@ import {
   clampCaptureHeadPitch,
 } from './CapturePresentation';
 import { COMPILED_DEFAULT_HOUSE } from './defaultHouse';
+import {
+  advanceFlashlightPresentation,
+  createFlashlightPresentationState,
+  type FlashlightPresentationState,
+} from './FlashlightPresentation';
 import { ghostFadeOpacity } from './GhostPresentation';
 import { buildHouseStage } from './HouseStage';
 import { createHouseBoundaryWalls, type CompiledHouseScene } from './HouseScene';
@@ -42,8 +47,17 @@ const HEADLAMP_HEIGHT = 1.5;
 const FLASHLIGHT_ORIGIN_HEIGHT = 1.02;
 const FLASHLIGHT_ORIGIN_FORWARD = 0.28;
 const FLASHLIGHT_BEAM_INTENSITY = 64;
+const FLASHLIGHT_MUZZLE_OFFSET = 0.33;
 const FLASHLIGHT_OCCLUDER_LAYER = 1;
 const FLASHLIGHT_SHADOW_SIZE = 512;
+const FLASHLIGHT_LENS_OFF = new THREE.Color(0x332f28);
+const FLASHLIGHT_LENS_ON = new THREE.Color(0xffefb0);
+// Additive KayKit Idle_A offsets that place the right-hand slot on the actor's +X aim axis.
+const FLASHLIGHT_ARM_POSE = {
+  upper: [1.74, -0.013, 0.71],
+  lower: [1.31, -0.16, 0.055],
+  wrist: [-0.61, -0.69, 0.15],
+} as const;
 const WALL_HEIGHT = 2.8;
 const HEADLAMP_SPIN_RADIANS_PER_SECOND = {
   off: 0,
@@ -53,6 +67,9 @@ const HEADLAMP_SPIN_RADIANS_PER_SECOND = {
 } as const;
 const LOOK_UP_AXIS = new THREE.Vector3(0, 1, 0);
 const LOOK_ROTATION = new THREE.Quaternion();
+const FLASHLIGHT_WORLD_POSITION = new THREE.Vector3();
+const FLASHLIGHT_WORLD_ROTATION = new THREE.Quaternion();
+const FLASHLIGHT_ROOT_ROTATION = new THREE.Quaternion();
 
 interface ActorVisual {
   kind: 'child' | 'ghost' | 'doll';
@@ -64,6 +81,8 @@ interface ActorVisual {
   lampHalo: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
   lampLight: THREE.PointLight;
   beam: BeamVisual | null;
+  flashlight: FlashlightProp | null;
+  flashlightPresentation: FlashlightPresentationState;
   headlamp: HeadlampBand;
   imported: CharacterAssetInstance | null;
   currentAnimation: string;
@@ -81,6 +100,13 @@ interface BeamVisual {
   light: THREE.SpotLight;
   length: number;
   coneDegrees: number;
+}
+
+interface FlashlightProp {
+  root: THREE.Group;
+  muzzle: THREE.Object3D;
+  lens: THREE.Mesh<THREE.CircleGeometry, THREE.MeshBasicMaterial>;
+  lensHalo: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
 }
 
 interface WorldMeter {
@@ -179,10 +205,16 @@ export class GameWorld {
         batteryMeterColor(child.batteryCharge),
       );
       if (actor.statusMeter) actor.statusMeter.root.visible = frame.phase === 'playing';
+      const flashlightRequested = child.flashlightOn && frame.phase === 'playing';
+      const flashlightFrame = syncFlashlightPresentation(
+        actor,
+        flashlightRequested,
+        elapsedSeconds,
+      );
       if (actor.beam) {
-        const visible = child.flashlightOn && frame.phase === 'playing';
+        const visible = flashlightFrame.lightStrength > 0.001;
         actor.beam.group.visible = visible;
-        actor.beam.light.intensity = visible ? FLASHLIGHT_BEAM_INTENSITY : 0;
+        actor.beam.light.intensity = FLASHLIGHT_BEAM_INTENSITY * flashlightFrame.lightStrength;
         if (visible) this.activeFlashlights.push(actor.beam.light);
       }
     }
@@ -413,6 +445,12 @@ export class GameWorld {
         actor.bodyPivot.remove(actor.body);
         actor.body = imported.root;
         actor.bodyPivot.add(imported.root);
+        if (kind === 'child' && actor.flashlight && imported.joints.rightHandSlot) {
+          imported.joints.rightHandSlot.add(actor.flashlight.root);
+          actor.flashlight.root.position.set(0, 0, 0);
+          actor.flashlight.root.quaternion.identity();
+          actor.flashlight.root.scale.setScalar(1);
+        }
       }
     } catch {
       actor.imported = null;
@@ -512,6 +550,7 @@ function createActor(
   root.add(bodyPivot, aimPivot);
   let body: THREE.Object3D;
   let beam: ActorVisual['beam'] = null;
+  let flashlight: ActorVisual['flashlight'] = null;
   let ghostRig: GhostRig | null = null;
   if (kind === 'ghost') {
     const ghost = createGhost(materials);
@@ -536,10 +575,16 @@ function createActor(
     body = mesh;
     bodyPivot.add(mesh);
     if (kind === 'child') {
+      flashlight = createFlashlightProp();
+      flashlight.root.position.set(
+        FLASHLIGHT_ORIGIN_FORWARD - FLASHLIGHT_MUZZLE_OFFSET,
+        FLASHLIGHT_ORIGIN_HEIGHT,
+        0,
+      );
+      aimPivot.add(flashlight.root);
       beam = createBeam(flashlightLength, flashlightConeDegrees);
-      beam.group.position.set(FLASHLIGHT_ORIGIN_FORWARD, FLASHLIGHT_ORIGIN_HEIGHT, 0);
       beam.group.visible = false;
-      aimPivot.add(beam.group);
+      root.add(beam.group);
     }
   }
   const lamp = new THREE.Mesh(
@@ -598,6 +643,8 @@ function createActor(
     lampHalo,
     lampLight,
     beam,
+    flashlight,
+    flashlightPresentation: createFlashlightPresentationState(),
     headlamp: 'off',
     imported: null,
     currentAnimation: 'Idle_A',
@@ -672,6 +719,76 @@ function syncActor(
   actor.lastPosition = { ...position };
   }
   actor.lastUpdateSeconds = elapsedSeconds;
+}
+
+function syncFlashlightPresentation(
+  actor: ActorVisual,
+  requestedOn: boolean,
+  elapsedSeconds: number,
+): { poseProgress: number; lightStrength: number } {
+  if (actor.flashlightPresentation.lastUpdateSeconds === null && requestedOn) {
+    // Reconnects and deterministic fixtures can first materialize while already lit.
+    actor.flashlightPresentation.raiseProgress = 1;
+  }
+  const frame = advanceFlashlightPresentation(
+    actor.flashlightPresentation,
+    requestedOn,
+    elapsedSeconds,
+  );
+  if (actor.imported && actor.kind === 'child') {
+    poseChildFlashlightArm(actor.imported, frame.poseProgress);
+  }
+  if (actor.flashlight) updateFlashlightProp(actor.flashlight, frame.lightStrength);
+  if (actor.flashlight && actor.beam) {
+    syncBeamToFlashlight(actor.root, actor.flashlight, actor.beam);
+  }
+  return frame;
+}
+
+function poseChildFlashlightArm(
+  imported: CharacterAssetInstance,
+  progress: number,
+): void {
+  applyJointRotation(
+    imported.joints.rightUpperArm,
+    FLASHLIGHT_ARM_POSE.upper[0] * progress,
+    FLASHLIGHT_ARM_POSE.upper[1] * progress,
+    FLASHLIGHT_ARM_POSE.upper[2] * progress,
+  );
+  applyJointRotation(
+    imported.joints.rightLowerArm,
+    FLASHLIGHT_ARM_POSE.lower[0] * progress,
+    FLASHLIGHT_ARM_POSE.lower[1] * progress,
+    FLASHLIGHT_ARM_POSE.lower[2] * progress,
+  );
+  applyJointRotation(
+    imported.joints.rightWrist,
+    FLASHLIGHT_ARM_POSE.wrist[0] * progress,
+    FLASHLIGHT_ARM_POSE.wrist[1] * progress,
+    FLASHLIGHT_ARM_POSE.wrist[2] * progress,
+  );
+}
+
+function updateFlashlightProp(flashlight: FlashlightProp, strength: number): void {
+  flashlight.lens.material.color.copy(FLASHLIGHT_LENS_OFF).lerp(FLASHLIGHT_LENS_ON, strength);
+  flashlight.lensHalo.visible = strength > 0.001;
+  flashlight.lensHalo.material.opacity = strength * 0.82;
+  flashlight.lensHalo.scale.setScalar(0.82 + strength * 0.3);
+}
+
+function syncBeamToFlashlight(
+  actorRoot: THREE.Group,
+  flashlight: FlashlightProp,
+  beam: BeamVisual,
+): void {
+  flashlight.muzzle.getWorldPosition(FLASHLIGHT_WORLD_POSITION);
+  flashlight.muzzle.getWorldQuaternion(FLASHLIGHT_WORLD_ROTATION);
+  actorRoot.getWorldQuaternion(FLASHLIGHT_ROOT_ROTATION).invert();
+  actorRoot.worldToLocal(FLASHLIGHT_WORLD_POSITION);
+  beam.group.position.copy(FLASHLIGHT_WORLD_POSITION);
+  beam.group.quaternion.copy(
+    FLASHLIGHT_ROOT_ROTATION.multiply(FLASHLIGHT_WORLD_ROTATION),
+  );
 }
 
 function updateHeadlampSpin(actor: ActorVisual, elapsedSeconds: number): void {
@@ -1232,6 +1349,69 @@ function batteryMeterColor(charge: number): number {
   return 0xe6c965;
 }
 
+function createFlashlightProp(): FlashlightProp {
+  const root = new THREE.Group();
+  root.name = 'child-hand-flashlight';
+  const gripMaterial = new THREE.MeshStandardMaterial({
+    color: 0x171b22,
+    roughness: 0.78,
+    metalness: 0.16,
+  });
+  const casingMaterial = new THREE.MeshStandardMaterial({
+    color: 0xa99b7b,
+    roughness: 0.34,
+    metalness: 0.72,
+  });
+  const grip = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.045, 0.052, 0.24, 8),
+    gripMaterial,
+  );
+  grip.name = 'flashlight-grip';
+  grip.rotation.z = -Math.PI / 2;
+  grip.position.x = 0.075;
+  const casing = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.082, 0.057, 0.14, 10),
+    casingMaterial,
+  );
+  casing.name = 'flashlight-casing';
+  casing.rotation.z = -Math.PI / 2;
+  casing.position.x = 0.245;
+  const bezel = new THREE.Mesh(
+    new THREE.TorusGeometry(0.076, 0.012, 5, 12),
+    casingMaterial,
+  );
+  bezel.name = 'flashlight-bezel';
+  bezel.rotation.y = Math.PI / 2;
+  bezel.position.x = 0.315;
+  const lens = new THREE.Mesh(
+    new THREE.CircleGeometry(0.067, 12),
+    new THREE.MeshBasicMaterial({ color: FLASHLIGHT_LENS_OFF }),
+  );
+  lens.name = 'flashlight-lens';
+  lens.rotation.y = Math.PI / 2;
+  lens.position.x = 0.317;
+  const lensHalo = new THREE.Mesh(
+    new THREE.RingGeometry(0.07, 0.11, 16),
+    new THREE.MeshBasicMaterial({
+      color: FLASHLIGHT_LENS_ON,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    }),
+  );
+  lensHalo.name = 'flashlight-lens-halo';
+  lensHalo.rotation.y = Math.PI / 2;
+  lensHalo.position.x = 0.322;
+  lensHalo.visible = false;
+  const muzzle = new THREE.Object3D();
+  muzzle.name = 'flashlight-muzzle';
+  muzzle.position.x = FLASHLIGHT_MUZZLE_OFFSET;
+  root.add(grip, casing, bezel, lens, lensHalo, muzzle);
+  return { root, muzzle, lens, lensHalo };
+}
+
 function createBeam(length: number, coneDegrees: number): BeamVisual {
   const light = new THREE.SpotLight(
     0xffe4a0,
@@ -1252,6 +1432,7 @@ function createBeam(length: number, coneDegrees: number): BeamVisual {
   light.shadow.normalBias = 0.018;
   light.shadow.radius = 1.2;
   const group = new THREE.Group();
+  group.name = 'flashlight-beam-origin';
   group.add(light, light.target);
   return { group, light, length, coneDegrees };
 }

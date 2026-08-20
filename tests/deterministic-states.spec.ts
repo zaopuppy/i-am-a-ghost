@@ -72,6 +72,121 @@ test('hidden child state does not leak a ghost through browser diagnostics', asy
   expect(JSON.stringify(frame)).not.toContain('"ghost"');
 });
 
+test('child raises a hand-mounted flashlight before its beam ignites at the muzzle', async ({ page }) => {
+  await page.goto('/');
+  const sample = await page.evaluate(async () => {
+    type ChildFrame = {
+      children: Array<{ playerId: string; flashlightOn: boolean }>;
+    };
+    type ActorProbe = {
+      root: {
+        position: { clone(): VectorProbe };
+        updateWorldMatrix(updateParents: boolean, updateChildren: boolean): void;
+      };
+      beam: {
+        group: { visible: boolean };
+        light: WorldObjectProbe & { target: WorldObjectProbe };
+      };
+      flashlight: {
+        root: { parent: { name: string } | null };
+        muzzle: WorldObjectProbe;
+      };
+      flashlightPresentation: { raiseProgress: number };
+    };
+    type VectorProbe = {
+      x: number;
+      y: number;
+      z: number;
+      clone(): VectorProbe;
+      distanceTo(other: VectorProbe): number;
+      normalize(): VectorProbe;
+      sub(other: VectorProbe): VectorProbe;
+      toArray(): number[];
+    };
+    type WorldObjectProbe = {
+      getWorldPosition(target: VectorProbe): VectorProbe;
+    };
+    type WorldProbe = {
+      actors: Map<string, ActorProbe>;
+      sync(frame: unknown, elapsedSeconds: number): void;
+      metrics(): { pendingAssetUpgrades: number };
+      dispose(): void;
+    };
+    const loadModule = (specifier: string): Promise<Record<string, unknown>> => import(specifier);
+    const worldModule = await loadModule('/src/game/GameWorld.ts') as {
+      GameWorld: new () => WorldProbe;
+    };
+    const stateModule = await loadModule('/src/testing/DeterministicStates.ts') as {
+      createDeterministicViewerFrame(state: string, seed: number): ChildFrame;
+    };
+    const world = new worldModule.GameWorld();
+    const frame = stateModule.createDeterministicViewerFrame('child-playing', 71);
+    const child = frame.children[0];
+    child.flashlightOn = false;
+    world.sync(frame, 0);
+    for (let attempts = 0; attempts < 100 && world.metrics().pendingAssetUpgrades > 0; attempts += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    world.sync(frame, 1);
+    const actor = world.actors.get(`child:${child.playerId}`);
+    if (!actor) throw new Error('Child actor was not created.');
+    const beamDirection = (): number[] => {
+      actor.root.updateWorldMatrix(true, true);
+      const origin = actor.root.position.clone();
+      const target = actor.root.position.clone();
+      actor.beam.light.getWorldPosition(origin);
+      actor.beam.light.target.getWorldPosition(target);
+      return target.sub(origin).normalize().toArray();
+    };
+    const offDirection = beamDirection();
+
+    child.flashlightOn = true;
+    world.sync(frame, 1);
+    world.sync(frame, 1.05);
+    world.sync(frame, 1.09);
+    const midwayProgress = actor.flashlightPresentation.raiseProgress;
+    const midwayVisible = actor.beam.group.visible;
+    const midwayDirection = beamDirection();
+    world.sync(frame, 1.12);
+    const ignitionVisible = actor.beam.group.visible;
+    world.sync(frame, 1.15);
+    world.sync(frame, 1.18);
+
+    actor.root.updateWorldMatrix(true, true);
+    const muzzle = actor.root.position.clone();
+    const lightOrigin = actor.root.position.clone();
+    actor.flashlight.muzzle.getWorldPosition(muzzle);
+    actor.beam.light.getWorldPosition(lightOrigin);
+    const result = {
+      mountName: actor.flashlight.root.parent?.name ?? null,
+      offDirection,
+      midwayProgress,
+      midwayVisible,
+      midwayDirection,
+      ignitionVisible,
+      raisedProgress: actor.flashlightPresentation.raiseProgress,
+      raisedDirection: beamDirection(),
+      originDistance: muzzle.distanceTo(lightOrigin),
+    };
+    world.dispose();
+    return result;
+  });
+
+  expect(sample.mountName).toBe('handslotr');
+  expect(sample.offDirection[1]).toBeLessThan(-0.95);
+  expect(sample.midwayProgress).toBeCloseTo(0.5, 5);
+  expect(sample.midwayVisible).toBe(false);
+  expect(sample.midwayDirection[0]).toBeGreaterThan(0.5);
+  expect(sample.midwayDirection[1]).toBeGreaterThan(-0.8);
+  expect(sample.midwayDirection[1]).toBeLessThan(-0.25);
+  expect(sample.ignitionVisible).toBe(true);
+  expect(sample.raisedProgress).toBe(1);
+  expect(sample.raisedDirection[0]).toBeGreaterThan(0.995);
+  expect(Math.abs(sample.raisedDirection[1])).toBeLessThan(0.04);
+  expect(Math.abs(sample.raisedDirection[2])).toBeLessThan(0.04);
+  expect(sample.originDistance).toBeLessThan(1e-6);
+});
+
 test('capture presentation advances from impact through struggle to tightening without wall-clock timing', async ({ page }) => {
   await openState(page, 'capture');
   const samples = await page.evaluate(async () => {

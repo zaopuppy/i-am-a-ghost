@@ -29,6 +29,8 @@ export interface CharacterJoints {
   rightUpperArm: THREE.Object3D | null;
   leftLowerArm: THREE.Object3D | null;
   rightLowerArm: THREE.Object3D | null;
+  rightWrist: THREE.Object3D | null;
+  rightHandSlot: THREE.Object3D | null;
   leftUpperLeg: THREE.Object3D | null;
   rightUpperLeg: THREE.Object3D | null;
   leftLowerLeg: THREE.Object3D | null;
@@ -149,19 +151,20 @@ async function createCharacterAssetInstance(
     rightUpperArm: findObjectByName(scene, 'upperarmr'),
     leftLowerArm: findObjectByName(scene, 'lowerarml'),
     rightLowerArm: findObjectByName(scene, 'lowerarmr'),
+    rightWrist: findObjectByName(scene, 'wristr'),
+    rightHandSlot: findObjectByName(scene, 'handslotr'),
     leftUpperLeg: findObjectByName(scene, 'upperlegl'),
     rightUpperLeg: findObjectByName(scene, 'upperlegr'),
     leftLowerLeg: findObjectByName(scene, 'lowerlegl'),
     rightLowerLeg: findObjectByName(scene, 'lowerlegr'),
   };
-  const jointRestRotations = new Map<THREE.Object3D, THREE.Quaternion>();
-  for (const joint of Object.values(joints)) {
-    if (joint) jointRestRotations.set(joint, joint.quaternion.clone());
-  }
   mixer.update(0);
+  const jointRestRotations = new Map<THREE.Object3D, THREE.Quaternion>();
   const captureJointRotations = new Map<THREE.Object3D, THREE.Quaternion>();
   for (const joint of Object.values(joints)) {
-    if (joint) captureJointRotations.set(joint, joint.quaternion.clone());
+    if (!joint) continue;
+    jointRestRotations.set(joint, joint.quaternion.clone());
+    captureJointRotations.set(joint, joint.quaternion.clone());
   }
   return {
     kind,
