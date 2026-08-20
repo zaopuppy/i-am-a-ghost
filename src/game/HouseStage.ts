@@ -1,14 +1,8 @@
 import * as THREE from 'three';
 import { loadFurnitureLibrary } from '../assets/EnvironmentAssets';
 import type { HouseMaterialKit } from '../assets/MaterialLibrary';
-import {
-  COMPILED_DEFAULT_HOUSE,
-  DEFAULT_HOUSE_MAP,
-  HOUSE_OPENINGS,
-  HOUSE_ROOMS,
-  ROOM_FAMILY_BY_ID,
-  type RoomFamily,
-} from './defaultHouse';
+import { COMPILED_DEFAULT_HOUSE } from './defaultHouse';
+import type { CompiledHouseScene, RoomFamily } from './HouseScene';
 
 const DOOR_HEIGHT = 2.15;
 const POST_SIZE = 0.11;
@@ -21,29 +15,32 @@ export interface HouseStageBuild {
 
 export const HOUSE_FURNITURE_COUNT = COMPILED_DEFAULT_HOUSE.furniture.length;
 
-export function buildHouseStage(materials: HouseMaterialKit): HouseStageBuild {
+export function buildHouseStage(
+  materials: HouseMaterialKit,
+  house: CompiledHouseScene = COMPILED_DEFAULT_HOUSE,
+): HouseStageBuild {
   const root = new THREE.Group();
   root.name = 'house-stage';
-  root.add(buildRoomFloors(materials));
-  root.add(buildRoomInlays(materials));
-  root.add(buildOpenings(materials));
-  root.add(buildWindows(materials));
+  root.add(buildRoomFloors(materials, house));
+  root.add(buildRoomInlays(materials, house));
+  root.add(buildOpenings(materials, house));
+  root.add(buildWindows(materials, house));
   const furniture = new THREE.Group();
   furniture.name = 'room-furniture';
   root.add(furniture);
   return {
     root,
-    ready: populateFurniture(furniture, materials),
-    furnitureCount: COMPILED_DEFAULT_HOUSE.furniture.length,
+    ready: populateFurniture(furniture, materials, house),
+    furnitureCount: house.furniture.length,
   };
 }
 
-function buildRoomFloors(materials: HouseMaterialKit): THREE.Group {
+function buildRoomFloors(materials: HouseMaterialKit, house: CompiledHouseScene): THREE.Group {
   const group = new THREE.Group();
   group.name = 'room-floors';
-  for (const room of HOUSE_ROOMS) {
+  for (const room of house.rooms) {
     const geometry = new THREE.PlaneGeometry(room.width, room.depth);
-    const tile = new THREE.Mesh(geometry, materials.roomFloors[familyOf(room.id)]);
+    const tile = new THREE.Mesh(geometry, materials.roomFloors[room.family]);
     tile.name = `room-floor-${room.id}`;
     tile.rotation.x = -Math.PI / 2;
     tile.position.set(room.center.x, 0.006, room.center.z);
@@ -53,9 +50,9 @@ function buildRoomFloors(materials: HouseMaterialKit): THREE.Group {
   return group;
 }
 
-function buildRoomInlays(materials: HouseMaterialKit): THREE.LineSegments {
+function buildRoomInlays(materials: HouseMaterialKit, house: CompiledHouseScene): THREE.LineSegments {
   const vertices: number[] = [];
-  for (const room of HOUSE_ROOMS) {
+  for (const room of house.rooms) {
     const halfWidth = room.width / 2 - 0.28;
     const halfDepth = room.depth / 2 - 0.28;
     const minX = room.center.x - halfWidth;
@@ -76,13 +73,13 @@ function buildRoomInlays(materials: HouseMaterialKit): THREE.LineSegments {
   return inlays;
 }
 
-function buildOpenings(materials: HouseMaterialKit): THREE.Group {
+function buildOpenings(materials: HouseMaterialKit, house: CompiledHouseScene): THREE.Group {
   const group = new THREE.Group();
   group.name = 'house-openings';
   const postGeometry = new THREE.BoxGeometry(POST_SIZE, DOOR_HEIGHT, POST_SIZE);
   const thresholdGeometry = new THREE.PlaneGeometry(1, 1);
 
-  for (const opening of HOUSE_OPENINGS) {
+  for (const opening of house.openings) {
     const centerX = (opening.minX + opening.maxX) / 2;
     const centerZ = (opening.minZ + opening.maxZ) / 2;
     const width = opening.maxX - opening.minX;
@@ -125,20 +122,22 @@ function buildOpenings(materials: HouseMaterialKit): THREE.Group {
   return group;
 }
 
-function buildWindows(materials: HouseMaterialKit): THREE.Group {
+function buildWindows(materials: HouseMaterialKit, house: CompiledHouseScene): THREE.Group {
   const group = new THREE.Group();
   group.name = 'window-glows';
   const geometry = new THREE.PlaneGeometry(1.35, 1.05);
-  const bounds = DEFAULT_HOUSE_MAP.bounds;
+  const bounds = house.map.bounds;
+  const westEastZ = [mix(bounds.minZ, bounds.maxZ, 0.165), mix(bounds.minZ, bounds.maxZ, 0.835)];
+  const northSouthX = [mix(bounds.minX, bounds.maxX, 0.171875), mix(bounds.minX, bounds.maxX, 0.828125)];
   const windows: Array<{ x: number; z: number; yaw: number }> = [
-    { x: bounds.minX + 0.08, z: -6.7, yaw: Math.PI / 2 },
-    { x: bounds.minX + 0.08, z: 6.7, yaw: Math.PI / 2 },
-    { x: bounds.maxX - 0.08, z: -6.7, yaw: -Math.PI / 2 },
-    { x: bounds.maxX - 0.08, z: 6.7, yaw: -Math.PI / 2 },
-    { x: -10.5, z: bounds.minZ + 0.08, yaw: 0 },
-    { x: 10.5, z: bounds.minZ + 0.08, yaw: 0 },
-    { x: -10.5, z: bounds.maxZ - 0.08, yaw: Math.PI },
-    { x: 10.5, z: bounds.maxZ - 0.08, yaw: Math.PI },
+    { x: bounds.minX + 0.08, z: westEastZ[0], yaw: Math.PI / 2 },
+    { x: bounds.minX + 0.08, z: westEastZ[1], yaw: Math.PI / 2 },
+    { x: bounds.maxX - 0.08, z: westEastZ[0], yaw: -Math.PI / 2 },
+    { x: bounds.maxX - 0.08, z: westEastZ[1], yaw: -Math.PI / 2 },
+    { x: northSouthX[0], z: bounds.minZ + 0.08, yaw: 0 },
+    { x: northSouthX[1], z: bounds.minZ + 0.08, yaw: 0 },
+    { x: northSouthX[0], z: bounds.maxZ - 0.08, yaw: Math.PI },
+    { x: northSouthX[1], z: bounds.maxZ - 0.08, yaw: Math.PI },
   ];
   for (const [index, window] of windows.entries()) {
     const pane = new THREE.Mesh(geometry, materials.windowGlow);
@@ -150,10 +149,14 @@ function buildWindows(materials: HouseMaterialKit): THREE.Group {
   return group;
 }
 
-async function populateFurniture(group: THREE.Group, materials: HouseMaterialKit): Promise<void> {
+async function populateFurniture(
+  group: THREE.Group,
+  materials: HouseMaterialKit,
+  house: CompiledHouseScene,
+): Promise<void> {
   const library = await loadFurnitureLibrary(materials);
-  for (const placement of COMPILED_DEFAULT_HOUSE.furniture) {
-    const root = library.instantiate(placement.asset, familyOf(placement.roomId));
+  for (const placement of house.furniture) {
+    const root = library.instantiate(placement.asset, familyOf(house, placement.roomId));
     root.name = `furniture-${placement.id}`;
     root.position.set(placement.position.x, placement.elevation, placement.position.z);
     root.rotation.y = placement.yawRadians;
@@ -162,6 +165,10 @@ async function populateFurniture(group: THREE.Group, materials: HouseMaterialKit
   }
 }
 
-function familyOf(roomId: string): RoomFamily {
-  return ROOM_FAMILY_BY_ID[roomId] ?? 'old';
+function familyOf(house: CompiledHouseScene, roomId: string): RoomFamily {
+  return house.rooms.find((room) => room.id === roomId)?.family ?? 'old';
+}
+
+function mix(start: number, end: number, ratio: number): number {
+  return start + (end - start) * ratio;
 }

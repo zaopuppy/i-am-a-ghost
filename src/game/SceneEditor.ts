@@ -9,6 +9,7 @@ import {
   batterySpawnSubjectId,
   cloneHouseScene,
   compileHouseScene,
+  createHouseBoundaryWalls,
   FURNITURE_ASSET_IDS,
   FURNITURE_CATALOG,
   GHOST_SPAWN_SUBJECT_ID,
@@ -19,6 +20,11 @@ import {
   type HouseSceneDefinition,
   type HouseSceneIssue,
 } from './HouseScene';
+import {
+  loadHouseSceneDraft,
+  serializeHouseScene,
+  storeHouseSceneDraft,
+} from './HouseSceneDraft';
 import { DEFAULT_HOUSE_SCENE } from './defaultHouseScene';
 import {
   SceneEditorCamera,
@@ -28,9 +34,6 @@ import {
 
 type EditorKind = 'furniture' | 'room' | 'wall' | 'ghost-spawn' | 'battery-spawn';
 type IssueFilter = 'all' | 'error' | 'warning' | 'outside-room';
-const SCENE_DRAFT_STORAGE_KEY = 'i-am-a-ghost:house-scene-draft:v1';
-const LEGACY_DEFAULT_ROOM_WIDTH = 9.3;
-const LEGACY_DEFAULT_ROOM_DEPTH = 5.8;
 
 interface EditorSelection {
   kind: EditorKind;
@@ -92,14 +95,14 @@ export class SceneEditor {
   private frameRequest = 0;
   private issueFilter: IssueFilter = 'all';
   private readonly dismissedIssueKeys = new Set<string>();
-  private history = [serializeScene(this.sceneDefinition)];
+  private history = [serializeHouseScene(this.sceneDefinition)];
   private historyIndex = 0;
 
   constructor(private readonly options: SceneEditorOptions) {
-    const storedDraft = loadStoredDraft();
+    const storedDraft = loadHouseSceneDraft();
     if (storedDraft) {
       this.sceneDefinition = storedDraft;
-      this.history = [serializeScene(storedDraft)];
+      this.history = [serializeHouseScene(storedDraft)];
     }
     this.root.name = 'scene-editor-preview';
     this.structureGroup.name = 'scene-editor-structure';
@@ -341,7 +344,10 @@ export class SceneEditor {
       markSelectable(floor, 'room', room.id);
       this.structureGroup.add(floor);
     }
-    for (const wall of [...this.sceneDefinition.walls, ...boundaryWalls(this.sceneDefinition)]) {
+    for (const wall of [
+      ...this.sceneDefinition.walls,
+      ...createHouseBoundaryWalls(this.sceneDefinition.bounds),
+    ]) {
       const mesh = new THREE.Mesh(
         createWallpaperWallGeometry(wall, 2.8),
         this.materials.wall,
@@ -948,12 +954,12 @@ export class SceneEditor {
   }
 
   private commitHistory(): void {
-    const serialized = serializeScene(this.sceneDefinition);
+    const serialized = serializeHouseScene(this.sceneDefinition);
     if (this.history[this.historyIndex] === serialized) return;
     this.history.splice(this.historyIndex + 1);
     this.history.push(serialized);
     this.historyIndex = this.history.length - 1;
-    storeDraft(this.sceneDefinition);
+    storeHouseSceneDraft(this.sceneDefinition);
     this.renderIssues();
   }
 
@@ -961,7 +967,7 @@ export class SceneEditor {
     if (this.historyIndex <= 0) return;
     this.historyIndex -= 1;
     this.sceneDefinition = JSON.parse(this.history[this.historyIndex]) as HouseSceneDefinition;
-    storeDraft(this.sceneDefinition);
+    storeHouseSceneDraft(this.sceneDefinition);
     this.selection = null;
     this.populatePalette();
     this.renderPreview();
@@ -971,7 +977,7 @@ export class SceneEditor {
     if (this.historyIndex >= this.history.length - 1) return;
     this.historyIndex += 1;
     this.sceneDefinition = JSON.parse(this.history[this.historyIndex]) as HouseSceneDefinition;
-    storeDraft(this.sceneDefinition);
+    storeHouseSceneDraft(this.sceneDefinition);
     this.selection = null;
     this.populatePalette();
     this.renderPreview();
@@ -979,7 +985,7 @@ export class SceneEditor {
 
   private async copyJson(): Promise<void> {
     if (this.issues.some((issue) => issue.severity === 'error')) return;
-    const text = serializeScene(this.sceneDefinition);
+    const text = serializeHouseScene(this.sceneDefinition);
     try {
       await navigator.clipboard.writeText(text);
       this.status.textContent = '已复制到剪贴板';
@@ -995,7 +1001,7 @@ export class SceneEditor {
 
   private downloadJson(): void {
     if (this.issues.some((issue) => issue.severity === 'error')) return;
-    const blob = new Blob([serializeScene(this.sceneDefinition)], { type: 'application/json' });
+    const blob = new Blob([serializeHouseScene(this.sceneDefinition)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
@@ -1013,9 +1019,9 @@ export class SceneEditor {
       if (!isHouseSceneDefinition(parsed)) throw new Error('文件不是受支持的房屋场景。');
       this.sceneDefinition = cloneHouseScene(parsed);
       this.selection = null;
-      this.history = [serializeScene(this.sceneDefinition)];
+      this.history = [serializeHouseScene(this.sceneDefinition)];
       this.historyIndex = 0;
-      storeDraft(this.sceneDefinition);
+      storeHouseSceneDraft(this.sceneDefinition);
       this.populatePalette();
       this.renderPreview();
     } catch (error) {
@@ -1111,7 +1117,7 @@ export class SceneEditor {
         this.addFurniture();
       },
       undo: () => this.undo(),
-      exportJson: () => serializeScene(this.sceneDefinition),
+      exportJson: () => serializeHouseScene(this.sceneDefinition),
       screenPoint: (x, z) => {
         const projected = new THREE.Vector3(x, 0, z).project(this.options.camera);
         const bounds = this.options.canvas.getBoundingClientRect();
@@ -1271,16 +1277,6 @@ function disposeGeneratedGroup(group: THREE.Group, disposeMaterials = true): voi
   }
 }
 
-function boundaryWalls(scene: HouseSceneDefinition): HouseSceneDefinition['walls'] {
-  const { bounds } = scene;
-  return [
-    { id: 'boundary:north', minX: bounds.minX - 0.2, maxX: bounds.maxX + 0.2, minZ: bounds.maxZ - 0.2, maxZ: bounds.maxZ + 0.2 },
-    { id: 'boundary:south', minX: bounds.minX - 0.2, maxX: bounds.maxX + 0.2, minZ: bounds.minZ - 0.2, maxZ: bounds.minZ + 0.2 },
-    { id: 'boundary:west', minX: bounds.minX - 0.2, maxX: bounds.minX + 0.2, minZ: bounds.minZ, maxZ: bounds.maxZ },
-    { id: 'boundary:east', minX: bounds.maxX - 0.2, maxX: bounds.maxX + 0.2, minZ: bounds.minZ, maxZ: bounds.maxZ },
-  ];
-}
-
 function roomAt(rooms: readonly HouseRoomDefinition[], point: { x: number; z: number }): HouseRoomDefinition | undefined {
   return rooms.find((room) =>
     Math.abs(point.x - room.center.x) <= room.width / 2
@@ -1304,10 +1300,6 @@ function resizeWall(wall: HouseSceneDefinition['walls'][number], width: number, 
   wall.maxX = x + width / 2;
   wall.minZ = z - depth / 2;
   wall.maxZ = z + depth / 2;
-}
-
-function serializeScene(scene: HouseSceneDefinition): string {
-  return JSON.stringify(scene, null, 2);
 }
 
 function uniqueId(prefix: string, ids: readonly string[]): string {
@@ -1355,62 +1347,6 @@ function escapeHtml(value: string): string {
     "'": '&#39;',
     '"': '&quot;',
   })[character] ?? character);
-}
-
-function loadStoredDraft(): HouseSceneDefinition | null {
-  try {
-    const serialized = localStorage.getItem(SCENE_DRAFT_STORAGE_KEY);
-    if (!serialized) return null;
-    const parsed = JSON.parse(serialized) as unknown;
-    if (!isHouseSceneDefinition(parsed)) return null;
-    const migrated = migrateLegacyDefaultRoomBounds(parsed);
-    if (serializeScene(migrated) !== serializeScene(parsed)) storeDraft(migrated);
-    return migrated;
-  } catch {
-    return null;
-  }
-}
-
-function migrateLegacyDefaultRoomBounds(source: HouseSceneDefinition): HouseSceneDefinition {
-  const migrated = cloneHouseScene(source);
-  if (migrated.id !== DEFAULT_HOUSE_SCENE.id) return migrated;
-  for (const room of migrated.rooms) {
-    const currentDefault = DEFAULT_HOUSE_SCENE.rooms.find((candidate) => candidate.id === room.id);
-    if (!currentDefault) continue;
-    const legacyCenterX = currentDefault.center.x < 0
-      ? -10.5
-      : currentDefault.center.x > 0
-        ? 10.5
-        : 0;
-    const isLegacyDefault = approximately(room.width, LEGACY_DEFAULT_ROOM_WIDTH)
-      && approximately(room.depth, LEGACY_DEFAULT_ROOM_DEPTH)
-      && approximately(room.center.x, legacyCenterX)
-      && approximately(room.center.z, currentDefault.center.z);
-    if (!isLegacyDefault) continue;
-    const deltaX = room.center.x - currentDefault.center.x;
-    const deltaZ = room.center.z - currentDefault.center.z;
-    for (const placement of migrated.furniture) {
-      if (placement.roomId !== room.id) continue;
-      placement.offsetX += deltaX;
-      placement.offsetZ += deltaZ;
-    }
-    room.center = { ...currentDefault.center };
-    room.width = currentDefault.width;
-    room.depth = currentDefault.depth;
-  }
-  return migrated;
-}
-
-function approximately(left: number, right: number): boolean {
-  return Math.abs(left - right) <= 1e-6;
-}
-
-function storeDraft(scene: HouseSceneDefinition): void {
-  try {
-    localStorage.setItem(SCENE_DRAFT_STORAGE_KEY, serializeScene(scene));
-  } catch {
-    // Private browsing or storage quotas must not prevent editing/export.
-  }
 }
 
 function requireEditorElement<T extends Element>(root: ParentNode, selector: string): T {

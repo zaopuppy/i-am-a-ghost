@@ -18,9 +18,10 @@ import {
   capturePoseWeights,
   clampCaptureHeadPitch,
 } from './CapturePresentation';
-import { DEFAULT_HOUSE_MAP, HOUSE_ROOMS } from './defaultHouse';
+import { COMPILED_DEFAULT_HOUSE } from './defaultHouse';
 import { ghostFadeOpacity } from './GhostPresentation';
 import { buildHouseStage } from './HouseStage';
+import { createHouseBoundaryWalls, type CompiledHouseScene } from './HouseScene';
 import { DEFAULT_GAMEPLAY_TUNING, MATCH_RULES, type HeadlampBand, type Vec2 } from './MatchEngine';
 import {
   advanceChildBodyFacing,
@@ -116,14 +117,6 @@ interface GhostEcho {
   hideAt: number;
 }
 
-const HOUSE_WALLS = [
-  ...DEFAULT_HOUSE_MAP.walls,
-  { id: 'north-boundary', minX: -16.2, maxX: 16.2, minZ: 9.8, maxZ: 10.2 },
-  { id: 'south-boundary', minX: -16.2, maxX: 16.2, minZ: -10.2, maxZ: -9.8 },
-  { id: 'west-boundary', minX: -16.2, maxX: -15.8, minZ: -10, maxZ: 10 },
-  { id: 'east-boundary', minX: 15.8, maxX: 16.2, minZ: -10, maxZ: 10 },
-] as const;
-
 export class GameWorld {
   readonly scene = new THREE.Scene();
   private readonly actors = new Map<string, ActorVisual>();
@@ -136,7 +129,7 @@ export class GameWorld {
   private pendingAssetUpgrades = 0;
   private ghostEcho: GhostEcho | null = null;
 
-  constructor() {
+  constructor(private readonly house: CompiledHouseScene = COMPILED_DEFAULT_HOUSE) {
     this.scene.background = new THREE.Color(0x050608);
     this.scene.fog = new THREE.FogExp2(0x050608, 0.018);
     this.scene.add(new THREE.HemisphereLight(0x69748e, 0x07080a, 0.72));
@@ -291,8 +284,8 @@ export class GameWorld {
     });
     return {
       actors: [...this.actors.values()].filter((actor) => actor.root.visible).length,
-      walls: HOUSE_WALLS.length,
-      rooms: HOUSE_ROOMS.length,
+      walls: this.house.map.walls.length + 4,
+      rooms: this.house.rooms.length,
       beams: [...this.actors.values()].filter((actor) => actor.beam?.group.visible).length,
       visibleObjects,
       materials: materials.size,
@@ -323,15 +316,16 @@ export class GameWorld {
   }
 
   private buildHouse(): void {
-    const width = DEFAULT_HOUSE_MAP.bounds.maxX - DEFAULT_HOUSE_MAP.bounds.minX;
-    const depth = DEFAULT_HOUSE_MAP.bounds.maxZ - DEFAULT_HOUSE_MAP.bounds.minZ;
+    const { bounds } = this.house.map;
+    const width = bounds.maxX - bounds.minX;
+    const depth = bounds.maxZ - bounds.minZ;
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(width, depth), this.materials.floor);
     floor.rotation.x = -Math.PI / 2;
-    floor.position.y = -0.025;
+    floor.position.set((bounds.minX + bounds.maxX) / 2, -0.025, (bounds.minZ + bounds.maxZ) / 2);
     floor.receiveShadow = true;
     this.scene.add(floor);
 
-    const stage = buildHouseStage(this.materials);
+    const stage = buildHouseStage(this.materials, this.house);
     this.scene.add(stage.root);
     this.pendingAssetUpgrades += 1;
     void stage.ready.catch(() => undefined).finally(() => {
@@ -339,7 +333,10 @@ export class GameWorld {
     });
 
     this.walls.name = 'box-walls';
-    for (const wall of HOUSE_WALLS) {
+    for (const wall of [
+      ...this.house.map.walls,
+      ...createHouseBoundaryWalls(this.house.map.bounds),
+    ]) {
       const mesh = new THREE.Mesh(
         createWallpaperWallGeometry(wall, WALL_HEIGHT),
         this.materials.wall,

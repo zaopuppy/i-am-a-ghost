@@ -117,6 +117,17 @@ export interface HouseSceneDefinition {
   batterySpawns: Vec2[];
 }
 
+export function createHouseBoundaryWalls(
+  bounds: MatchMap['bounds'],
+): AxisAlignedRect[] {
+  return [
+    { id: 'boundary:north', minX: bounds.minX - 0.2, maxX: bounds.maxX + 0.2, minZ: bounds.maxZ - 0.2, maxZ: bounds.maxZ + 0.2 },
+    { id: 'boundary:south', minX: bounds.minX - 0.2, maxX: bounds.maxX + 0.2, minZ: bounds.minZ - 0.2, maxZ: bounds.minZ + 0.2 },
+    { id: 'boundary:west', minX: bounds.minX - 0.2, maxX: bounds.minX + 0.2, minZ: bounds.minZ, maxZ: bounds.maxZ },
+    { id: 'boundary:east', minX: bounds.maxX - 0.2, maxX: bounds.maxX + 0.2, minZ: bounds.minZ, maxZ: bounds.maxZ },
+  ];
+}
+
 export function isHouseSceneDefinition(value: unknown): value is HouseSceneDefinition {
   if (!isRecord(value)) return false;
   return value.version === HOUSE_SCENE_VERSION
