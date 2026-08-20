@@ -123,6 +123,8 @@ input { width: 100%; padding: 0 12px; color: #f3f0e8; background: rgb(255 255 25
 .battery-locator {
   --battery-bearing: 0rad;
   position: fixed;
+  top: 0;
+  left: 0;
   z-index: 2;
   display: flex;
   align-items: center;
@@ -130,7 +132,8 @@ input { width: 100%; padding: 0 12px; color: #f3f0e8; background: rgb(255 255 25
   transform: translate(-50%, -50%);
   color: #ead99f;
   filter: drop-shadow(0 5px 13px rgb(0 0 0 / 72%));
-  transition: left 100ms linear, top 100ms linear;
+  transition: transform 100ms linear;
+  will-change: transform;
   animation: battery-locator-pulse 1.8s ease-in-out infinite;
 }
 .battery-locator[data-side="right"] { flex-direction: row-reverse; }

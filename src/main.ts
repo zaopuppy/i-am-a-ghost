@@ -85,6 +85,7 @@ const input = new GameInput();
 const audio = new GameAudio();
 const batteryScreenPoint = new THREE.Vector3();
 const ownScreenPoint = new THREE.Vector3();
+let canvasBounds = canvas.getBoundingClientRect();
 const runtimeTuning = createRuntimeTuning();
 const scenePlaytest = scenePlaytestRole && scenePlaytestHouse
   ? new ScenePlaytest(scenePlaytestHouse.map, scenePlaytestRole, runtimeTuning)
@@ -100,6 +101,8 @@ let lastAudioEvents: typeof client.latestEvents = null;
 let lastActionHeld = false;
 let lastGhostVisible = false;
 let lastGhostBurning = false;
+let lastDiagnosticsSampleAt = Number.NEGATIVE_INFINITY;
+let renderedCaptureCount = -1;
 let debugGui: import('lil-gui').GUI | null = null;
 let debugGuiHidden = false;
 let debugTuningTimer: ReturnType<typeof setTimeout> | null = null;
@@ -204,12 +207,15 @@ const loop = new Loop(
         action: frame.viewerRole === 'child' && actionHeld,
       });
     }
-    updateDiagnostics(frame);
+    updateDiagnostics(frame, elapsedSeconds);
   },
   () => stage.render(world.scene, world.flashlights()),
 );
 
-const resizeObserver = new ResizeObserver(stage.resize);
+const resizeObserver = new ResizeObserver(() => {
+  stage.resize();
+  canvasBounds = canvas.getBoundingClientRect();
+});
 resizeObserver.observe(canvas);
 if (import.meta.env.DEV) {
   const testHooks: NonNullable<typeof window.__THREE_GAME_TEST_HOOKS__> & {
@@ -382,17 +388,20 @@ function renderScenePlaytestState(frame: ViewerFrame): void {
 
 function updateHud(frame: ViewerFrame | null): void {
   if (!frame) {
-    document.documentElement.dataset.captureScare = 'false';
+    setData(document.documentElement, 'captureScare', 'false');
     return;
   }
-  timerLabel.textContent = formatTime(frame.remainingTicks);
-  healthValue.textContent = String(Math.ceil(frame.ghostHealth));
-  healthFill.style.transform = `scaleX(${Math.max(0, frame.ghostHealth / 100)})`;
-  captureMarks.forEach((mark, index) => mark.classList.toggle('filled', index < frame.captureCount));
-  batteryMeter.hidden = frame.viewerRole !== 'child';
+  setText(timerLabel, formatTime(frame.remainingTicks));
+  setText(healthValue, String(Math.ceil(frame.ghostHealth)));
+  setTransform(healthFill, `scaleX(${Math.max(0, frame.ghostHealth / 100)})`);
+  if (renderedCaptureCount !== frame.captureCount) {
+    renderedCaptureCount = frame.captureCount;
+    captureMarks.forEach((mark, index) => mark.classList.toggle('filled', index < frame.captureCount));
+  }
+  setHidden(batteryMeter, frame.viewerRole !== 'child');
   if (frame.viewerRole === 'child') {
-    batteryFill.style.transform = `scaleX(${frame.ownBattery})`;
-    batteryMeter.classList.toggle('low', frame.ownBattery < 0.15);
+    setTransform(batteryFill, `scaleX(${frame.ownBattery})`);
+    setClass(batteryMeter, 'low', frame.ownBattery < 0.15);
   }
   updateBatteryLocator(frame);
   if (frame.phase === 'capture-animation') {
@@ -401,9 +410,9 @@ function updateHud(frame: ViewerFrame | null): void {
   } else if (frame.phase === 'protection') {
     showBanner('保护时间 · 计时暂停', 'safe');
   } else {
-    eventBanner.hidden = true;
+    setHidden(eventBanner, true);
   }
-  document.documentElement.dataset.captureScare = String(isCaptureCinematicViewer(frame));
+  setData(document.documentElement, 'captureScare', String(isCaptureCinematicViewer(frame)));
 }
 
 function updateBatteryLocator(frame: ViewerFrame): void {
@@ -430,13 +439,13 @@ function updateBatteryLocator(frame: ViewerFrame): void {
     && frame.phase !== 'capture-animation'
     && Boolean(battery)
     && Boolean(ownPosition);
-  batteryLocator.hidden = !visible;
+  setHidden(batteryLocator, !visible);
   if (!visible || frame.viewerRole !== 'child' || !battery || !ownPosition) return;
 
   stage.camera.updateMatrixWorld();
   batteryScreenPoint.set(battery.position.x, 0, battery.position.z).project(stage.camera);
   ownScreenPoint.set(ownPosition.x, 0, ownPosition.z).project(stage.camera);
-  const bounds = canvas.getBoundingClientRect();
+  const bounds = canvasBounds;
   const targetX = bounds.left + (batteryScreenPoint.x + 1) * bounds.width * 0.5;
   const targetY = bounds.top + (1 - batteryScreenPoint.y) * bounds.height * 0.5;
   const sourceX = bounds.left + (ownScreenPoint.x + 1) * bounds.width * 0.5;
@@ -460,19 +469,21 @@ function updateBatteryLocator(frame: ViewerFrame): void {
   );
   const distanceText = `${distance < 10 ? distance.toFixed(1) : Math.round(distance)}m`;
 
-  batteryLocator.style.left = `${locatorX}px`;
-  batteryLocator.style.top = `${locatorY}px`;
-  batteryLocator.style.setProperty('--battery-bearing', `${bearingRadians}rad`);
-  batteryLocator.dataset.offscreen = String(!onScreen);
-  batteryLocator.dataset.side = locatorX > bounds.left + bounds.width / 2 ? 'right' : 'left';
-  batteryLocator.setAttribute('aria-label', `备用电池，距离 ${distanceText}`);
-  batteryDistance.textContent = distanceText;
+  setTransform(
+    batteryLocator,
+    `translate3d(${locatorX.toFixed(2)}px, ${locatorY.toFixed(2)}px, 0) translate(-50%, -50%)`,
+  );
+  setStyleProperty(batteryLocator, '--battery-bearing', `${bearingRadians.toFixed(4)}rad`);
+  setData(batteryLocator, 'offscreen', String(!onScreen));
+  setData(batteryLocator, 'side', locatorX > bounds.left + bounds.width / 2 ? 'right' : 'left');
+  setAttribute(batteryLocator, 'aria-label', `备用电池，距离 ${distanceText}`);
+  setText(batteryDistance, distanceText);
 }
 
 function showBanner(text: string, tone: 'danger' | 'safe'): void {
-  eventBanner.textContent = text;
-  eventBanner.dataset.tone = tone;
-  eventBanner.hidden = false;
+  setText(eventBanner, text);
+  setData(eventBanner, 'tone', tone);
+  setHidden(eventBanner, false);
 }
 
 function updateCamera(frame: ViewerFrame | null, deltaSeconds: number, immediate = false): void {
@@ -845,7 +856,22 @@ function setDebugUiHidden(hidden: boolean): void {
   if (debugGui) debugGui.domElement.style.display = hidden ? 'none' : '';
 }
 
-function updateDiagnostics(frame: ViewerFrame | null): void {
+function updateDiagnostics(frame: ViewerFrame | null, elapsedSeconds: number): void {
+  const current = window.__THREE_GAME_DIAGNOSTICS__;
+  if (current) {
+    current.frame = renderFrame;
+    current.fps = measuredFps;
+    current.matchPhase = frame?.phase ?? null;
+    current.role = frame?.viewerRole ?? null;
+    current.serverTick = frame?.tick ?? null;
+    current.ackSeq = client.latestFrame?.ackSeq ?? null;
+    current.ownPosition = frame ? ownActorPosition(frame) : null;
+    current.viewerFrame = frame;
+    current.capturedChildPlayerId = frame?.capture?.childPlayerId ?? null;
+    current.input.actionHeld = input.actionHeld();
+  }
+  if (elapsedSeconds - lastDiagnosticsSampleAt < 0.25) return;
+  lastDiagnosticsSampleAt = elapsedSeconds;
   const network = client.networkStats();
   const presentation = presenter.stats();
   const camera = cameraRig.snapshot();
@@ -910,7 +936,35 @@ function refreshInfiniteResourceToggleLabels(): void {
 
 function updateFpsLabel(): void {
   const text = `${measuredFps} FPS`;
-  if (fpsLabel.textContent !== text) fpsLabel.textContent = text;
+  setText(fpsLabel, text);
+}
+
+function setText(element: Node, value: string): void {
+  if (element.textContent !== value) element.textContent = value;
+}
+
+function setHidden(element: HTMLElement, hidden: boolean): void {
+  if (element.hidden !== hidden) element.hidden = hidden;
+}
+
+function setTransform(element: HTMLElement, value: string): void {
+  if (element.style.transform !== value) element.style.transform = value;
+}
+
+function setStyleProperty(element: HTMLElement, name: string, value: string): void {
+  if (element.style.getPropertyValue(name) !== value) element.style.setProperty(name, value);
+}
+
+function setData(element: HTMLElement, name: string, value: string): void {
+  if (element.dataset[name] !== value) element.dataset[name] = value;
+}
+
+function setAttribute(element: HTMLElement, name: string, value: string): void {
+  if (element.getAttribute(name) !== value) element.setAttribute(name, value);
+}
+
+function setClass(element: HTMLElement, name: string, enabled: boolean): void {
+  if (element.classList.contains(name) !== enabled) element.classList.toggle(name, enabled);
 }
 
 function formatTime(ticks: number): string {
