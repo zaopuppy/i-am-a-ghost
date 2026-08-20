@@ -64,4 +64,10 @@ export interface ChildViewerFrame extends SharedMatchFrame {
   battery?: VisibleBattery;
 }
 
+/**
+ * FramePresenter stores ViewerFrame values as immutable authority snapshots.
+ * When adding an object, array, or other mutable nested field, update the
+ * clone contract in FramePresenter and its authority-snapshot isolation test.
+ * Only primitive values may be shared without an explicit clone decision.
+ */
 export type ViewerFrame = GhostViewerFrame | ChildViewerFrame;

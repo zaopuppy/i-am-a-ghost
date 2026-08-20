@@ -6,7 +6,16 @@ import {
   type GameplayTuning,
   type Vec2,
 } from '../game/MatchEngine';
-import type { ViewerFrame, VisibleBattery, VisibleGhost } from '../game/ViewerFrame';
+import type {
+  ChildViewerFrame,
+  GhostViewerFrame,
+  SharedMatchFrame,
+  ViewerFrame,
+  VisibleBattery,
+  VisibleChild,
+  VisibleDoll,
+  VisibleGhost,
+} from '../game/ViewerFrame';
 
 export interface PresentationStats {
   corrections: number;
@@ -25,6 +34,91 @@ const REMOTE_CATCHUP_GAIN = 0.25;
 const SOFT_CORRECTION_DISTANCE = 0.35;
 const HARD_CORRECTION_DISTANCE = 1.25;
 const SOFT_CORRECTION_RATIO = 0.35;
+
+type Primitive = string | number | boolean | bigint | symbol | null | undefined;
+type CloneMode<Value> = Exclude<Value, null | undefined> extends Primitive ? 'value' : 'clone';
+type ClonePolicy<Shape> = { [Key in keyof Shape]-?: CloneMode<Shape[Key]> };
+type CaptureFrame = NonNullable<SharedMatchFrame['capture']>;
+
+// Compile-time only: `satisfies` turns every ViewerFrame schema change into a clone decision.
+void ({
+  childFrame: {
+    tick: 'value',
+    phase: 'value',
+    winner: 'value',
+    remainingTicks: 'value',
+    captureCount: 'value',
+    ghostHealth: 'value',
+    capture: 'clone',
+    viewerRole: 'value',
+    viewerPlayerId: 'value',
+    ownBattery: 'value',
+    children: 'clone',
+    dolls: 'clone',
+    batteries: 'clone',
+    ghost: 'clone',
+    battery: 'clone',
+  },
+  ghostFrame: {
+    tick: 'value',
+    phase: 'value',
+    winner: 'value',
+    remainingTicks: 'value',
+    captureCount: 'value',
+    ghostHealth: 'value',
+    capture: 'clone',
+    viewerRole: 'value',
+    viewerPlayerId: 'value',
+    ghost: 'clone',
+    children: 'clone',
+    dolls: 'clone',
+    batteries: 'clone',
+    battery: 'clone',
+  },
+  child: {
+    playerId: 'value',
+    slot: 'value',
+    position: 'clone',
+    facingRadians: 'value',
+    headlamp: 'value',
+    flashlightOn: 'value',
+    batteryCharge: 'value',
+  },
+  doll: {
+    dollId: 'value',
+    slot: 'value',
+    position: 'clone',
+    headlamp: 'value',
+  },
+  ghost: {
+    position: 'clone',
+    facingRadians: 'value',
+    burning: 'value',
+    burnTicksRemaining: 'value',
+  },
+  battery: {
+    batteryId: 'value',
+    position: 'clone',
+  },
+  capture: {
+    childPlayerId: 'value',
+    ticksRemaining: 'value',
+    durationTicks: 'value',
+  },
+  position: {
+    x: 'value',
+    z: 'value',
+  },
+} as const satisfies {
+  childFrame: ClonePolicy<ChildViewerFrame>;
+  ghostFrame: ClonePolicy<GhostViewerFrame>;
+  child: ClonePolicy<VisibleChild>;
+  doll: ClonePolicy<VisibleDoll>;
+  ghost: ClonePolicy<VisibleGhost>;
+  battery: ClonePolicy<VisibleBattery>;
+  capture: ClonePolicy<CaptureFrame>;
+  position: ClonePolicy<Vec2>;
+});
 
 export class FramePresenter {
   private matchId: string | null = null;
@@ -77,7 +171,7 @@ export class FramePresenter {
       }
     }
 
-    const snapshot = cloneFrame(frame);
+    const snapshot = cloneAuthorityFrame(frame);
     this.current = snapshot;
     this.bufferedFrames.push(snapshot);
     if (this.bufferedFrames.length > MAX_BUFFERED_FRAMES) {
@@ -130,7 +224,7 @@ export class FramePresenter {
 
   reset(matchId: string, frame: ViewerFrame): void {
     this.matchId = matchId;
-    this.current = cloneFrame(frame);
+    this.current = cloneAuthorityFrame(frame);
     this.bufferedFrames = [this.current];
     this.presentationTick = frame.tick;
     this.playbackStarted = false;
@@ -294,6 +388,18 @@ function cloneFrame<T extends ViewerFrame>(frame: T): T {
       ? { battery: cloneSelectedBattery(frame.battery, frame.batteries, batteries) }
       : {}),
   } as T;
+}
+
+function cloneAuthorityFrame<T extends ViewerFrame>(frame: T): T {
+  const snapshot = cloneFrame(frame);
+  return import.meta.env?.DEV ? deepFreeze(snapshot) : snapshot;
+}
+
+function deepFreeze<T>(value: T, seen = new WeakSet<object>()): T {
+  if (value === null || typeof value !== 'object' || seen.has(value)) return value;
+  seen.add(value);
+  for (const nested of Object.values(value)) deepFreeze(nested, seen);
+  return Object.freeze(value);
 }
 
 function cloneGhost(ghost: VisibleGhost): VisibleGhost {

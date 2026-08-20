@@ -149,11 +149,13 @@ test('presentation frames cannot mutate buffered authority snapshots', () => {
     burnTicksRemaining: 18,
   };
   const sourceBeforePresentation = structuredClone(source);
+  deepFreeze(source);
   const presenter = new FramePresenter();
   presenter.ingest('match', source);
 
   const presented = presenter.present(0, { x: 0, z: 0 });
   assert.ok(presented?.viewerRole === 'child');
+  assertNoSharedObjectReferences(source, presented);
   presented.children[0].position.x = 999;
   presented.children.push({
     playerId: 'intruder',
@@ -174,6 +176,36 @@ test('presentation frames cannot mutate buffered authority snapshots', () => {
   const replayed = presenter.present(0, { x: 0, z: 0 });
   assert.deepEqual(replayed, sourceBeforePresentation);
 });
+
+function deepFreeze<T>(value: T, seen = new WeakSet<object>()): T {
+  if (value === null || typeof value !== 'object' || seen.has(value)) return value;
+  seen.add(value);
+  for (const nested of Object.values(value)) deepFreeze(nested, seen);
+  return Object.freeze(value);
+}
+
+function assertNoSharedObjectReferences(source: object, candidate: object): void {
+  const sourceObjects = collectObjects(source);
+  const visited = new WeakSet<object>();
+  const visit = (value: unknown, path: string): void => {
+    if (value === null || typeof value !== 'object' || visited.has(value)) return;
+    assert.ok(!sourceObjects.has(value), `presentation shares authority object at ${path}`);
+    visited.add(value);
+    for (const [key, nested] of Object.entries(value)) visit(nested, `${path}.${key}`);
+  };
+  visit(candidate, 'frame');
+}
+
+function collectObjects(root: object): WeakSet<object> {
+  const objects = new WeakSet<object>();
+  const visit = (value: unknown): void => {
+    if (value === null || typeof value !== 'object' || objects.has(value)) return;
+    objects.add(value);
+    for (const nested of Object.values(value)) visit(nested);
+  };
+  visit(root);
+  return objects;
+}
 
 function childFrame(tick: number, ownX: number, remoteX: number): ChildViewerFrame {
   return {
