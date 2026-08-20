@@ -97,7 +97,7 @@ declare global {
     };
     __HOUSE_SCENE_EDITOR__?: {
       snapshot(): SceneEditorSnapshot;
-      select(kind: 'furniture' | 'room' | 'wall', id: string): void;
+      select(kind: 'furniture' | 'room' | 'wall' | 'ghost-spawn' | 'battery-spawn', id: string): void;
       moveSelected(x: number, z: number): void;
       rotateSelected(degrees: number): void;
       addFurniture(asset: FurnitureAssetId, roomId: string): void;

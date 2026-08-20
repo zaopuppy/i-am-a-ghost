@@ -2,10 +2,12 @@ import * as THREE from 'three';
 import { loadFurnitureLibrary, type FurnitureLibrary } from '../assets/EnvironmentAssets';
 import { createHouseMaterialKit, type HouseMaterialKit } from '../assets/MaterialLibrary';
 import {
+  batterySpawnSubjectId,
   cloneHouseScene,
   compileHouseScene,
   FURNITURE_ASSET_IDS,
   FURNITURE_CATALOG,
+  GHOST_SPAWN_SUBJECT_ID,
   isHouseSceneDefinition,
   type FurnitureAssetId,
   type FurniturePlacement,
@@ -20,7 +22,7 @@ import {
   type SceneEditorViewportMode,
 } from './SceneEditorCamera';
 
-type EditorKind = 'furniture' | 'room' | 'wall';
+type EditorKind = 'furniture' | 'room' | 'wall' | 'ghost-spawn' | 'battery-spawn';
 type IssueFilter = 'all' | 'error' | 'warning' | 'outside-room';
 const SCENE_DRAFT_STORAGE_KEY = 'i-am-a-ghost:house-scene-draft:v1';
 const LEGACY_DEFAULT_ROOM_WIDTH = 9.3;
@@ -191,7 +193,7 @@ export class SceneEditor {
           </div>
           <button type="button" class="scene-editor__collapse" data-editor-collapse aria-label="收起面板" aria-expanded="true" title="收起面板">‹</button>
         </div>
-        <p>拖动画布中的家具、房间或墙体。橙色区域必须保持畅通。</p>
+        <p>拖动画布中的家具、房间、墙体或出生/刷新点。橙色区域必须保持畅通。</p>
       </header>
       <section class="scene-editor__section scene-editor__palette">
         <label>目标房间<select data-editor-room></select></label>
@@ -210,9 +212,9 @@ export class SceneEditor {
           <button type="button" data-editor-frame-house>适配全屋</button>
         </div>
         <p class="scene-editor__camera-help">右键旋转 · 中键平移 · 滚轮缩放；漫游模式下左键也可平移。</p>
-        <p class="scene-editor__overlay-legend"><i data-mark="room"></i>房间范围 <i data-mark="collider"></i>家具碰撞 <i data-mark="safety"></i>安全区</p>
+        <p class="scene-editor__overlay-legend"><i data-mark="room"></i>房间 <i data-mark="collider"></i>碰撞 <i data-mark="safety"></i>门洞 <i data-mark="ghost"></i>鬼 <i data-mark="battery"></i>电池</p>
         <label><input type="checkbox" data-editor-colliders checked> 显示碰撞脚印</label>
-        <label><input type="checkbox" data-editor-safety checked> 显示门洞与出生安全区</label>
+        <label><input type="checkbox" data-editor-safety checked> 显示门洞与出生/刷新点</label>
         <label>网格吸附
           <select data-editor-snap>
             <option value="0.1">0.1m</option>
@@ -416,19 +418,25 @@ export class SceneEditor {
       for (const clearance of compiled.doorClearances) {
         this.overlayGroup.add(footprintMesh(clearance, 0xf29d49, 0.2, 0.075));
       }
-      const spawnGeometry = new THREE.RingGeometry(0.44, 0.56, 24);
-      for (const [index, spawn] of [compiled.map.ghostSpawn, ...compiled.map.childSpawns].entries()) {
-        const marker = new THREE.Mesh(
-          spawnGeometry,
-          new THREE.MeshBasicMaterial({
-            color: index === 0 ? 0xb995e8 : 0x85cba6,
-            transparent: true,
-            opacity: 0.72,
-            depthWrite: false,
-          }),
-        );
-        marker.rotation.x = -Math.PI / 2;
-        marker.position.set(spawn.x, 0.085, spawn.z);
+      const ghostMarker = spawnPointMarker(
+        compiled.map.ghostSpawn,
+        'ghost',
+        this.selection?.kind === 'ghost-spawn',
+      );
+      ghostMarker.name = 'editor-ghost-spawn';
+      markSelectable(ghostMarker, 'ghost-spawn', GHOST_SPAWN_SUBJECT_ID);
+      this.overlayGroup.add(ghostMarker);
+      for (const [index, spawn] of compiled.map.childSpawns.entries()) {
+        const marker = spawnPointMarker(spawn, 'child', false);
+        marker.name = `editor-child-spawn-${index + 1}`;
+        this.overlayGroup.add(marker);
+      }
+      for (const [index, spawn] of compiled.map.batterySpawns.entries()) {
+        const id = batterySpawnSubjectId(index);
+        const selected = this.selection?.kind === 'battery-spawn' && this.selection.id === id;
+        const marker = spawnPointMarker(spawn, 'battery', selected);
+        marker.name = `editor-${id}`;
+        markSelectable(marker, 'battery-spawn', id);
         this.overlayGroup.add(marker);
       }
     }
@@ -450,11 +458,14 @@ export class SceneEditor {
   }
 
   private renderInspector(): void {
+    this.button('[data-editor-delete]').disabled = !this.selection
+      || this.selection.kind === 'ghost-spawn'
+      || this.selection.kind === 'battery-spawn';
     if (!this.selection) {
       this.inspector.innerHTML = `
         <div class="scene-editor__empty">
           <span>尚未选择</span>
-          <p>从画布选择家具、房间地面或墙段。拖动即可移动。</p>
+          <p>从画布选择家具、房间、墙段、鬼出生点或电池刷新点。拖动即可移动。</p>
         </div>
       `;
       return;
@@ -462,6 +473,8 @@ export class SceneEditor {
     if (this.selection.kind === 'furniture') this.renderFurnitureInspector();
     if (this.selection.kind === 'room') this.renderRoomInspector();
     if (this.selection.kind === 'wall') this.renderWallInspector();
+    if (this.selection.kind === 'ghost-spawn') this.renderGhostSpawnInspector();
+    if (this.selection.kind === 'battery-spawn') this.renderBatterySpawnInspector();
   }
 
   private renderFurnitureInspector(): void {
@@ -560,6 +573,45 @@ export class SceneEditor {
     this.bindInspectorNumber('depth', (value) => resizeWall(wall, wall.maxX - wall.minX, Math.max(0.1, value)));
   }
 
+  private renderGhostSpawnInspector(): void {
+    this.renderSpawnInspector(
+      '鬼出生点',
+      GHOST_SPAWN_SUBJECT_ID,
+      this.sceneDefinition.ghostSpawn,
+      '紫色鬼脸环；每局开始和重置后，鬼会回到这里。',
+    );
+  }
+
+  private renderBatterySpawnInspector(): void {
+    const index = this.selectedBatterySpawnIndex();
+    const spawn = index >= 0 ? this.sceneDefinition.batterySpawns[index] : undefined;
+    if (!spawn) return;
+    this.renderSpawnInspector(
+      `电池刷新点 #${index + 1}`,
+      batterySpawnSubjectId(index),
+      spawn,
+      '黄色电池环；这是随机生成电池时使用的候选位置。',
+    );
+  }
+
+  private renderSpawnInspector(
+    title: string,
+    id: string,
+    spawn: { x: number; z: number },
+    description: string,
+  ): void {
+    this.inspector.innerHTML = `
+      <div class="scene-editor__section-title"><span>${title}</span><code>${escapeHtml(id)}</code></div>
+      <div class="scene-editor__grid">
+        ${numberField('世界 X', 'x', spawn.x, 0.1)}
+        ${numberField('世界 Z', 'z', spawn.z, 0.1)}
+      </div>
+      <p class="scene-editor__point-note">${description} 可拖动或输入坐标，但不能删除。</p>
+    `;
+    this.bindInspectorNumber('x', (value) => { spawn.x = value; });
+    this.bindInspectorNumber('z', (value) => { spawn.z = value; });
+  }
+
   private renderIssues(): void {
     const errors = this.issues.filter((issue) => issue.severity === 'error').length;
     const warnings = this.issues.length - errors;
@@ -623,6 +675,11 @@ export class SceneEditor {
   }
 
   private issueSubjectLabel(issue: HouseSceneIssue): string {
+    if (issue.subjectId === GHOST_SPAWN_SUBJECT_ID) return '鬼出生点';
+    const batteryIndex = this.sceneDefinition.batterySpawns.findIndex((_, index) =>
+      batterySpawnSubjectId(index) === issue.subjectId,
+    );
+    if (batteryIndex >= 0) return `电池刷新点 #${batteryIndex + 1}`;
     const furniture = this.sceneDefinition.furniture.find((item) => item.id === issue.subjectId);
     if (!furniture) return issue.subjectId;
     return `${FURNITURE_CATALOG[furniture.asset]?.label ?? furniture.asset} · ${furniture.id}`;
@@ -732,14 +789,16 @@ export class SceneEditor {
 
   private pick(event: PointerEvent): EditorSelection | null {
     this.updateRay(event);
-    const hits = this.raycaster.intersectObjects([this.furnitureGroup, this.structureGroup], true);
-    for (const hit of hits) {
-      let object: THREE.Object3D | null = hit.object;
-      while (object && object !== this.root) {
-        const kind = object.userData.editorKind as EditorKind | undefined;
-        const id = object.userData.editorId as string | undefined;
-        if (kind && id) return { kind, id };
-        object = object.parent;
+    for (const group of [this.overlayGroup, this.furnitureGroup, this.structureGroup]) {
+      const hits = this.raycaster.intersectObjects(group.children, true);
+      for (const hit of hits) {
+        let object: THREE.Object3D | null = hit.object;
+        while (object && object !== this.root) {
+          const kind = object.userData.editorKind as EditorKind | undefined;
+          const id = object.userData.editorId as string | undefined;
+          if (kind && id) return { kind, id };
+          object = object.parent;
+        }
       }
     }
     return null;
@@ -791,6 +850,14 @@ export class SceneEditor {
       const wall = this.selectedWall();
       if (!wall) return;
       moveWall(wall, x, z);
+    } else if (this.selection?.kind === 'ghost-spawn') {
+      this.sceneDefinition.ghostSpawn.x = x;
+      this.sceneDefinition.ghostSpawn.z = z;
+    } else if (this.selection?.kind === 'battery-spawn') {
+      const spawn = this.selectedBatterySpawn();
+      if (!spawn) return;
+      spawn.x = x;
+      spawn.z = z;
     }
     this.renderPreview();
   }
@@ -848,8 +915,10 @@ export class SceneEditor {
       const roomId = this.selection.id;
       this.sceneDefinition.rooms = this.sceneDefinition.rooms.filter((room) => room.id !== roomId);
       this.sceneDefinition.furniture = this.sceneDefinition.furniture.filter((item) => item.roomId !== roomId);
-    } else {
+    } else if (this.selection.kind === 'wall') {
       this.sceneDefinition.walls = this.sceneDefinition.walls.filter((wall) => wall.id !== this.selection?.id);
+    } else {
+      return;
     }
     this.selection = null;
     this.populatePalette();
@@ -962,6 +1031,8 @@ export class SceneEditor {
         : null;
     }
     if (this.selection?.kind === 'room') return this.selectedRoom()?.center ?? null;
+    if (this.selection?.kind === 'ghost-spawn') return this.sceneDefinition.ghostSpawn;
+    if (this.selection?.kind === 'battery-spawn') return this.selectedBatterySpawn() ?? null;
     const wall = this.selectedWall();
     return wall ? { x: (wall.minX + wall.maxX) / 2, z: (wall.minZ + wall.maxZ) / 2 } : null;
   }
@@ -984,7 +1055,23 @@ export class SceneEditor {
       : undefined;
   }
 
+  private selectedBatterySpawnIndex(): number {
+    if (this.selection?.kind !== 'battery-spawn') return -1;
+    return this.sceneDefinition.batterySpawns.findIndex((_, index) =>
+      batterySpawnSubjectId(index) === this.selection?.id,
+    );
+  }
+
+  private selectedBatterySpawn(): { x: number; z: number } | undefined {
+    const index = this.selectedBatterySpawnIndex();
+    return index >= 0 ? this.sceneDefinition.batterySpawns[index] : undefined;
+  }
+
   private kindForSubject(id: string): EditorKind | null {
+    if (id === GHOST_SPAWN_SUBJECT_ID) return 'ghost-spawn';
+    if (this.sceneDefinition.batterySpawns.some((_, index) => batterySpawnSubjectId(index) === id)) {
+      return 'battery-spawn';
+    }
     if (this.sceneDefinition.furniture.some((item) => item.id === id)) return 'furniture';
     if (this.sceneDefinition.rooms.some((room) => room.id === id)) return 'room';
     if (this.sceneDefinition.walls.some((wall) => wall.id === id)) return 'wall';
@@ -1039,6 +1126,81 @@ function markSelectable(root: THREE.Object3D, kind: EditorKind, id: string): voi
   root.traverse((object) => {
     object.userData.editorKind = kind;
     object.userData.editorId = id;
+  });
+}
+
+function spawnPointMarker(
+  position: { x: number; z: number },
+  kind: 'ghost' | 'child' | 'battery',
+  selected: boolean,
+): THREE.Group {
+  const colors = kind === 'ghost'
+    ? { fill: 0xb995e8, edge: 0xe6d5ff }
+    : kind === 'battery'
+      ? { fill: 0xf4c95d, edge: 0xffe49a }
+      : { fill: 0x85cba6, edge: 0xb8efd0 };
+  const group = new THREE.Group();
+  group.position.set(position.x, 0, position.z);
+  group.scale.setScalar(selected ? 1.22 : 1);
+
+  const disc = new THREE.Mesh(
+    new THREE.CircleGeometry(kind === 'child' ? 0.33 : 0.43, 24),
+    markerMaterial(colors.fill, selected ? 0.58 : 0.36),
+  );
+  disc.rotation.x = -Math.PI / 2;
+  disc.position.y = 0.13;
+  disc.renderOrder = 30;
+  group.add(disc);
+
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(kind === 'child' ? 0.42 : 0.5, kind === 'child' ? 0.52 : 0.63, 28),
+    markerMaterial(selected ? 0xfff1b8 : colors.edge, selected ? 1 : 0.82),
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.14;
+  ring.renderOrder = 31;
+  group.add(ring);
+
+  if (kind === 'ghost') addGhostGlyph(group);
+  if (kind === 'battery') addBatteryGlyph(group);
+  return group;
+}
+
+function addGhostGlyph(group: THREE.Group): void {
+  for (const x of [-0.1, 0.1]) {
+    const eye = new THREE.Mesh(
+      new THREE.BoxGeometry(0.07, 0.025, 0.09),
+      markerMaterial(0x382745, 0.95),
+    );
+    eye.position.set(x, 0.16, -0.03);
+    eye.renderOrder = 32;
+    group.add(eye);
+  }
+}
+
+function addBatteryGlyph(group: THREE.Group): void {
+  const body = new THREE.Mesh(
+    new THREE.BoxGeometry(0.44, 0.035, 0.27),
+    markerMaterial(0x3f3214, 0.9),
+  );
+  body.position.y = 0.16;
+  body.renderOrder = 32;
+  const terminal = new THREE.Mesh(
+    new THREE.BoxGeometry(0.1, 0.04, 0.11),
+    markerMaterial(0x3f3214, 0.9),
+  );
+  terminal.position.set(0.27, 0.16, 0);
+  terminal.renderOrder = 32;
+  group.add(body, terminal);
+}
+
+function markerMaterial(color: number, opacity: number): THREE.MeshBasicMaterial {
+  return new THREE.MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity,
+    depthTest: false,
+    depthWrite: false,
   });
 }
 

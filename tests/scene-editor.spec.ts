@@ -27,6 +27,46 @@ test('the developer scene editor edits furniture, rooms, and walls with live val
   expect(baseline?.errors).toBe(0);
   expect(baseline?.movementColliderCount).toBe(22);
 
+  const ghostDragPoints = await page.evaluate(() => ({
+    from: window.__HOUSE_SCENE_EDITOR__?.screenPoint(0, 0),
+    to: window.__HOUSE_SCENE_EDITOR__?.screenPoint(0.6, 0),
+  }));
+  await page.mouse.move(ghostDragPoints.from!.x, ghostDragPoints.from!.y);
+  await page.mouse.down();
+  await page.mouse.move(ghostDragPoints.to!.x, ghostDragPoints.to!.y, { steps: 6 });
+  await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.snapshot().scene.ghostSpawn.x ?? 0))
+    .toBeCloseTo(0.6, 1);
+  await expect.poll(() => page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.snapshot().selection?.kind))
+    .toBe('ghost-spawn');
+  await page.locator('[data-editor-undo]').click();
+
+  const batteryDragPoints = await page.evaluate(() => ({
+    from: window.__HOUSE_SCENE_EDITOR__?.screenPoint(-13, 0),
+    to: window.__HOUSE_SCENE_EDITOR__?.screenPoint(-12.5, 0),
+  }));
+  await page.mouse.move(batteryDragPoints.from!.x, batteryDragPoints.from!.y);
+  await page.mouse.down();
+  await page.mouse.move(batteryDragPoints.to!.x, batteryDragPoints.to!.y, { steps: 6 });
+  await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.snapshot().scene.batterySpawns[0].x ?? 0))
+    .toBeCloseTo(-12.5, 1);
+  await expect.poll(() => page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.snapshot().selection?.kind))
+    .toBe('battery-spawn');
+  await page.locator('[data-editor-undo]').click();
+
+  await page.evaluate(() => {
+    window.__HOUSE_SCENE_EDITOR__?.select('ghost-spawn', 'ghost-spawn');
+    window.__HOUSE_SCENE_EDITOR__?.moveSelected(-5, -8);
+  });
+  const blockedGhostIssue = page.locator(
+    '[data-editor-issues] li[data-code="spawn-blocked"][data-subject-id="ghost-spawn"]',
+  );
+  await expect(blockedGhostIssue).toBeVisible();
+  await expect(blockedGhostIssue).toContainText('鬼出生点');
+  await page.locator('[data-editor-undo]').click();
+  await page.locator('[data-editor-frame-house]').click();
+
   const dragPoints = await page.evaluate(() => ({
     from: window.__HOUSE_SCENE_EDITOR__?.screenPoint(-10.5, -8),
     to: window.__HOUSE_SCENE_EDITOR__?.screenPoint(-9.8, -8),

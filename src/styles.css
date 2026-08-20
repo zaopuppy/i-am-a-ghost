@@ -309,12 +309,15 @@ input { width: 100%; padding: 0 12px; color: #f3f0e8; background: rgb(255 255 25
   background: linear-gradient(#f1c778, #d8a64f);
 }
 .scene-editor__camera-help { margin: 0 0 12px; color: #607b76; font: 9px/1.55 monospace; }
-.scene-editor__overlay-legend { display: flex; align-items: center; gap: 5px; margin: 0 0 12px; color: #78928e; font-size: 9px; }
+.scene-editor__overlay-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin: 0 0 12px; color: #78928e; font-size: 9px; }
 .scene-editor__overlay-legend i { display: inline-block; width: 11px; height: 7px; margin-left: 4px; border: 1px solid currentcolor; }
 .scene-editor__overlay-legend i:first-child { margin-left: 0; }
 .scene-editor__overlay-legend i[data-mark="room"] { color: #54aaa3; background: transparent; }
 .scene-editor__overlay-legend i[data-mark="collider"] { border-color: #67c8b4; background: rgb(85 199 176 / 42%); }
 .scene-editor__overlay-legend i[data-mark="safety"] { border-color: #f29d49; background: rgb(242 157 73 / 38%); }
+.scene-editor__overlay-legend i[data-mark="ghost"] { width: 9px; height: 9px; border-color: #e6d5ff; border-radius: 50%; background: rgb(185 149 232 / 56%); }
+.scene-editor__overlay-legend i[data-mark="battery"] { width: 12px; height: 8px; border-color: #ffe49a; border-radius: 2px; background: rgb(244 201 93 / 62%); }
+.scene-editor__point-note { margin: 10px 0 0; color: #607b76; font: 9px/1.55 monospace; }
 
 .scene-editor__palette { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
 .scene-editor__palette .scene-editor__actions { grid-column: 1 / -1; }
