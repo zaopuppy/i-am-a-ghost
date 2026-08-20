@@ -271,7 +271,9 @@ XComponent 应只在 ArkWeb 真机验证失败后进入讨论。它能换来更�
 
 本轮接受明文只适用于当前原型，不能被后续 ADR 继承为生产安全结论。
 
-## 9. 必须先做的时间盒原型（仍未授权执行）
+## 9. 必须先做的时间盒原型（已授权，执行中）
+
+2026-08-21 已完成 H1/H2 的首个真机切片：HAP 包内 ArkWeb 资源、WebGL2、同步原生桥、前台 TCP listener、mDNS 注册、HDC 转发下的 TCP greeting/echo，以及退后台关闭 listener/撤销 mDNS 均已验证。该切片仍在 UI ability 进程内使用最小 TCP probe，不包含 ArkTS Worker、`WebMessagePort` 持续帧链路、第二台真机发现/连接或 15 分钟性能测试，因此 H1/H2 尚未整体通过。详细证据与边界见主设计第 12 节。
 
 ### 原型 H1：ArkWeb 客户端宿主
 
@@ -333,7 +335,7 @@ XComponent 应只在 ArkWeb 真机验证失败后进入讨论。它能换来更�
 1. ArkTS TCP + bridge 能否在目标机上满足原型稳定性；若失败，再验证 C/C++ 标准 WebSocket server。该结果决定鸿蒙 adapter，而桌面仍保留 Node + Socket.IO adapter。
 2. Pura X 目标真机上的 ArkWeb 性能、兼容性、功耗，以及 mDNS/listener/bridge 的实际行为。
 
-在得到明确实现授权前，不应开始改客户端、服务端、Vite 配置或依赖；原型验证完成后再决定是否需要面向产品化的 ADR。
+原型实现已经获得明确授权，并隔离在 `prototype/harmony-gate-a` 分支与 `prototypes/harmony-gate-a/` 目录。只有完成两机发现/直连、持续帧链路、稳定性与性能证据后，才决定是否编写面向产品化的 ADR；当前切片不改变桌面 Node + Socket.IO 的权威实现。
 
 ## 11. 真机开发准备与签名
 

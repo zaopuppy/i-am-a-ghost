@@ -2,7 +2,7 @@
 
 - 日期：2026-08-20
 - 更新：2026-08-21
-- 状态：原型实现已获授权；开发准备、首轮真机矩阵与 `bundleName` 已确认，开始 Gate A
+- 状态：Gate A 首个真机切片已通过；ArkWeb、原生桥、TCP listener、mDNS 与前后台清理已验证，完整稳定性门槛仍待两机测试
 - 目标：最终以原生鸿蒙 APP 运行；由发起人的手机承担局域网房间主机；长期保留桌面开发、调试和自动化测试能力
 - 非目标：当前授权只覆盖可丢弃的原型实现，不代表生产架构或发布方案已经定案，也不在技术验证前承诺 ArkWeb 已达到性能和稳定性门槛
 - 相关研究：`docs/2026-08-20_harmonyos-native-host-research.md`
@@ -297,6 +297,20 @@ interface PlayerIntent {
 - 分别验证权威核心位于 ArkWeb Web Worker 和 ArkTS Worker 的最小链路，记录源码复用、帧延迟、线程阻塞与每 tick 一致性；满足门槛后只保留较深且更稳定的一种。
 - 同时测 host 手机的 P95 帧时间、温度/降频、内存，以及退后台后房间终止、端口关闭和 mDNS 撤销。
 - 原型 transport 允许使用明文帧，不实现 TLS、pinning、应用层加密或对抗性 admission；仍须保留协议/build 校验、消息长度与频率限制、输入范围验证和确定性断线清理，因为这些属于正确性与稳定性。
+
+### Gate A 阶段结果（2026-08-21）
+
+已在 `prototype/harmony-gate-a` 分支完成并真机验证第一个可丢弃切片：
+
+- API 24 编译、API 23 兼容基线的原生 HAP 已使用 `com.zero.gamehack.iamaghost` 自动调试签名安装并启动；自动签名配置与材料只保留在本机，未提交。
+- ArkWeb 不依赖开发服务器，从 HAP `rawfile` 加载完整 Vite/Three.js 产物。为避免 `resource://` 的空 origin/CORS 问题，原生层同步拦截私有 `https://game.local/` origin 并返回 `$rawfile`；真机已显示房屋、DOM 大厅与 WebGL2 渲染。
+- `harmonyHost` JavaScript proxy 已完成 ping、运行时信息、WebGL2 ready report 和 LAN 状态桥接；真机界面可见 bridge v1 状态。
+- 前台时原生层在系统分配端口启动 `TCPSocketServer`，并以 `_iamaghost._tcp` 注册 mDNS；TXT 仅含 prototype protocol/build/name/player count，不含房间码、token 或稳定设备标识。
+- 桌面 Node/PowerShell 探针经临时 HDC 端口转发收到 `gate-a-ready`，发送 22 字节后收到 `gate-a-echo` 与 `receivedBytes: 22`；转发规则在验证后已删除。电脑直接连接真机 WLAN 地址超时，因此本次不能宣称真实同一 LAN 的端到端单播已经通过。
+- 触发 Home 后旧监听端口消失；重新前台启动后获得新的监听端口并重新注册服务，符合“主机退后台即终止房间”的生命周期边界。
+- `npm run prototype:harmony:build`、真机安装/启动和 `npm run test:rules`（98 项）通过；未发现应用 crash。
+
+本结果只证明宿主、资源加载、原生桥、TCP API、mDNS 注册和生命周期的基本可行性，**尚不等于 Gate A 整体通过**。仍未覆盖：第二台鸿蒙手机的真实 mDNS 发现与 LAN 直连、Worker/WebMessagePort 30/20 Hz 链路、15 分钟稳定性、Web Audio/触控完整路径、P95 帧时间/温度/内存，以及权威规则的跨宿主一致性。因此目前不触发 Gate B，也不把原型结构升级为生产架构。
 
 ### 当前真机输入
 
