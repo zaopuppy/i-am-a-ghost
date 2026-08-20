@@ -13,7 +13,10 @@ lifecycle, bridge, and LAN hosting experiments?
 
 The desktop Vite application remains authoritative. Generated web assets are
 copied into the HAP by the repository-level prototype packaging command and are
-ignored by Git rather than edited in this directory.
+ignored by Git rather than edited in this directory. ArkWeb opens the packaged
+files through a private `https://game.local/` origin; the native page resolves
+that origin synchronously to HAP `$rawfile` resources so module scripts, styles,
+and assets share one origin.
 
 Run from the repository root:
 
