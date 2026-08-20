@@ -3,7 +3,7 @@ import type { CharacterJoints } from '../assets/ImportedAssets';
 
 type FlashlightArmJoints = Pick<
   CharacterJoints,
-  'rightUpperArm' | 'rightLowerArm' | 'rightWrist'
+  'rightUpperArm' | 'rightLowerArm' | 'rightWrist' | 'rightHand'
 >;
 
 type JointRotation = readonly [x: number, y: number, z: number];
@@ -30,6 +30,7 @@ export function stabilizeChildFlashlightArm(
   stabilizeJoint(joints.rightUpperArm, jointRestRotations, FLASHLIGHT_ARM_POSE.upper, blend);
   stabilizeJoint(joints.rightLowerArm, jointRestRotations, FLASHLIGHT_ARM_POSE.lower, blend);
   stabilizeJoint(joints.rightWrist, jointRestRotations, FLASHLIGHT_ARM_POSE.wrist, blend);
+  stabilizeJoint(joints.rightHand, jointRestRotations, [0, 0, 0], blend);
 }
 
 function stabilizeJoint(

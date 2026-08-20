@@ -3,7 +3,7 @@ import test from 'node:test';
 import * as THREE from 'three';
 import { stabilizeChildFlashlightArm } from '../../src/game/ChildAnimation';
 
-const JOINT_NAMES = ['rightUpperArm', 'rightLowerArm', 'rightWrist'] as const;
+const JOINT_NAMES = ['rightUpperArm', 'rightLowerArm', 'rightWrist', 'rightHand'] as const;
 
 test('fully raised flashlight arm ignores the running clip arm swing', () => {
   const first = createArmRig(0.72);
@@ -48,6 +48,7 @@ function createArmRig(swingRadians: number) {
     rightUpperArm: new THREE.Object3D(),
     rightLowerArm: new THREE.Object3D(),
     rightWrist: new THREE.Object3D(),
+    rightHand: new THREE.Object3D(),
   };
   const restRotations = new Map<THREE.Object3D, THREE.Quaternion>();
   JOINT_NAMES.forEach((name, index) => {

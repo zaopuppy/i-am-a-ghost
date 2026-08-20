@@ -30,6 +30,7 @@ export interface CharacterJoints {
   leftLowerArm: THREE.Object3D | null;
   rightLowerArm: THREE.Object3D | null;
   rightWrist: THREE.Object3D | null;
+  rightHand: THREE.Object3D | null;
   rightHandSlot: THREE.Object3D | null;
   leftUpperLeg: THREE.Object3D | null;
   rightUpperLeg: THREE.Object3D | null;
@@ -160,6 +161,7 @@ async function createCharacterAssetInstance(
     leftLowerArm: findObjectByName(scene, 'lowerarml'),
     rightLowerArm: findObjectByName(scene, 'lowerarmr'),
     rightWrist: findObjectByName(scene, 'wristr'),
+    rightHand: findObjectByName(scene, 'handr'),
     rightHandSlot: findObjectByName(scene, 'handslotr'),
     leftUpperLeg: findObjectByName(scene, 'upperlegl'),
     rightUpperLeg: findObjectByName(scene, 'upperlegr'),
