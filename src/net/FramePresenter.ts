@@ -6,7 +6,7 @@ import {
   type GameplayTuning,
   type Vec2,
 } from '../game/MatchEngine';
-import type { ViewerFrame } from '../game/ViewerFrame';
+import type { ViewerFrame, VisibleBattery, VisibleGhost } from '../game/ViewerFrame';
 
 export interface PresentationStats {
   corrections: number;
@@ -266,5 +266,56 @@ function setOwnPosition(frame: ViewerFrame, position: Vec2): void {
 }
 
 function cloneFrame<T extends ViewerFrame>(frame: T): T {
-  return structuredClone(frame);
+  const batteries = frame.batteries.map((battery) => cloneBattery(battery));
+  const shared = {
+    ...frame,
+    capture: frame.capture ? { ...frame.capture } : null,
+    children: frame.children.map((child) => ({
+      ...child,
+      position: { ...child.position },
+    })),
+    dolls: frame.dolls.map((doll) => ({
+      ...doll,
+      position: { ...doll.position },
+    })),
+    batteries,
+  };
+  if (frame.viewerRole === 'ghost') {
+    return {
+      ...shared,
+      ghost: cloneGhost(frame.ghost),
+      battery: cloneSelectedBattery(frame.battery, frame.batteries, batteries),
+    } as T;
+  }
+  return {
+    ...shared,
+    ...(frame.ghost ? { ghost: cloneGhost(frame.ghost) } : {}),
+    ...(frame.battery
+      ? { battery: cloneSelectedBattery(frame.battery, frame.batteries, batteries) }
+      : {}),
+  } as T;
+}
+
+function cloneGhost(ghost: VisibleGhost): VisibleGhost {
+  return {
+    ...ghost,
+    position: { ...ghost.position },
+  };
+}
+
+function cloneBattery(battery: VisibleBattery): VisibleBattery {
+  return {
+    ...battery,
+    position: { ...battery.position },
+  };
+}
+
+function cloneSelectedBattery(
+  selected: VisibleBattery | null,
+  sourceBatteries: readonly VisibleBattery[],
+  clonedBatteries: readonly VisibleBattery[],
+): VisibleBattery | null {
+  if (!selected) return null;
+  const sourceIndex = sourceBatteries.indexOf(selected);
+  return sourceIndex >= 0 ? clonedBatteries[sourceIndex] : cloneBattery(selected);
 }

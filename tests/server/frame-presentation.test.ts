@@ -128,6 +128,53 @@ test('snapshot playback catches up after a temporary render slowdown', () => {
   );
 });
 
+test('presentation frames cannot mutate buffered authority snapshots', () => {
+  const source = childFrame(0, 0, 10);
+  source.capture = {
+    childPlayerId: 'own',
+    ticksRemaining: 90,
+    durationTicks: 210,
+  };
+  source.dolls = [
+    { dollId: 'doll-2', slot: 2, position: { x: 4, z: 6 }, headlamp: 'slow' },
+  ];
+  source.batteries = [
+    { batteryId: 'battery-1', position: { x: -2, z: 3 } },
+  ];
+  source.battery = source.batteries[0];
+  source.ghost = {
+    position: { x: 2, z: -3 },
+    facingRadians: 1.2,
+    burning: true,
+    burnTicksRemaining: 18,
+  };
+  const sourceBeforePresentation = structuredClone(source);
+  const presenter = new FramePresenter();
+  presenter.ingest('match', source);
+
+  const presented = presenter.present(0, { x: 0, z: 0 });
+  assert.ok(presented?.viewerRole === 'child');
+  presented.children[0].position.x = 999;
+  presented.children.push({
+    playerId: 'intruder',
+    slot: 3,
+    position: { x: 99, z: 99 },
+    facingRadians: 0,
+    headlamp: 'solid',
+    flashlightOn: true,
+    batteryCharge: 0,
+  });
+  presented.dolls[0].position.z = 999;
+  presented.batteries[0].position.x = 999;
+  if (presented.battery) presented.battery.position.z = 999;
+  if (presented.ghost) presented.ghost.position.x = 999;
+  if (presented.capture) presented.capture.ticksRemaining = 0;
+
+  assert.deepEqual(source, sourceBeforePresentation);
+  const replayed = presenter.present(0, { x: 0, z: 0 });
+  assert.deepEqual(replayed, sourceBeforePresentation);
+});
+
 function childFrame(tick: number, ownX: number, remoteX: number): ChildViewerFrame {
   return {
     tick,
