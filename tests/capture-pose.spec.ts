@@ -178,6 +178,8 @@ test('capture pose keeps frantic limbs restrained and follows authoritative prog
     'rightUpperArm',
     'leftLowerArm',
     'rightLowerArm',
+    'rightWrist',
+    'rightHandSlot',
     'leftUpperLeg',
     'rightUpperLeg',
     'leftLowerLeg',
