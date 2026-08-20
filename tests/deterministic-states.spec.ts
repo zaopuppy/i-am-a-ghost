@@ -279,7 +279,8 @@ test('laptop PC viewport keeps the HUD bands separated and visible', async ({ pa
     const battery = document.querySelector('#battery-meter')?.getBoundingClientRect();
     const audio = document.querySelector('#audio-toggle')?.getBoundingClientRect();
     const locator = document.querySelector('#battery-locator')?.getBoundingClientRect();
-    return { role, objective, captures, battery, audio, locator };
+    const fps = document.querySelector('#hud-fps')?.getBoundingClientRect();
+    return { role, objective, captures, battery, audio, locator, fps };
   });
   expect(layout.role?.right ?? 0).toBeLessThan(layout.objective?.left ?? 0);
   expect(layout.objective?.right ?? 0).toBeLessThan(layout.captures?.left ?? 0);
@@ -291,6 +292,29 @@ test('laptop PC viewport keeps the HUD bands separated and visible', async ({ pa
   expect(layout.locator?.bottom ?? 2000).toBeLessThanOrEqual(768);
   expect(rectanglesOverlap(layout.locator, layout.battery)).toBe(false);
   expect(rectanglesOverlap(layout.locator, layout.audio)).toBe(false);
+});
+
+test('gameplay HUD shows a live FPS readout', async ({ page }) => {
+  await openState(page, 'ghost-playing');
+  await page.evaluate(() => window.__THREE_GAME_TEST_HOOKS__?.hideDebugUi(false));
+  const fps = page.getByTestId('hud-fps');
+  await expect(fps).toBeVisible();
+  await expect(fps).toHaveText(/^\d+ FPS$/);
+  await page.waitForFunction(() => {
+    const label = document.querySelector('[data-testid="hud-fps"]')?.textContent ?? '';
+    const reported = window.__THREE_GAME_DIAGNOSTICS__?.fps;
+    return typeof reported === 'number' && label === `${reported} FPS`;
+  });
+  const layout = await page.evaluate(() => {
+    const fpsBox = document.querySelector('#hud-fps')?.getBoundingClientRect();
+    const battery = document.querySelector('#battery-meter')?.getBoundingClientRect();
+    const role = document.querySelector('.hud-role-block')?.getBoundingClientRect();
+    return { fpsBox, battery, role };
+  });
+  expect(layout.fpsBox?.left ?? -1).toBeGreaterThanOrEqual(0);
+  expect(layout.fpsBox?.bottom ?? 2000).toBeLessThanOrEqual(720);
+  expect(rectanglesOverlap(layout.fpsBox, layout.battery)).toBe(false);
+  expect(rectanglesOverlap(layout.fpsBox, layout.role)).toBe(false);
 });
 
 function rectanglesOverlap(

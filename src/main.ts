@@ -49,6 +49,7 @@ const gameHud = requireElement<HTMLElement>('#game-hud');
 const roleLabel = requireElement<HTMLElement>('#role-label');
 const objectiveLabel = requireElement<HTMLElement>('#objective-label');
 const timerLabel = requireElement<HTMLElement>('#match-timer');
+const fpsLabel = requireElement<HTMLElement>('#hud-fps');
 const healthFill = requireElement<HTMLElement>('#ghost-health-fill');
 const healthValue = requireElement<HTMLElement>('#ghost-health-value');
 const batteryMeter = requireElement<HTMLElement>('#battery-meter');
@@ -153,6 +154,7 @@ const loop = new Loop(
   (deltaSeconds, elapsedSeconds, fps) => {
     renderFrame += 1;
     measuredFps = fps;
+    updateFpsLabel();
     const envelope = client.latestFrame;
     if (envelope) {
       const key = `${envelope.matchId}:${envelope.frame.tick}`;
@@ -838,6 +840,7 @@ function queueDebugGameplayTuning(): void {
 function setDebugUiHidden(hidden: boolean): void {
   debugGuiHidden = hidden;
   milestone.hidden = hidden;
+  fpsLabel.hidden = hidden;
   if (debugGui) debugGui.domElement.style.display = hidden ? 'none' : '';
 }
 
@@ -902,6 +905,11 @@ function refreshInfiniteResourceToggleLabels(): void {
   infiniteFlashlightEnergyController?.name(
     `手电能源无限：${runtimeTuning.infiniteFlashlightEnergy ? '开' : '关'}`,
   );
+}
+
+function updateFpsLabel(): void {
+  const text = `${measuredFps} FPS`;
+  if (fpsLabel.textContent !== text) fpsLabel.textContent = text;
 }
 
 function formatTime(ticks: number): string {

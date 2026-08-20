@@ -100,6 +100,19 @@ input { width: 100%; padding: 0 12px; color: #f3f0e8; background: rgb(255 255 25
 .health-fill { position: absolute; inset: 0; transform-origin: left; background: linear-gradient(90deg, #8cd1ad, #e4cf72, #d56d62); transition: transform 120ms linear; }
 .hud-health-label { margin-top: 4px !important; color: #918e87; font-size: 9px; letter-spacing: .12em; }
 .hud-captures { display: flex; justify-content: flex-end; gap: 7px; padding: 12px 14px; background: rgb(7 8 12 / 72%); }
+.hud-fps {
+  position: fixed;
+  left: 30px;
+  bottom: 30px;
+  min-width: 8ch;
+  padding: 8px 12px;
+  background: rgb(7 8 12 / 74%);
+  color: #c4bfb4;
+  font: 500 12px/1 ui-sans-serif, system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .14em;
+  pointer-events: none;
+}
 .capture-mark { width: 25px; height: 8px; border: 1px solid #655e53; transform: skewX(-18deg); background: rgb(255 255 255 / 4%); }
 .capture-mark.filled { border-color: #dd7567; background: #a8423a; box-shadow: 0 0 13px rgb(221 117 103 / 45%); }
 .battery-meter { position: fixed; right: 30px; bottom: 30px; display: flex; align-items: center; gap: 9px; padding: 9px 12px; background: rgb(7 8 12 / 74%); }
