@@ -52,10 +52,11 @@ export function createHouseMaterialKit(): HouseMaterialKit {
   const wallPattern = createWallpaperTexture();
   const floorPattern = createFloorPatternTexture();
   const wall = new THREE.MeshStandardMaterial({
-    color: ART_COLORS.bodyPrimary,
+    color: 0xaeb7c6,
     map: wallPattern,
-    emissive: 0x30394d,
-    emissiveIntensity: 0.86,
+    emissive: 0x293141,
+    emissiveMap: wallPattern,
+    emissiveIntensity: 0.42,
     roughness: 0.92,
     metalness: 0,
   });
@@ -258,28 +259,29 @@ function createWallpaperTexture(): THREE.DataTexture {
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
       const i = (y * width + x) * 4;
-      const cellX = ((x + 32) % 64) - 32;
-      const cellY = ((y + 32) % 64) - 32;
-      const seamDistance = Math.min(x % 64, 64 - (x % 64));
-      const stripe = Math.cos(x * Math.PI * 2 / 64) * 4;
-      const grain = Math.sin((x * 17 + y * 23) * Math.PI * 2 / 256) * 2.2
-        + Math.cos((x * 7 - y * 19) * Math.PI * 2 / 256) * 1.6;
-      const vineCenter = 13 + Math.sin(y * Math.PI * 2 / 64) * 3.2;
-      const vine = Math.abs(Math.abs(cellX) - vineCenter) < 1.35;
-      const diamond = Math.abs(cellX) / 7 + Math.abs(cellY) / 11 < 1;
+      const cellX = ((x + 64) % 128) - 64;
+      const cellY = ((y + 64) % 128) - 64;
+      const seamDistance = Math.min(x % 128, 128 - (x % 128));
+      const broadStripe = Math.cos(x * Math.PI * 2 / 128) * 24;
+      const pinstripe = Math.cos(x * Math.PI * 2 / 32) * 3;
+      const grain = Math.sin((x * 17 + y * 23) * Math.PI * 2 / 256) * 2.8
+        + Math.cos((x * 7 - y * 19) * Math.PI * 2 / 256) * 1.8;
+      const vineCenter = 29 + Math.sin(y * Math.PI * 2 / 128) * 6;
+      const vine = Math.abs(Math.abs(cellX) - vineCenter) < 2.2;
+      const diamond = Math.abs(cellX) / 15 + Math.abs(cellY) / 24 < 1;
       const leaf = (
-        ((Math.abs(cellX) - 8) / 4.5) ** 2
-        + ((Math.abs(cellY) - 13) / 7) ** 2
+        ((Math.abs(cellX) - 20) / 8) ** 2
+        + ((Math.abs(cellY) - 29) / 13) ** 2
       ) < 1;
       const ornament = vine || diamond || leaf;
-      const seamShade = seamDistance < 1.5 ? -13 : 0;
-      const ornamentLift = ornament ? 13 : 0;
-      const age = Math.sin(x * Math.PI * 2 / 256) * Math.cos(y * Math.PI * 2 / 128) * 3;
-      const base = 151 + stripe + grain + seamShade + ornamentLift + age;
-      const warmth = ornament ? 4 : 0;
-      const r = base + warmth;
-      const g = base + 1;
-      const b = base + 5 - warmth;
+      const seamShade = seamDistance < 2.5 ? -32 : 0;
+      const ornamentShade = ornament ? -38 : 0;
+      const age = Math.sin(x * Math.PI * 2 / 256) * Math.cos(y * Math.PI * 2 / 128) * 4;
+      const base = 172 + broadStripe + pinstripe + grain + seamShade + ornamentShade + age;
+      const warmth = ornament ? 10 : 0;
+      const r = base + 5 + warmth;
+      const g = base + 8;
+      const b = base + 16 - warmth;
       data[i] = clampByte(r);
       data[i + 1] = clampByte(g);
       data[i + 2] = clampByte(b);
