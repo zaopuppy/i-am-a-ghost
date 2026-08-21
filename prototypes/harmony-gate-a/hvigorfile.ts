@@ -19,11 +19,56 @@ if (!existsSync(localSigningPath)) {
 
 const requireLocal = createRequire(__filename);
 const localSigning = requireLocal(localSigningPath);
-const signingConfigs = localSigning.signingConfigs ?? localSigning.app?.signingConfigs;
+const legacySigningConfigs = localSigning.signingConfigs ?? localSigning.app?.signingConfigs;
+const legacySigningConfig = Array.isArray(legacySigningConfigs) ? legacySigningConfigs[0] : undefined;
+const keyMaterial = localSigning.keyMaterial ?? legacySigningConfig?.material;
 
-if (!Array.isArray(signingConfigs) || signingConfigs.length === 0) {
-  throw new Error(`HarmonyOS signing config contains no signingConfigs: ${localSigningPath}`);
+if (typeof keyMaterial !== 'object' || keyMaterial === null) {
+  throw new Error(`HarmonyOS signing config contains no keyMaterial: ${localSigningPath}`);
 }
+
+for (const field of ['storeFile', 'storePassword', 'keyAlias', 'keyPassword']) {
+  if (typeof keyMaterial[field] !== 'string' || keyMaterial[field].length === 0) {
+    throw new Error(`HarmonyOS signing keyMaterial is missing ${field}: ${localSigningPath}`);
+  }
+}
+
+const debugCertpath = localSigning.debug?.certpath
+  ?? keyMaterial.storeFile.replace(/\.p12$/i, '.cer');
+const debugProfile = localSigning.debug?.profile
+  ?? keyMaterial.storeFile.replace(/\.p12$/i, '.p7b');
+const releaseCertpath = localSigning.release?.certpath
+  ?? './signing/release/GameHack.cer';
+const releaseProfile = localSigning.release?.profile
+  ?? './signing/release/gamehackRelease.p7b';
+const signingType = localSigning.type ?? legacySigningConfig?.type ?? 'HarmonyOS';
+const sharedMaterial = {
+  storeFile: keyMaterial.storeFile,
+  storePassword: keyMaterial.storePassword,
+  keyAlias: keyMaterial.keyAlias,
+  keyPassword: keyMaterial.keyPassword,
+  signAlg: keyMaterial.signAlg ?? 'SHA256withECDSA',
+};
+const signingConfigs = [
+  {
+    name: 'debug',
+    type: signingType,
+    material: {
+      ...sharedMaterial,
+      certpath: debugCertpath,
+      profile: debugProfile,
+    },
+  },
+  {
+    name: 'release',
+    type: signingType,
+    material: {
+      ...sharedMaterial,
+      certpath: releaseCertpath,
+      profile: releaseProfile,
+    },
+  },
+];
 
 projectNode.afterNodeEvaluate((node) => {
   const appContext = node.getContext(OhosPluginId.OHOS_APP_PLUGIN) as OhosAppContext;
