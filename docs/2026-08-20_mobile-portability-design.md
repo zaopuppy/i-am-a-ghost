@@ -306,12 +306,14 @@ interface PlayerIntent {
 - ArkWeb 不依赖开发服务器，从 HAP `rawfile` 加载完整 Vite/Three.js 产物。为避免 `resource://` 的空 origin/CORS 问题，原生层同步拦截私有 `https://game.local/` origin 并返回 `$rawfile`；真机已显示房屋、DOM 大厅与 WebGL2 渲染。
 - `harmonyHost` JavaScript proxy 已完成 ping、运行时信息、WebGL2 ready report 和 LAN 状态桥接；真机界面可见 bridge v1 状态。
 - 前台时原生层在系统分配端口启动 `TCPSocketServer`，并以 `_iamaghost._tcp` 注册 mDNS；TXT 仅含 prototype protocol/build/name/player count，不含房间码、token 或稳定设备标识。
+- 两台设备现均会同时发现 `_iamaghost._tcp`、以 `(serviceType, serviceName)` 去重、调用 `resolveLocalService` 获取地址/TXT，再用原生 `TCPSocket` 发送 greeting 并等待 echo；ArkWeb 右上角的临时面板显示 `found / resolved / probing / reachable / unreachable` 状态。`serviceFound` 的占位 host/port 不会直接进入连接逻辑。
 - 桌面 Node/PowerShell 探针经临时 HDC 端口转发收到 `gate-a-ready`，发送 22 字节后收到 `gate-a-echo` 与 `receivedBytes: 22`；转发规则在验证后已删除。电脑直接连接真机 WLAN 地址超时，因此本次不能宣称真实同一 LAN 的端到端单播已经通过。
+- 第二台 nova 16 Pro 已使用同一调试签名成功安装并与 Pura X 同时启动。两端应用内部均确认 TCP listener、mDNS 注册和 mDNS discovery active，且没有应用错误；但两台手机的 WLAN 路由实际落在不同的 `/23` 链路，双向 ICMP 不可达，等待后双方附近列表仍为 0。这次结果验证了“空列表/网络隔离”状态能被正确呈现，但**没有通过 H2 的真实 mDNS 发现与 LAN 直连门槛**。下一轮必须换用允许终端互访与 multicast 的家用路由器或手机热点再测；同一网络名称不作为通过证据。
 - 触发 Home 后旧监听端口消失；重新前台启动后获得新的监听端口并重新注册服务，符合“主机退后台即终止房间”的生命周期边界。
 - `npm run prototype:harmony:build`、真机安装/启动和 `npm run test:rules`（98 项）通过；未发现应用 crash。
 - 真机首轮 UI 复核发现共享样式的 `body { min-width: 960px; }` 会把 707 CSS px 的横屏视口撑宽到 960px，同时默认非沉浸式窗口在底部保留 84 物理像素导航区域。现已移除固定最小宽度，并在加载 ArkWeb 前调用 `setWindowLayoutFullScreen(true)` 与 `setWindowSystemBarEnable([])`；复测页面 `scrollWidth/clientWidth=707/707`，截图底部系统白带为 0px。新增 707×440 浏览器回归测试保护共享布局。
 
-本结果只证明宿主、资源加载、原生桥、TCP API、mDNS 注册和生命周期的基本可行性，**尚不等于 Gate A 整体通过**。仍未覆盖：第二台鸿蒙手机的真实 mDNS 发现与 LAN 直连、Worker/WebMessagePort 30/20 Hz 链路、15 分钟稳定性、Web Audio/触控完整路径、P95 帧时间/温度/内存，以及权威规则的跨宿主一致性。因此目前不触发 Gate B，也不把原型结构升级为生产架构。
+本结果只证明宿主、资源加载、原生桥、TCP API、mDNS 注册/发现代码、第二台设备安装和生命周期的基本可行性，**尚不等于 Gate A 整体通过**。仍未覆盖：允许终端互访的本地链路上的成功 mDNS 发现与 LAN 直连、Worker/WebMessagePort 30/20 Hz 链路、15 分钟稳定性、Web Audio/触控完整路径、P95 帧时间/温度/内存，以及权威规则的跨宿主一致性。因此目前不触发 Gate B，也不把原型结构升级为生产架构。
 
 ### 当前真机输入
 
@@ -324,6 +326,7 @@ interface PlayerIntent {
 - 工具与连接：`hdc 3.2.0d` 和 `devecocli` 均已识别该 active device。
 - `const.product.chipname`、`const.product.socmodel` 和 `const.product.board` 未暴露有效值；不根据商品资料猜测 SoC，Gate A 以实测性能为准。
 - 不在文档中记录设备序列号。
+- 第二台设备：nova 16 Pro，API 26 Beta2；已完成同包安装和同步启动。设备序列号同样不记录。
 
 ### Gate B：Cocos Creator 原生验证
 
