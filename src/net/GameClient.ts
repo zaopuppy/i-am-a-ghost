@@ -44,9 +44,9 @@ export class GameClient {
   private nickname = '';
   private reconnecting = false;
 
-  constructor(serverUrl?: string) {
+  constructor(serverUrl?: string, autoConnect: boolean = true) {
     this.restoreStoredSession();
-    const options = { transports: ['websocket'], reconnectionDelay: 500 };
+    const options = { transports: ['websocket'], reconnectionDelay: 500, autoConnect };
     this.socket = serverUrl ? io(serverUrl, options) : io(options);
     this.socket.on('connect', () => {
       this.connected = true;

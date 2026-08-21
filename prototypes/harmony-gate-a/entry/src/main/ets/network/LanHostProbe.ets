@@ -1,6 +1,6 @@
 import { common } from '@kit.AbilityKit';
 import { BusinessError } from '@kit.BasicServicesKit';
-import { mdns, socket } from '@kit.NetworkKit';
+import { connection, mdns, socket } from '@kit.NetworkKit';
 
 const SERVICE_TYPE = '_iamaghost._tcp';
 const SERVICE_NAME_PREFIX = 'I Am A Ghost Gate A';
@@ -24,6 +24,22 @@ export interface NearbyRoomStatus {
   players: number | null;
   state: string;
   receivedBytes: number;
+  error: string | null;
+}
+
+export interface PrototypeRoomStatus {
+  ok: boolean;
+  roomCode: string | null;
+  instanceId: string | null;
+  host: string | null;
+  port: number | null;
+  payload: string | null;
+  error: string | null;
+}
+
+export interface PrototypeJoinStatus {
+  accepted: boolean;
+  serviceName: string | null;
   error: string | null;
 }
 
@@ -70,6 +86,64 @@ class LanHostProbe {
       snapshots.push(snapshot);
     }
     return snapshots;
+  }
+
+  createPrototypeRoom(): PrototypeRoomStatus {
+    if (this.server === null || this.port === null) {
+      return failedPrototypeRoom('TCP listener is not ready');
+    }
+    try {
+      const netHandle = connection.getDefaultNetSync();
+      if (netHandle.netId === 0) return failedPrototypeRoom('No active network');
+      const properties = connection.getConnectionPropertiesSync(netHandle);
+      const address = properties.linkAddresses.find((linkAddress) => {
+        const candidate = linkAddress.address;
+        return candidate.family === 1 && isUsableIpv4(candidate.address);
+      })?.address.address;
+      if (address === undefined) return failedPrototypeRoom('No usable IPv4 address on the active network');
+
+      const roomCode = randomRoomCode();
+      const instanceId = `gate-a-${Date.now()}-${randomSuffix()}`;
+      const payload = 'iamaghost://gate-a/join' +
+        `?v=1&instance=${instanceId}&room=${roomCode}&host=${address}&port=${this.port}`;
+      return {
+        ok: true,
+        roomCode,
+        instanceId,
+        host: address,
+        port: this.port,
+        payload,
+        error: null,
+      };
+    } catch (error) {
+      return failedPrototypeRoom(`Network address: ${stringifyError(error)}`);
+    }
+  }
+
+  joinPrototypeRoom(host: string, port: number, roomCode: string, instanceId: string): PrototypeJoinStatus {
+    if (!isUsableIpv4(host) || !Number.isInteger(port) || port < 1 || port > 65_535) {
+      return { accepted: false, serviceName: null, error: 'Invalid QR endpoint' };
+    }
+    const normalizedRoomCode = roomCode.replace(/[^A-Z0-9]/g, '').slice(0, 6);
+    if (normalizedRoomCode.length !== 6 || instanceId.length < 1 || instanceId.length > 80) {
+      return { accepted: false, serviceName: null, error: 'Invalid QR room identity' };
+    }
+    const key = `qr|${instanceId}|${host}|${port}`;
+    const serviceName = `QR ${normalizedRoomCode}`;
+    const room: NearbyRoomStatus = {
+      serviceName,
+      host,
+      port,
+      protocol: 'gate-a-v1',
+      build: 'prototype',
+      players: null,
+      state: 'resolved',
+      receivedBytes: 0,
+      error: null,
+    };
+    this.discoveredRooms.set(key, room);
+    void this.probeRoom(key, room);
+    return { accepted: true, serviceName, error: null };
   }
 
   start(context: common.UIAbilityContext): Promise<LanHostStatus> {
@@ -399,6 +473,36 @@ function parsePlayerCount(value: string | null): number | null {
 
 function randomSuffix(): string {
   return String(Math.floor(1_000 + Math.random() * 9_000));
+}
+
+function randomRoomCode(): string {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = '';
+  for (let index = 0; index < 6; index += 1) {
+    code += alphabet.charAt(Math.floor(Math.random() * alphabet.length));
+  }
+  return code;
+}
+
+function isUsableIpv4(address: string): boolean {
+  if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(address)) return false;
+  const octets = address.split('.').map((part) => Number.parseInt(part, 10));
+  return octets.every((octet) => octet >= 0 && octet <= 255)
+    && address !== '0.0.0.0'
+    && !address.startsWith('127.')
+    && !address.startsWith('169.254.');
+}
+
+function failedPrototypeRoom(error: string): PrototypeRoomStatus {
+  return {
+    ok: false,
+    roomCode: null,
+    instanceId: null,
+    host: null,
+    port: null,
+    payload: null,
+    error,
+  };
 }
 
 function delay(milliseconds: number): Promise<void> {

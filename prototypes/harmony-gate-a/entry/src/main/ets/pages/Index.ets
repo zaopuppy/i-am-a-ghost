@@ -1,11 +1,27 @@
+import { common } from '@kit.AbilityKit';
 import { webview } from '@kit.ArkWeb';
+import { BusinessError } from '@kit.BasicServicesKit';
+import { scanBarcode, scanCore } from '@kit.ScanKit';
 import { lanHostProbe } from '../network/LanHostProbe';
 
 const BRIDGE_PERMISSION = '{"javascriptProxyPermission":{"urlPermissionList":' +
   '[{"scheme":"https","host":"game.local","port":"","path":""}]}}';
 const GAME_ORIGIN = 'https://game.local/';
 
+interface QrScanStatus {
+  state: string;
+  payload: string | null;
+  error: string | null;
+}
+
 class HarmonyHostBridge {
+  private context: common.Context | null = null;
+  private scanStatus: QrScanStatus = { state: 'idle', payload: null, error: null };
+
+  setContext(context: common.Context): void {
+    this.context = context;
+  }
+
   ping(message: string): string {
     console.info(`[HarmonyGateA] bridge ping: ${message}`);
     return `pong:${message}`;
@@ -23,6 +39,46 @@ class HarmonyHostBridge {
     return JSON.stringify(lanHostProbe.nearbyRooms());
   }
 
+  createPrototypeRoom(): string {
+    return JSON.stringify(lanHostProbe.createPrototypeRoom());
+  }
+
+  joinPrototypeRoom(host: string, port: number, roomCode: string, instanceId: string): string {
+    return JSON.stringify(lanHostProbe.joinPrototypeRoom(host, port, roomCode, instanceId));
+  }
+
+  startQrScan(): string {
+    if (this.context === null) {
+      this.scanStatus = { state: 'error', payload: null, error: 'UI context is not ready' };
+      return JSON.stringify({ started: false, error: this.scanStatus.error });
+    }
+    if (this.scanStatus.state === 'scanning') return '{"started":true}';
+    this.scanStatus = { state: 'scanning', payload: null, error: null };
+    try {
+      void scanBarcode.startScanForResult(this.context, {
+        scanTypes: [scanCore.ScanType.QR_CODE],
+        enableMultiMode: false,
+        enableAlbum: true,
+      }).then((result) => {
+        this.scanStatus = { state: 'success', payload: result.originalValue, error: null };
+      }).catch((error: BusinessError) => {
+        this.scanStatus = {
+          state: error.code === 1000500002 ? 'cancelled' : 'error',
+          payload: null,
+          error: error.message,
+        };
+      });
+      return '{"started":true}';
+    } catch (error) {
+      this.scanStatus = { state: 'error', payload: null, error: stringifyError(error) };
+      return JSON.stringify({ started: false, error: this.scanStatus.error });
+    }
+  }
+
+  qrScanStatus(): string {
+    return JSON.stringify(this.scanStatus);
+  }
+
   reportReady(payload: string): string {
     console.info(`[HarmonyGateA] web ready: ${payload}`);
     return 'accepted';
@@ -37,6 +93,8 @@ struct Index {
 
   aboutToAppear(): void {
     webview.WebviewController.setWebDebuggingAccess(true);
+    const context = this.getUIContext().getHostContext();
+    if (context !== undefined) this.hostBridge.setContext(context);
   }
 
   aboutToDisappear(): void {
@@ -91,7 +149,17 @@ struct Index {
         .javaScriptProxy({
           object: this.hostBridge,
           name: 'harmonyHost',
-          methodList: ['ping', 'runtimeInfo', 'lanStatus', 'nearbyRooms', 'reportReady'],
+          methodList: [
+            'ping',
+            'runtimeInfo',
+            'lanStatus',
+            'nearbyRooms',
+            'createPrototypeRoom',
+            'joinPrototypeRoom',
+            'startQrScan',
+            'qrScanStatus',
+            'reportReady',
+          ],
           controller: this.controller,
           asyncMethodList: [],
           permission: BRIDGE_PERMISSION,
@@ -121,6 +189,14 @@ struct Index {
     }
     .width('100%')
     .height('100%')
+  }
+}
+
+function stringifyError(error: Object): string {
+  try {
+    return JSON.stringify(error);
+  } catch (_) {
+    return String(error);
   }
 }
 
