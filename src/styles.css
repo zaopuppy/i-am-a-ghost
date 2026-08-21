@@ -188,6 +188,99 @@ input { width: 100%; padding: 0 12px; color: #f3f0e8; background: rgb(255 255 25
 .audio-toggle { position: absolute; right: 28px; bottom: 72px; min-height: 30px; padding: 0 9px; border-color: rgb(255 255 255 / 9%); background: rgb(7 8 12 / 64%); color: #98958e; font-size: 9px; font-weight: 650; letter-spacing: .08em; }
 .audio-toggle:hover, .audio-toggle:focus-visible { color: #ead99f; border-color: rgb(216 189 114 / 38%); }
 
+.touch-controls {
+  position: fixed;
+  z-index: 5;
+  inset: auto 0 0;
+  height: 142px;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.touch-joystick {
+  position: absolute;
+  left: max(20px, calc(env(safe-area-inset-left) + 14px));
+  bottom: max(16px, calc(env(safe-area-inset-bottom) + 10px));
+  width: 112px;
+  height: 112px;
+  border: 1px solid rgb(216 189 114 / 52%);
+  border-radius: 50%;
+  background: radial-gradient(circle, rgb(216 189 114 / 9%) 0 31%, rgb(7 8 12 / 68%) 33% 100%);
+  box-shadow: inset 0 0 30px rgb(0 0 0 / 46%), 0 8px 28px rgb(0 0 0 / 32%);
+  pointer-events: auto;
+  touch-action: none;
+}
+.touch-joystick__cross::before,
+.touch-joystick__cross::after {
+  content: "";
+  position: absolute;
+  inset: 50% 13px auto;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgb(216 189 114 / 24%), transparent);
+}
+.touch-joystick__cross::after { transform: rotate(90deg); }
+.touch-joystick__knob {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 48px;
+  height: 48px;
+  border: 1px solid rgb(244 228 174 / 72%);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle at 38% 32%, #ead99f, #9e8142 72%);
+  box-shadow: 0 7px 18px rgb(0 0 0 / 48%), inset 0 1px rgb(255 255 255 / 34%);
+  will-change: transform;
+}
+.touch-joystick[data-active="true"] { border-color: rgb(244 228 174 / 82%); }
+.touch-action {
+  position: absolute;
+  right: max(22px, calc(env(safe-area-inset-right) + 16px));
+  bottom: max(18px, calc(env(safe-area-inset-bottom) + 12px));
+  display: grid;
+  place-content: center;
+  gap: 5px;
+  width: 96px;
+  height: 96px;
+  min-height: 96px;
+  padding: 0;
+  border: 2px solid rgb(216 189 114 / 64%);
+  border-radius: 50%;
+  color: #f4e4ae;
+  background: radial-gradient(circle at 40% 35%, rgb(94 82 48 / 96%), rgb(18 17 19 / 94%) 70%);
+  box-shadow: 0 9px 30px rgb(0 0 0 / 48%), inset 0 0 18px rgb(216 189 114 / 12%);
+  font-size: 11px;
+  letter-spacing: .12em;
+  pointer-events: auto;
+  touch-action: none;
+}
+.touch-action__beam {
+  width: 30px;
+  height: 16px;
+  margin-inline: auto;
+  clip-path: polygon(0 34%, 100% 0, 100% 100%, 0 66%);
+  background: linear-gradient(90deg, #ead99f, rgb(234 217 159 / 16%));
+}
+.touch-action[data-active="true"] {
+  transform: scale(.94);
+  border-color: #fff1b8;
+  background: radial-gradient(circle, rgb(216 189 114 / 44%), rgb(18 17 19 / 96%) 72%);
+  box-shadow: 0 0 30px rgb(234 217 159 / 30%), inset 0 0 22px rgb(234 217 159 / 22%);
+}
+.touch-controls[data-role="ghost"] .touch-action { display: none; }
+
+:root[data-harmony-playing="true"] .hud-fps,
+:root[data-harmony-playing="true"] .milestone { display: none; }
+:root[data-harmony-playing="true"] .audio-toggle {
+  top: max(96px, calc(env(safe-area-inset-top) + 80px));
+  right: max(18px, calc(env(safe-area-inset-right) + 12px));
+  bottom: auto;
+}
+:root[data-harmony-playing="true"] .battery-meter {
+  right: max(134px, calc(env(safe-area-inset-right) + 128px));
+  bottom: max(28px, calc(env(safe-area-inset-bottom) + 22px));
+}
+
 .result-overlay { position: absolute; inset: 0; display: grid; place-items: center; background: radial-gradient(circle, rgb(13 15 21 / 78%), rgb(3 4 6 / 94%)); }
 .result-card { width: min(430px, calc(100% - 64px)); padding: 34px 38px; border-block: 1px solid rgb(216 189 114 / 32%); background: rgb(8 9 13 / 88%); text-align: center; box-shadow: 0 30px 100px rgb(0 0 0 / 55%); }
 .result-card h2 { margin: 9px 0 11px; color: #f2e6c5; font: 500 42px/1 Georgia, serif; }
@@ -207,6 +300,7 @@ input { width: 100%; padding: 0 12px; color: #f3f0e8; background: rgb(255 255 25
   .battery-meter.low { animation: none; border: 1px solid #b55749; }
   .battery-locator { animation: none; transition: none; }
   :root[data-capture-scare="true"] #app::after { animation: none; }
+  .touch-action, .touch-joystick__knob { transition: none; }
   * { scroll-behavior: auto !important; }
 }
 :root[data-reduced-motion="true"] .battery-meter.low { animation: none; border: 1px solid #b55749; }

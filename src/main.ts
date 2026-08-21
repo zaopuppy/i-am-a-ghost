@@ -52,6 +52,8 @@ const startButton = requireElement<HTMLButtonElement>('#start-match');
 const waitingMessage = requireElement<HTMLElement>('#waiting-message');
 const errorMessage = requireElement<HTMLElement>('#error-message');
 const gameHud = requireElement<HTMLElement>('#game-hud');
+const touchControls = requireElement<HTMLElement>('#touch-controls');
+const touchAction = requireElement<HTMLButtonElement>('#touch-action');
 const roleLabel = requireElement<HTMLElement>('#role-label');
 const objectiveLabel = requireElement<HTMLElement>('#objective-label');
 const timerLabel = requireElement<HTMLElement>('#match-timer');
@@ -357,9 +359,19 @@ function renderClientState(): void {
   }
   const playing = room?.phase === 'playing';
   const ended = room?.phase === 'ended';
+  document.documentElement.dataset.harmonyPlaying = String(harmonyHost.active && playing);
   lobbyPanel.hidden = Boolean(playing || ended);
   gameHud.hidden = !playing;
+  touchControls.hidden = !(harmonyHost.active && playing);
   resultOverlay.hidden = !ended;
+  if (harmonyHost.active) {
+    const nearbyPanel = document.querySelector<HTMLElement>('[data-harmony-nearby-rooms]');
+    const qrPanel = document.querySelector<HTMLElement>('[data-harmony-qr-room]');
+    const gateStatus = document.querySelector<HTMLElement>('[data-harmony-gate-a]');
+    if (nearbyPanel) nearbyPanel.hidden = inRoom;
+    if (qrPanel) qrPanel.hidden = Boolean(playing || ended);
+    if (gateStatus) gateStatus.hidden = Boolean(playing || ended);
+  }
   if (client.latestFrame) {
     const frame = client.latestFrame.frame;
     roleLabel.textContent = frame.viewerRole === 'ghost' ? '你是鬼' : '你是小孩';
@@ -418,6 +430,8 @@ function updateHud(frame: ViewerFrame | null): void {
     setData(document.documentElement, 'captureScare', 'false');
     return;
   }
+  touchControls.dataset.role = frame.viewerRole;
+  touchAction.hidden = frame.viewerRole !== 'child';
   setText(timerLabel, formatTime(frame.remainingTicks));
   setText(healthValue, String(Math.ceil(frame.ghostHealth)));
   setTransform(healthFill, `scaleX(${Math.max(0, frame.ghostHealth / 100)})`);
@@ -590,6 +604,12 @@ function isCaptureCinematicViewer(frame: ViewerFrame): boolean {
 }
 
 function updateControlHint(frame: ViewerFrame): void {
+  if (harmonyHost.active) {
+    controlHint.textContent = frame.viewerRole === 'ghost'
+      ? '左侧摇杆移动 · 接触孩子自动抓取'
+      : '左侧摇杆移动并朝向 · 右侧按住手电';
+    return;
+  }
   controlHint.textContent = frame.viewerRole === 'ghost'
     ? frame.ghost.burning
       ? '灼烧中 · 无法抓取 · WASD 或方向键逃离光束'
@@ -896,6 +916,7 @@ function updateDiagnostics(frame: ViewerFrame | null, elapsedSeconds: number): v
     current.viewerFrame = frame;
     current.capturedChildPlayerId = frame?.capture?.childPlayerId ?? null;
     current.input.actionHeld = input.actionHeld();
+    current.input.movement = input.movement();
   }
   if (elapsedSeconds - lastDiagnosticsSampleAt < 0.25) return;
   lastDiagnosticsSampleAt = elapsedSeconds;
@@ -926,7 +947,7 @@ function updateDiagnostics(frame: ViewerFrame | null, elapsedSeconds: number): v
     capturedChildPlayerId: frame?.capture?.childPlayerId ?? null,
     tuning: { ...runtimeTuning },
     world: world.metrics(),
-    input: { actionHeld: input.actionHeld() },
+    input: { actionHeld: input.actionHeld(), movement: input.movement() },
     network: {
       ...network,
       ...presentation,

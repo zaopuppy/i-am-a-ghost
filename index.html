@@ -69,6 +69,21 @@
           </span>
         </div>
       </section>
+      <section class="touch-controls" id="touch-controls" aria-label="触控操作" hidden>
+        <div
+          class="touch-joystick"
+          id="touch-joystick"
+          role="application"
+          aria-label="移动摇杆"
+        >
+          <span class="touch-joystick__cross" aria-hidden="true"></span>
+          <span class="touch-joystick__knob" id="touch-joystick-knob" aria-hidden="true"></span>
+        </div>
+        <button class="touch-action" id="touch-action" type="button" aria-label="按住打开手电">
+          <span class="touch-action__beam" aria-hidden="true"></span>
+          <span>手电</span>
+        </button>
+      </section>
       <p class="event-banner" id="event-banner" data-testid="event-banner" hidden></p>
       <button class="audio-toggle" id="audio-toggle" type="button" aria-label="切换声音">声音：开</button>
       <section class="result-overlay" id="result-overlay" data-testid="result-overlay" hidden>

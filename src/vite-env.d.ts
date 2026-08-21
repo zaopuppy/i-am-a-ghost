@@ -61,6 +61,7 @@ interface GhostGameDiagnostics {
   };
   input: {
     actionHeld: boolean;
+    movement: { x: number; z: number };
   };
   network: {
     pendingInputs: number;

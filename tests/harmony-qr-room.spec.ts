@@ -189,6 +189,37 @@ test('Harmony host worker admits a peer and starts authoritative frames', async 
   await page.getByTestId('start-match').click();
   await expect(page.getByTestId('lobby-panel')).toBeHidden();
   await expect(page.getByTestId('role-label')).toContainText(/你是鬼|你是小孩/);
+  await expect(page.locator('#touch-controls')).toBeVisible();
+  await expect(page.locator('[data-harmony-qr-room]')).toBeHidden();
+  await expect(page.locator('[data-harmony-nearby-rooms]')).toBeHidden();
+  const joystickBounds = await page.locator('#touch-joystick').boundingBox();
+  if (!joystickBounds) throw new Error('Touch joystick has no bounds.');
+  const joystickX = joystickBounds.x + joystickBounds.width / 2;
+  const joystickY = joystickBounds.y + joystickBounds.height / 2;
+  const joystick = page.locator('#touch-joystick');
+  await joystick.dispatchEvent('pointerdown', {
+    pointerId: 7,
+    clientX: joystickX,
+    clientY: joystickY,
+  });
+  await joystick.dispatchEvent('pointermove', {
+    pointerId: 7,
+    clientX: joystickX + joystickBounds.width * 0.3,
+    clientY: joystickY,
+  });
+  await expect(joystick).toHaveAttribute('data-active', 'true');
+  await expect(page.locator('#touch-joystick-knob')).not.toHaveCSS('transform', 'matrix(1, 0, 0, 1, -24, -24)');
+  await expect.poll(() => page.evaluate(() => (
+    window.__THREE_GAME_DIAGNOSTICS__?.input.movement.x ?? 0
+  ))).toBeGreaterThan(0.5);
+  await joystick.dispatchEvent('pointerup', {
+    pointerId: 7,
+    clientX: joystickX + joystickBounds.width * 0.3,
+    clientY: joystickY,
+  });
+  await expect.poll(() => page.evaluate(() => (
+    window.__THREE_GAME_DIAGNOSTICS__?.input.movement.x ?? 1
+  ))).toBe(0);
   await expect.poll(() => page.evaluate(() => {
     const messages = (window as Window & { __HARMONY_PEER_MESSAGES__?: string[] })
       .__HARMONY_PEER_MESSAGES__ ?? [];
