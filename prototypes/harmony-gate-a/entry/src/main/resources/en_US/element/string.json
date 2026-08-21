@@ -2,15 +2,15 @@
   "string": [
     {
       "name": "module_desc",
-      "value": "局域网捉迷藏游戏"
+      "value": "A local-network hide-and-seek game"
     },
     {
       "name": "EntryAbility_desc",
-      "value": "和朋友在局域网内游玩不要被抓到"
+      "value": "Play I am a Ghost with friends on your local network"
     },
     {
       "name": "EntryAbility_label",
-      "value": "不要被抓到"
+      "value": "I am a Ghost"
     }
   ]
 }
