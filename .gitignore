@@ -24,3 +24,8 @@ package-lock.json
 .env
 .env.*
 !.env.example
+
+# HarmonyOS signing secrets and machine-specific encrypted credentials.
+/prototypes/harmony-gate-a/signing/local-signing.cjs
+/prototypes/harmony-gate-a/signing/*.p12
+/prototypes/harmony-gate-a/signing/*.csr
