@@ -2,7 +2,7 @@
 
 - 日期：2026-08-20
 - 更新：2026-08-21
-- 状态：Gate A 首个真机切片已通过；ArkWeb、原生桥、TCP listener、mDNS 与前后台清理已验证，完整稳定性门槛仍待两机测试
+- 状态：Gate A/H2 已通过两机 mDNS 发现与 TCP 直连；下一切片验证可玩的原生局域网房间会话
 - 目标：最终以原生鸿蒙 APP 运行；由发起人的手机承担局域网房间主机；长期保留桌面开发、调试和自动化测试能力
 - 非目标：当前授权只覆盖可丢弃的原型实现，不代表生产架构或发布方案已经定案，也不在技术验证前承诺 ArkWeb 已达到性能和稳定性门槛
 - 相关研究：`docs/2026-08-20_harmonyos-native-host-research.md`
@@ -311,11 +311,33 @@ interface PlayerIntent {
 - 第二台 nova 16 Pro 已使用同一调试签名成功安装并与 Pura X 同时启动。两端应用内部均确认 TCP listener、mDNS 注册和 mDNS discovery active，且没有应用错误；但两台手机的 WLAN 路由实际落在不同的 `/23` 链路，双向 ICMP 不可达，等待后双方附近列表仍为 0。这次结果验证了“空列表/网络隔离”状态能被正确呈现，但**没有通过 H2 的真实 mDNS 发现与 LAN 直连门槛**。下一轮必须换用允许终端互访与 multicast 的家用路由器或手机热点再测；同一网络名称不作为通过证据。
 - 首轮 HAP 的“创建房间”仍错误调用 `127.0.0.1:5191` 的浏览器 `GameClient`，而 HAP 内并没有 Node/Socket.IO server，`emitWithAck` 因此没有响应。现已在 Harmony 模式关闭该 Socket.IO 自动连接，并把按钮接到原生 QR probe：从默认网络连接属性取得 IPv4、生成六位码/房间实例/`IP:port` payload，并在 ArkWeb 显示二维码；加入端通过系统 Scan Kit 扫码后调用原生 `TCPSocket` greeting/echo 探测。
 - 两机已完成一次真实“生成二维码 → 系统图库扫码 → payload 解析 → 原生 TCP 尝试”。扫码和地址解析成功，加入端最终明确显示 `unreachable` 及“二维码只能绕过 mDNS”提示；这验证了二维码后备入口本身有效，也再次证明当前隔离网络仍不能满足 H2。测试时临时导入第二台手机图库的二维码图片已删除。
+- 用户把两台手机切换到允许终端互访的同一局域网后，双方都发现并解析了另一台手机的 mDNS 服务，原生 TCP greeting/echo 均进入 `reachable`，每端收到 112 字节。该结果通过 Gate A/H2 的“真实两机发现与单播直连”门槛；此前失败归因于网络隔离，而不是 mDNS 或 Network Kit implementation。此时仍不能进入对局，因为附近列表和二维码只连接探针，没有房间会话协议。
 - 触发 Home 后旧监听端口消失；重新前台启动后获得新的监听端口并重新注册服务，符合“主机退后台即终止房间”的生命周期边界。
 - `npm run prototype:harmony:build`、真机安装/启动和 `npm run test:rules`（98 项）通过；未发现应用 crash。
 - 真机首轮 UI 复核发现共享样式的 `body { min-width: 960px; }` 会把 707 CSS px 的横屏视口撑宽到 960px，同时默认非沉浸式窗口在底部保留 84 物理像素导航区域。现已移除固定最小宽度，并在加载 ArkWeb 前调用 `setWindowLayoutFullScreen(true)` 与 `setWindowSystemBarEnable([])`；复测页面 `scrollWidth/clientWidth=707/707`，截图底部系统白带为 0px。新增 707×440 浏览器回归测试保护共享布局。
 
-本结果只证明宿主、资源加载、原生桥、TCP API、mDNS 注册/发现代码、二维码生成/系统扫码/地址解析、第二台设备安装和生命周期的基本可行性，**尚不等于 Gate A 整体通过**。仍未覆盖：允许终端互访的本地链路上的成功 mDNS 发现与 LAN 直连、二维码端点的成功 TCP 直连、Worker/WebMessagePort 30/20 Hz 链路、15 分钟稳定性、Web Audio/触控完整路径、P95 帧时间/温度/内存，以及权威规则的跨宿主一致性。因此目前不触发 Gate B，也不把原型结构升级为生产架构。
+本结果只证明宿主、资源加载、原生桥、TCP API、真实两机 mDNS 发现/解析/直连、二维码生成/系统扫码/地址解析、第二台设备安装和生命周期的基本可行性，**尚不等于 Gate A 整体通过**。仍未覆盖：二维码端点在可互访网络上的成功直连、可玩房间会话、`WebMessagePort` 30/20 Hz `ArrayBuffer` 链路、15 分钟稳定性、Web Audio/触控完整路径、P95 帧时间/温度/内存，以及权威规则的跨宿主一致性。因此目前不触发 Gate B，也不把原型结构升级为生产架构。
+
+### Gate A/H3：最小可玩房间会话切片
+
+H2 的 `reachable` 只是 transport 证据。H3 把它升级成两台真机可操作的最小房间闭环，但仍属于 `prototype/harmony-gate-a` 上的可丢弃验证代码，不改写桌面 Socket.IO 生产路径。
+
+本切片采用以下边界：
+
+1. 房主点击“创建房间”后，本机才激活一个六位码房间；每台 APP 仍可同时监听和发现，但没有激活房间的 endpoint 不出现在可加入列表中。
+2. ArkTS `TCPSocketServer` / `TCPSocket` 拥有连接、UTF-8 换行分帧、每帧最大 64 KiB、peer 标识、收件队列和定向发送；它不解释玩家、角色或对局规则。
+3. 房主 ArkWeb 的 Web Worker 运行唯一权威 `MatchEngine` 和原型房间状态。页面主线程轮询原生收件队列，把远端消息转给 Worker，再把 Worker 的定向输出交回 ArkTS。这样权威 tick 不依赖 Three.js render loop。
+4. wire message 使用显式 JSON `type` 和 `requestId`。最小集合为 `join`、`start-match`、`input-frame`、`response`、`room-state`、`match-frame`、`match-events`、`host-closed`；协议/build 不匹配、错误房间码、人数超过 5、非法输入和超长帧必须拒绝。
+5. 房主玩家走与远端相同的 Worker action 路径，只是不经过 TCP；它不能维护一份独立本地规则。权威帧仍按 viewer 投影，不能把孩子不应看到的隐藏鬼数据发给加入端。
+6. mDNS TXT 继续不放六位房间码或 token。发现端通过短连接 `room-info` 探测取得当前房间码、人数和可加入状态；因此输入六位码可以在已发现 endpoint 中匹配，点击“附近房间”则直接选定同一 endpoint。二维码继续携带临时 endpoint 与房间实例，最终进入同一持久连接流程。
+7. 首次原型不实现断线重连、房主迁移、后台保活、TLS、认证或恶意局域网防护；任一关键 TCP 连接断开都显示明确结果。`WebMessagePort` / `ArrayBuffer` 与 15 分钟压测仍是 H4，不因本切片的页面轮询桥通过而视为完成。
+
+H3 通过门槛：
+
+- 房主创建后，另一台手机的附近列表出现带六位码的可加入房间；点击条目或输入该房间码均能进入同一大厅。
+- 两端大厅显示同一份两人名单；只有房主能开始，少于两人时不能开始。
+- 开始后两端获得不同 viewer 角色并持续收到权威帧；两端摇杆/按键输入都能改变各自角色，抓捕、手电、计时与胜负仍由共享 `MatchEngine` 决定。
+- 房主退后台或连接关闭时，加入端停止对局并显示“房间主机已离开”，不会把探针成功误报为仍在游戏中。
 
 ### 当前真机输入
 
