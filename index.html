@@ -18,6 +18,11 @@
           <span id="network-status" data-testid="network-status">连接房间服务…</span>
         </p>
         <div class="lobby-actions" id="lobby-actions">
+          <label class="lan-consent" id="harmony-lan-consent-row" hidden>
+            <input id="harmony-lan-consent" data-testid="harmony-lan-consent" type="checkbox" />
+            <span>我同意本次运行使用局域网 IP、端口、附近设备服务、临时昵称和对局数据，
+              并在同一局域网的参与设备间直连；切到后台或退出后停止并清除。</span>
+          </label>
           <button id="create-room" data-testid="create-room">创建房间</button>
           <div class="join-row">
             <label class="sr-only" for="room-code-input">房间码</label>

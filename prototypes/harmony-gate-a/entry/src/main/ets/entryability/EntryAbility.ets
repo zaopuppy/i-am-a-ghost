@@ -71,9 +71,6 @@ export default class EntryAbility extends UIAbility {
 
   onForeground(): void {
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onForeground');
-    void lanHostProbe.start(this.context).then((status) => {
-      hilog.info(DOMAIN, 'HarmonyGateA', 'LAN host status: %{public}s', JSON.stringify(status));
-    });
   }
 
   onBackground(): void {

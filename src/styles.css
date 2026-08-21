@@ -66,6 +66,9 @@ h1 { margin: 7px 0 8px; font: 500 clamp(30px, 3vw, 45px) / .96 Georgia, serif; l
 .connection[data-connected="true"] .connection-dot { background: #8ee3b0; box-shadow: 0 0 12px #8ee3b0; }
 
 .lobby-actions { display: grid; gap: 10px; margin-top: 18px; }
+.lan-consent { display: grid; grid-template-columns: auto 1fr; gap: 9px; align-items: start; color: #cbc8c0; font-size: 11px; line-height: 1.45; }
+.lan-consent[hidden] { display: none; }
+.lan-consent input { width: 16px; min-height: 16px; margin: 1px 0 0; accent-color: #d8bd72; }
 .join-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
 button, input { min-height: 42px; border: 1px solid rgb(255 255 255 / 13%); border-radius: 3px; }
 button { padding: 0 17px; color: #15120c; background: #d8bd72; font-weight: 760; }

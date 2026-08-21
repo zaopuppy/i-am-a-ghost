@@ -8,6 +8,7 @@ export interface HarmonyHostState {
   error: string | null;
   lan: HarmonyLanHostStatus | null;
   nearbyRooms: HarmonyNearbyRoom[];
+  consentGranted: boolean;
 }
 
 interface HarmonyLanHostStatus {
@@ -34,6 +35,8 @@ export interface HarmonyHostApi {
   runtimeInfo(): string;
   lanStatus(): string;
   nearbyRooms(): string;
+  startLan(): Promise<string>;
+  stopLan(): Promise<string>;
   createPrototypeRoom(): string;
   joinPrototypeRoom(host: string, port: number, roomCode: string, instanceId: string): string;
   connectGameRoom(host: string, port: number, roomCode: string, instanceId: string): string;
@@ -85,6 +88,7 @@ export function initializeHarmonyHost(): HarmonyHostState {
       error: null,
       lan: null,
       nearbyRooms: [],
+      consentGranted: false,
     };
   }
 
@@ -99,6 +103,7 @@ export function initializeHarmonyHost(): HarmonyHostState {
       error: null,
       lan: rawLan,
       nearbyRooms: readNearbyRooms(host),
+      consentGranted: false,
     };
     activeHost = host;
     activeState = state;
@@ -111,6 +116,7 @@ export function initializeHarmonyHost(): HarmonyHostState {
     const output = surfaceState(state);
     const nearbyOutput = surfaceNearbyRooms(state.nearbyRooms);
     surfaceQrJoinButton();
+    surfaceLanConsent(state, host);
     window.setInterval(() => {
       state.lan = readLanStatus(host);
       state.nearbyRooms = readNearbyRooms(host);
@@ -130,6 +136,7 @@ export function initializeHarmonyHost(): HarmonyHostState {
       error: message,
       lan: null,
       nearbyRooms: [],
+      consentGranted: false,
     };
     surfaceState(state);
     console.error(`[HarmonyGateA] bridge failed: ${message}`);
@@ -251,6 +258,58 @@ function surfaceState(state: HarmonyHostState): HTMLOutputElement {
   return output;
 }
 
+function surfaceLanConsent(state: HarmonyHostState, host: HarmonyHostApi): void {
+  const row = document.querySelector<HTMLElement>('#harmony-lan-consent-row');
+  const input = document.querySelector<HTMLInputElement>('#harmony-lan-consent');
+  if (row === null || input === null) return;
+  row.hidden = false;
+  setHarmonyActionsEnabled(false);
+  input.addEventListener('change', () => {
+    void updateLanConsent(state, host, input);
+  });
+}
+
+async function updateLanConsent(
+  state: HarmonyHostState,
+  host: HarmonyHostApi,
+  input: HTMLInputElement,
+): Promise<void> {
+  input.disabled = true;
+  state.consentGranted = false;
+  setHarmonyActionsEnabled(false);
+  try {
+    if (!input.checked) {
+      await host.stopLan();
+      state.lan = readLanStatus(host);
+      setNetworkStatus('请先同意局域网联机说明');
+      return;
+    }
+    setNetworkStatus('正在启动原生局域网房间服务…');
+    const started = JSON.parse(await host.startLan()) as HarmonyLanHostStatus & { error?: unknown };
+    if (started.listening !== true) {
+      throw new Error(typeof started.error === 'string' ? started.error : '局域网房间服务启动失败');
+    }
+    state.lan = started;
+    state.consentGranted = true;
+    setHarmonyActionsEnabled(true);
+    setNetworkStatus('原生局域网房间服务已就绪');
+  } catch (error) {
+    input.checked = false;
+    setHarmonyError(error instanceof Error ? error.message : String(error));
+    setNetworkStatus('局域网房间服务启动失败');
+  } finally {
+    input.disabled = false;
+  }
+}
+
+function setHarmonyActionsEnabled(enabled: boolean): void {
+  for (const button of document.querySelectorAll<HTMLButtonElement>(
+    '#create-room, #join-room, [data-harmony-scan-qr]',
+  )) {
+    button.disabled = !enabled;
+  }
+}
+
 function surfaceQrJoinButton(): void {
   if (document.querySelector('[data-harmony-scan-qr]') !== null) return;
   const actions = document.querySelector<HTMLElement>('#lobby-actions');
@@ -269,6 +328,7 @@ function surfaceQrJoinButton(): void {
   ].join(';');
   button.addEventListener('click', startHarmonyQrScan);
   actions.append(button);
+  setHarmonyActionsEnabled(activeState?.consentGranted === true);
 }
 
 function surfaceQrRoom(roomCode: string, host: string, port: number, payload: string): HTMLElement {

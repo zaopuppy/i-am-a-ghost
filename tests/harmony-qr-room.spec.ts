@@ -11,12 +11,23 @@ test('Harmony create-room opens a native QR and enters the local hosted lobby', 
       payload: 'iamaghost://gate-a/join?v=1&instance=gate-a-test&room=GHOST7&host=192.168.8.12&port=34567',
       error: null,
     };
+    Object.assign(window, { __HARMONY_START_COUNT__: 0, __HARMONY_STOP_COUNT__: 0 });
     Object.defineProperty(window, 'harmonyHost', {
       value: {
         ping: (message: string) => `pong:${message}`,
         runtimeInfo: () => '{"platform":"HarmonyOS","prototype":"gate-a","bridgeVersion":1}',
         lanStatus: () => '{"listening":true,"port":34567,"mdnsRegistered":true}',
         nearbyRooms: () => '[]',
+        startLan: async () => {
+          const state = window as Window & { __HARMONY_START_COUNT__?: number };
+          state.__HARMONY_START_COUNT__ = (state.__HARMONY_START_COUNT__ ?? 0) + 1;
+          return '{"listening":true,"port":34567,"mdnsRegistered":true}';
+        },
+        stopLan: async () => {
+          const state = window as Window & { __HARMONY_STOP_COUNT__?: number };
+          state.__HARMONY_STOP_COUNT__ = (state.__HARMONY_STOP_COUNT__ ?? 0) + 1;
+          return '{"accepted":true}';
+        },
         createPrototypeRoom: () => JSON.stringify(room),
         connectGameRoom: () => '{"accepted":true}',
         gameConnectionStatus: () => '{"state":"disconnected"}',
@@ -38,6 +49,15 @@ test('Harmony create-room opens a native QR and enters the local hosted lobby', 
   });
   await page.goto('/');
 
+  await expect(page.getByTestId('create-room')).toBeDisabled();
+  await expect.poll(() => page.evaluate(() => (
+    window as Window & { __HARMONY_START_COUNT__?: number }
+  ).__HARMONY_START_COUNT__ ?? 0)).toBe(0);
+  await page.getByTestId('harmony-lan-consent').check();
+  await expect(page.getByTestId('create-room')).toBeEnabled();
+  await expect.poll(() => page.evaluate(() => (
+    window as Window & { __HARMONY_START_COUNT__?: number }
+  ).__HARMONY_START_COUNT__ ?? 0)).toBe(1);
   await page.getByTestId('create-room').click();
 
   const panel = page.locator('[data-harmony-qr-room]');
@@ -60,6 +80,12 @@ test('Harmony create-room opens a native QR and enters the local hosted lobby', 
   ).__HARMONY_CLOSE_COUNT__ ?? 0)).toBeGreaterThan(closeCount);
   await expect(page.getByTestId('lobby-panel')).toBeVisible();
   await expect(page.locator('[data-harmony-qr-room]')).toHaveCount(0);
+
+  await page.getByTestId('harmony-lan-consent').uncheck();
+  await expect(page.getByTestId('create-room')).toBeDisabled();
+  await expect.poll(() => page.evaluate(() => (
+    window as Window & { __HARMONY_STOP_COUNT__?: number }
+  ).__HARMONY_STOP_COUNT__ ?? 0)).toBe(1);
 });
 
 test('Harmony QR scan connects and joins the game lobby', async ({ page }) => {
@@ -71,6 +97,8 @@ test('Harmony QR scan connects and joins the game lobby', async ({ page }) => {
         runtimeInfo: () => '{"platform":"HarmonyOS","prototype":"gate-a","bridgeVersion":1}',
         lanStatus: () => '{"listening":true,"port":45678,"mdnsRegistered":true}',
         nearbyRooms: () => '[]',
+        startLan: async () => '{"listening":true,"port":45678,"mdnsRegistered":true}',
+        stopLan: async () => '{"accepted":true}',
         createPrototypeRoom: () => '{"ok":false,"error":"unused"}',
         startQrScan: () => '{"started":true}',
         qrScanStatus: () => JSON.stringify({
@@ -125,6 +153,7 @@ test('Harmony QR scan connects and joins the game lobby', async ({ page }) => {
   });
   await page.goto('/');
 
+  await page.getByTestId('harmony-lan-consent').check();
   await page.locator('[data-harmony-scan-qr]').click();
 
   await expect(page.getByTestId('network-status')).toHaveText('已加入房间 GHOST7');
@@ -162,6 +191,8 @@ test('Harmony host worker admits a peer and starts authoritative frames', async 
         runtimeInfo: () => '{"platform":"HarmonyOS","prototype":"gate-a","bridgeVersion":1}',
         lanStatus: () => '{"listening":true,"port":34567,"mdnsRegistered":true}',
         nearbyRooms: () => '[]',
+        startLan: async () => '{"listening":true,"port":34567,"mdnsRegistered":true}',
+        stopLan: async () => '{"accepted":true}',
         createPrototypeRoom: () => JSON.stringify(room),
         joinPrototypeRoom: () => '{"accepted":true}',
         connectGameRoom: () => '{"accepted":true}',
@@ -185,6 +216,7 @@ test('Harmony host worker admits a peer and starts authoritative frames', async 
     });
   });
   await page.goto('/');
+  await page.getByTestId('harmony-lan-consent').check();
   await page.getByTestId('create-room').click();
   await expect(page.getByTestId('roster').locator('li')).toHaveCount(1);
 

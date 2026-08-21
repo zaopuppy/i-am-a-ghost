@@ -40,6 +40,16 @@ class HarmonyHostBridge {
     return JSON.stringify(lanHostProbe.nearbyRooms());
   }
 
+  async startLan(): Promise<string> {
+    if (this.context === null) return '{"listening":false,"error":"UI context is not ready"}';
+    return JSON.stringify(await lanHostProbe.start(this.context as common.UIAbilityContext));
+  }
+
+  async stopLan(): Promise<string> {
+    if (this.context !== null) await lanHostProbe.stop(this.context as common.UIAbilityContext);
+    return '{"accepted":true}';
+  }
+
   createPrototypeRoom(): string {
     return JSON.stringify(lanHostProbe.createPrototypeRoom());
   }
@@ -106,7 +116,11 @@ class HarmonyHostBridge {
   }
 
   qrScanStatus(): string {
-    return JSON.stringify(this.scanStatus);
+    const status = this.scanStatus;
+    if (status.state !== 'scanning') {
+      this.scanStatus = { state: 'idle', payload: null, error: null };
+    }
+    return JSON.stringify(status);
   }
 
   reportReady(payload: string): string {
@@ -184,6 +198,8 @@ struct Index {
             'runtimeInfo',
             'lanStatus',
             'nearbyRooms',
+            'startLan',
+            'stopLan',
             'createPrototypeRoom',
             'joinPrototypeRoom',
             'connectGameRoom',
@@ -198,7 +214,7 @@ struct Index {
             'reportReady',
           ],
           controller: this.controller,
-          asyncMethodList: [],
+          asyncMethodList: ['startLan', 'stopLan'],
           permission: BRIDGE_PERMISSION,
         })
         .onInterceptRequest((event) => {

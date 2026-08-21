@@ -312,7 +312,11 @@ function renderClientState(): void {
     if (client.session && client.roomState) {
       networkStatus.textContent = `已加入房间 ${client.roomState.roomCode}`;
     } else if (networkStatus.dataset.harmonyManaged !== 'true') {
-      networkStatus.textContent = nativeLanReady ? '原生局域网房间服务已就绪' : '正在启动原生局域网房间服务';
+      networkStatus.textContent = !harmonyHost.consentGranted
+        ? '请先同意局域网联机说明'
+        : nativeLanReady
+          ? '原生局域网房间服务已就绪'
+          : '正在启动原生局域网房间服务';
     }
   } else {
     networkStatus.textContent = client.connected ? '局域网房间服务已连接' : '等待局域网房间服务';
