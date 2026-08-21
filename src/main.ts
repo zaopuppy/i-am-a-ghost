@@ -10,7 +10,11 @@ import {
   type CameraVector,
 } from './core/CameraRig';
 import { GameInput } from './core/GameInput';
-import { createHarmonyPrototypeRoom, initializeHarmonyHost } from './core/HarmonyHostBridge';
+import {
+  getHarmonyHostApi,
+  initializeHarmonyHost,
+  setHarmonyNearbyRoomJoinHandler,
+} from './core/HarmonyHostBridge';
 import { Loop } from './core/Loop';
 import { createRenderStage } from './core/Renderer';
 import { GameWorld } from './game/GameWorld';
@@ -27,6 +31,7 @@ import {
 import type { ViewerFrame } from './game/ViewerFrame';
 import { GameClient } from './net/GameClient';
 import { FramePresenter } from './net/FramePresenter';
+import { HarmonyLanGameClient } from './net/HarmonyLanGameClient';
 import {
   createDeterministicViewerFrame,
   isDeterministicStateName,
@@ -81,7 +86,10 @@ const scenePlaytestHouse = scenePlaytestRole ? loadPlayableHouseDraft() : null;
 const stage = createRenderStage(canvas);
 const world = new GameWorld(scenePlaytestHouse ?? undefined);
 world.prewarmCharacterAssets((objects) => stage.prewarm(world.scene, objects));
-const client = new GameClient(undefined, !harmonyHost.active);
+const harmonyApi = getHarmonyHostApi();
+const client = harmonyHost.active && harmonyApi
+  ? new HarmonyLanGameClient(harmonyApi)
+  : new GameClient();
 const presenter = new FramePresenter();
 const input = new GameInput();
 const audio = new GameAudio();
@@ -94,6 +102,11 @@ const scenePlaytest = scenePlaytestRole && scenePlaytestHouse
   : null;
 const cameraRig = new CameraRig(stage);
 const nickname = createTemporaryNickname();
+if (client instanceof HarmonyLanGameClient) {
+  setHarmonyNearbyRoomJoinHandler((endpoint) => {
+    void client.joinEndpoint(endpoint, nickname);
+  });
+}
 let renderFrame = 0;
 let lastInputSentAt = 0;
 let lastFacingRadians = 0;
@@ -129,11 +142,7 @@ let reducedMotion = false;
 const queryRoom = query.get('room');
 if (queryRoom) roomCodeInput.value = normalizeRoomCode(queryRoom);
 createButton.addEventListener('click', () => {
-  if (harmonyHost.active) {
-    void createHarmonyPrototypeRoom();
-  } else {
-    void client.createRoom(nickname);
-  }
+  void client.createRoom(nickname);
 });
 joinButton.addEventListener('click', joinRoom);
 roomCodeInput.addEventListener('input', () => {
@@ -273,6 +282,7 @@ if (import.meta.hot) {
     window.removeEventListener('pointerdown', unlockAudio);
     window.removeEventListener('keydown', unlockAudio);
     client.dispose();
+    setHarmonyNearbyRoomJoinHandler(null);
     unsubscribeClient();
     resizeObserver.disconnect();
     cameraRig.dispose();
@@ -297,8 +307,10 @@ function renderClientState(): void {
   const nativeLanReady = harmonyHost.active && harmonyHost.lan?.listening === true;
   connectionRow.dataset.connected = String(nativeLanReady || client.connected);
   if (harmonyHost.active) {
-    if (networkStatus.dataset.harmonyManaged !== 'true') {
-      networkStatus.textContent = nativeLanReady ? '原生局域网探针已就绪' : '正在启动原生局域网探针';
+    if (client.session && client.roomState) {
+      networkStatus.textContent = `已加入房间 ${client.roomState.roomCode}`;
+    } else if (networkStatus.dataset.harmonyManaged !== 'true') {
+      networkStatus.textContent = nativeLanReady ? '原生局域网房间服务已就绪' : '正在启动原生局域网房间服务';
     }
   } else {
     networkStatus.textContent = client.connected ? '局域网房间服务已连接' : '等待局域网房间服务';

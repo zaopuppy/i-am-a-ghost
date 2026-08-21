@@ -1,4 +1,5 @@
 import QRCode from 'qrcode';
+import type { HarmonyRoomEndpoint } from '../net/HarmonyLanProtocol';
 
 export interface HarmonyHostState {
   active: boolean;
@@ -15,28 +16,39 @@ interface HarmonyLanHostStatus {
   mdnsRegistered?: unknown;
 }
 
-interface HarmonyNearbyRoom {
+export interface HarmonyNearbyRoom {
   serviceName?: unknown;
   host?: unknown;
   port?: unknown;
   protocol?: unknown;
+  players?: unknown;
+  roomCode?: unknown;
+  instanceId?: unknown;
+  joinable?: unknown;
   state?: unknown;
   receivedBytes?: unknown;
 }
 
-interface HarmonyHostApi {
+export interface HarmonyHostApi {
   ping(message: string): string;
   runtimeInfo(): string;
   lanStatus(): string;
   nearbyRooms(): string;
   createPrototypeRoom(): string;
   joinPrototypeRoom(host: string, port: number, roomCode: string, instanceId: string): string;
+  connectGameRoom(host: string, port: number, roomCode: string, instanceId: string): string;
+  gameConnectionStatus(): string;
+  drainGameMessages(): string;
+  sendGameMessage(payload: string): string;
+  sendGamePeer(peerId: string, payload: string): string;
+  setHostedRoomPlayers(players: number): string;
+  closeHostedRoom(): string;
   startQrScan(): string;
   qrScanStatus(): string;
   reportReady(payload: string): string;
 }
 
-interface HarmonyPrototypeRoom {
+export interface HarmonyPrototypeRoom {
   ok?: unknown;
   roomCode?: unknown;
   instanceId?: unknown;
@@ -52,12 +64,6 @@ interface HarmonyQrScanStatus {
   error?: unknown;
 }
 
-interface HarmonyJoinStatus {
-  accepted?: unknown;
-  serviceName?: unknown;
-  error?: unknown;
-}
-
 interface HarmonyRuntimeInfo {
   platform?: unknown;
   prototype?: unknown;
@@ -65,7 +71,9 @@ interface HarmonyRuntimeInfo {
 }
 
 let activeHost: HarmonyHostApi | null = null;
+let activeState: HarmonyHostState | null = null;
 let scanPoll: number | null = null;
+let nearbyJoinHandler: ((endpoint: HarmonyRoomEndpoint) => void) | null = null;
 
 export function initializeHarmonyHost(): HarmonyHostState {
   const host = (window as Window & { harmonyHost?: HarmonyHostApi }).harmonyHost;
@@ -93,6 +101,7 @@ export function initializeHarmonyHost(): HarmonyHostState {
       nearbyRooms: readNearbyRooms(host),
     };
     activeHost = host;
+    activeState = state;
     const report = JSON.stringify({
       href: window.location.href,
       bridgeVersion: state.bridgeVersion,
@@ -106,12 +115,13 @@ export function initializeHarmonyHost(): HarmonyHostState {
       state.lan = readLanStatus(host);
       state.nearbyRooms = readNearbyRooms(host);
       output.textContent = readyLabel(state);
-      nearbyOutput.textContent = nearbyRoomsLabel(state.nearbyRooms);
+      renderNearbyRooms(nearbyOutput, state.nearbyRooms);
     }, 1_000);
     console.info(`[HarmonyGateA] bridge ready ${report}`);
     return state;
   } catch (error) {
     activeHost = null;
+    activeState = null;
     const message = error instanceof Error ? error.message : String(error);
     const state: HarmonyHostState = {
       active: false,
@@ -127,16 +137,17 @@ export function initializeHarmonyHost(): HarmonyHostState {
   }
 }
 
-export async function createHarmonyPrototypeRoom(): Promise<void> {
+export async function createHarmonyPrototypeRoom(): Promise<HarmonyRoomEndpoint | null> {
   const host = activeHost;
-  if (host === null) return;
+  if (host === null) return null;
   setHarmonyError('');
-  setNetworkStatus('正在创建二维码探针房间…');
+    setNetworkStatus('正在创建局域网游戏房间…');
   try {
     const room = JSON.parse(host.createPrototypeRoom()) as HarmonyPrototypeRoom;
     if (
       room.ok !== true
       || typeof room.roomCode !== 'string'
+      || typeof room.instanceId !== 'string'
       || typeof room.host !== 'string'
       || typeof room.port !== 'number'
       || typeof room.payload !== 'string'
@@ -152,11 +163,34 @@ export async function createHarmonyPrototypeRoom(): Promise<void> {
       errorCorrectionLevel: 'M',
       color: { dark: '#08090d', light: '#ffffff' },
     });
-    setNetworkStatus('二维码探针房间已创建');
+    setNetworkStatus('游戏房间已创建，等待其他玩家加入');
+    return {
+      host: room.host,
+      port: room.port,
+      roomCode: room.roomCode,
+      instanceId: room.instanceId,
+      serviceName: '本机房间',
+    };
   } catch (error) {
-    setNetworkStatus('二维码探针房间创建失败');
+    setNetworkStatus('游戏房间创建失败');
     setHarmonyError(error instanceof Error ? error.message : String(error));
+    return null;
   }
+}
+
+export function getHarmonyHostApi(): HarmonyHostApi | null {
+  return activeHost;
+}
+
+export function findHarmonyRoomByCode(roomCode: string): HarmonyRoomEndpoint | null {
+  const room = activeState?.nearbyRooms.find((candidate) => candidate.roomCode === roomCode);
+  return room ? endpointFromNearbyRoom(room) : null;
+}
+
+export function setHarmonyNearbyRoomJoinHandler(
+  handler: ((endpoint: HarmonyRoomEndpoint) => void) | null,
+): void {
+  nearbyJoinHandler = handler;
 }
 
 export function startHarmonyQrScan(): void {
@@ -175,7 +209,7 @@ export function startHarmonyQrScan(): void {
       if (scan.state === 'scanning' && performance.now() - startedAt < 90_000) return;
       stopScanPoll();
       if (scan.state === 'success' && typeof scan.payload === 'string') {
-        joinScannedRoom(host, scan.payload);
+        joinScannedRoom(scan.payload);
       } else if (scan.state === 'cancelled') {
         setNetworkStatus('已取消扫描二维码');
       } else {
@@ -219,7 +253,7 @@ function surfaceQrJoinButton(): void {
   const button = document.createElement('button');
   button.type = 'button';
   button.dataset.harmonyScanQr = 'true';
-  button.textContent = '扫码加入探针房间';
+  button.textContent = '扫码加入游戏房间';
   button.style.cssText = [
     'width:100%',
     'padding:10px 14px',
@@ -250,7 +284,7 @@ function surfaceQrRoom(roomCode: string, host: string, port: number, payload: st
     'text-align:center',
   ].join(';');
   const title = document.createElement('strong');
-  title.textContent = '二维码探针房间';
+  title.textContent = '局域网游戏房间';
   const code = document.createElement('div');
   code.dataset.harmonyQrCode = 'true';
   code.textContent = roomCode;
@@ -262,7 +296,7 @@ function surfaceQrRoom(roomCode: string, host: string, port: number, payload: st
   endpoint.textContent = `${host}:${port}`;
   endpoint.style.cssText = 'margin-top:6px;overflow-wrap:anywhere;color:#a7f3d0';
   const hint = document.createElement('small');
-  hint.textContent = '另一台手机点击“扫码加入探针房间”';
+  hint.textContent = '另一台手机可从附近列表点击加入，或扫描二维码';
   hint.title = payload;
   hint.style.cssText = 'display:block;margin-top:5px;color:#aaa';
   panel.append(title, code, canvas, endpoint, hint);
@@ -270,39 +304,16 @@ function surfaceQrRoom(roomCode: string, host: string, port: number, payload: st
   return panel;
 }
 
-function joinScannedRoom(host: HarmonyHostApi, payload: string): void {
+function joinScannedRoom(payload: string): void {
   try {
     const endpoint = parseQrPayload(payload);
-    const joined = JSON.parse(host.joinPrototypeRoom(
-      endpoint.host,
-      endpoint.port,
-      endpoint.roomCode,
-      endpoint.instanceId,
-    )) as HarmonyJoinStatus;
-    if (joined.accepted !== true || typeof joined.serviceName !== 'string') {
-      throw new Error(typeof joined.error === 'string' ? joined.error : '原生层拒绝二维码地址');
-    }
-    setNetworkStatus('二维码已解析，正在直连探针房间…');
-    watchJoinedRoom(host, joined.serviceName);
+    if (nearbyJoinHandler === null) throw new Error('游戏房间客户端尚未就绪');
+    setNetworkStatus('二维码已解析，正在加入游戏房间…');
+    nearbyJoinHandler({ ...endpoint, serviceName: `QR ${endpoint.roomCode}` });
   } catch (error) {
     setNetworkStatus('二维码内容无效');
     setHarmonyError(error instanceof Error ? error.message : String(error));
   }
-}
-
-function watchJoinedRoom(host: HarmonyHostApi, serviceName: string): void {
-  const startedAt = performance.now();
-  const timer = window.setInterval(() => {
-    const room = readNearbyRooms(host).find((candidate) => candidate.serviceName === serviceName);
-    if (room?.state === 'reachable') {
-      window.clearInterval(timer);
-      setNetworkStatus('二维码直连成功');
-    } else if (room?.state === 'unreachable' || performance.now() - startedAt > 6_000) {
-      window.clearInterval(timer);
-      setNetworkStatus('二维码已识别，但两台手机无法直连');
-      setHarmonyError('二维码只能绕过 mDNS；当前网络仍阻止设备间 TCP 连接。');
-    }
-  }, 300);
 }
 
 function parseQrPayload(payload: string): {
@@ -362,7 +373,7 @@ function readNearbyRooms(host: HarmonyHostApi): HarmonyNearbyRoom[] {
 function surfaceNearbyRooms(rooms: HarmonyNearbyRoom[]): HTMLElement {
   const output = document.createElement('aside');
   output.dataset.harmonyNearbyRooms = 'true';
-  output.textContent = nearbyRoomsLabel(rooms);
+  renderNearbyRooms(output, rooms);
   output.style.cssText = [
     'position:fixed',
     'z-index:10000',
@@ -376,23 +387,56 @@ function surfaceNearbyRooms(rooms: HarmonyNearbyRoom[]): HTMLElement {
     'font:600 10px/1.45 system-ui,sans-serif',
     'white-space:pre-line',
     'overflow-wrap:anywhere',
-    'pointer-events:none',
   ].join(';');
   document.body.append(output);
   return output;
 }
 
-function nearbyRoomsLabel(rooms: HarmonyNearbyRoom[]): string {
-  if (rooms.length === 0) return '附近原型房间 · 搜索中（0）';
-  const lines = rooms.map((room) => {
-    const serviceName = typeof room.serviceName === 'string' ? room.serviceName : '未命名';
-    const state = typeof room.state === 'string' ? room.state : 'found';
-    const host = typeof room.host === 'string' ? room.host : '?';
-    const port = typeof room.port === 'number' ? room.port : '?';
-    const receivedBytes = typeof room.receivedBytes === 'number' ? ` · ${room.receivedBytes}B` : '';
-    return `${serviceName} · ${state} · ${host}:${port}${receivedBytes}`;
+function renderNearbyRooms(output: HTMLElement, rooms: HarmonyNearbyRoom[]): void {
+  const joinableRooms = rooms
+    .map((room) => ({ room, endpoint: endpointFromNearbyRoom(room) }))
+    .filter((entry): entry is { room: HarmonyNearbyRoom; endpoint: HarmonyRoomEndpoint } => entry.endpoint !== null);
+  const heading = document.createElement('strong');
+  heading.textContent = `附近游戏房间 · ${joinableRooms.length}`;
+  const status = document.createElement('small');
+  status.textContent = rooms.length === 0 ? '搜索中…' : joinableRooms.length === 0 ? '已发现设备，等待房主创建房间' : '';
+  status.style.cssText = 'display:block;color:#aaa;margin-top:2px';
+  const buttons = joinableRooms.map(({ room, endpoint }) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = `${endpoint.roomCode} · ${typeof room.players === 'number' ? room.players : '?'} 人 · 加入`;
+    button.style.cssText = [
+      'display:block',
+      'width:100%',
+      'margin-top:5px',
+      'padding:6px 8px',
+      'border:1px solid rgba(216,189,114,.55)',
+      'background:rgba(216,189,114,.12)',
+      'color:#ead99f',
+      'font:700 10px/1.2 system-ui,sans-serif',
+      'text-align:left',
+    ].join(';');
+    button.addEventListener('click', () => nearbyJoinHandler?.(endpoint));
+    return button;
   });
-  return `附近原型房间 · ${rooms.length}\n${lines.join('\n')}`;
+  output.replaceChildren(heading, status, ...buttons);
+}
+
+function endpointFromNearbyRoom(room: HarmonyNearbyRoom): HarmonyRoomEndpoint | null {
+  if (
+    room.joinable !== true
+    || typeof room.host !== 'string'
+    || typeof room.port !== 'number'
+    || typeof room.roomCode !== 'string'
+    || typeof room.instanceId !== 'string'
+  ) return null;
+  return {
+    host: room.host,
+    port: room.port,
+    roomCode: room.roomCode,
+    instanceId: room.instanceId,
+    serviceName: typeof room.serviceName === 'string' ? room.serviceName : room.roomCode,
+  };
 }
 
 function readyLabel(state: HarmonyHostState): string {

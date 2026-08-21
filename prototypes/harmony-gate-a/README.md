@@ -20,31 +20,34 @@ files through a private `https://game.local/` origin; the native page resolves
 that origin synchronously to HAP `$rawfile` resources so module scripts, styles,
 and assets share one origin.
 
-While the ability is in the foreground, the native layer also starts a small
-TCP echo probe on an OS-assigned port and advertises it as
+While the ability is in the foreground, the native layer starts a framed TCP
+transport on an OS-assigned port and advertises it as
 `_iamaghost._tcp` through mDNS. At the same time it discovers services of that
 type, resolves their addresses and TXT metadata, and runs a native TCP
-greeting/echo probe before reporting them as reachable. ArkWeb displays this
-state as a temporary nearby-room panel. The native layer stops advertising,
-discovery, and sockets on background.
+room-info probe. ArkWeb only presents endpoints whose owner has explicitly
+created a room. The native layer stops advertising, discovery, and sockets on
+background.
 
-This validates the LAN-hosting boundary only; the authoritative Socket.IO game
-server remains in `server/` and is not duplicated in this prototype. A room can
-only appear when the devices share an mDNS multicast domain and have direct TCP
-reachability. Merely showing the same Wi-Fi name is not sufficient on a network
-that isolates clients or assigns them to different routed links.
+The H3 slice can now create a room, join it from the nearby list, enter a shared
+lobby, start a match, and exchange 30 Hz inputs / 20 Hz viewer-projected frames.
+The host ArkWeb runs the shared `MatchEngine` in a Web Worker; ArkTS owns TCP
+connections, bounded UTF-8 newline framing, peer queues, and directed sends.
+The desktop Socket.IO game server remains unchanged. This is still a disposable
+architecture probe: it uses a 25 ms JavaScript-proxy polling bridge and has not
+yet passed the planned `WebMessagePort` / `ArrayBuffer` soak test.
 
-On HarmonyOS, **Create Room** creates a QR probe room rather than calling the
-desktop Socket.IO server. The QR contains the ephemeral room code, instance,
-active-network IPv4 address, and TCP probe port; it contains no token or stable
-device identifier. **Scan QR Probe Room** opens the system Scan Kit UI, parses
-that payload, and performs the same native greeting/echo reachability check.
-This is deliberately a transport probe, not yet an authoritative playable room.
+On HarmonyOS, **Create Room** activates the native endpoint and opens the local
+hosted lobby rather than calling the desktop Socket.IO server. The QR contains
+the ephemeral room code, instance, active-network IPv4 address, and TCP port;
+it contains no token or stable device identifier. Nearby room buttons, six-digit
+code lookup, and **Scan QR Game Room** all converge on the same persistent TCP
+join path.
 
-The 2026-08-21 two-device run successfully generated and scanned the QR, then
-reported the endpoint as `unreachable`. That is the expected and useful result
-on the currently isolated network: QR bypasses discovery failure, but cannot
-bypass missing routes or client isolation.
+The first 2026-08-21 two-device run was isolated and correctly reported the QR
+endpoint as `unreachable`. After both phones moved to a LAN that permits client
+traffic, each phone discovered the other and completed the native probe. The H3
+playable-session implementation still needs its final two-device run before the
+prototype can claim a real shared match.
 
 Run from the repository root:
 

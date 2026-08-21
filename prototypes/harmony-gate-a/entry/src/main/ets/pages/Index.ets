@@ -47,6 +47,35 @@ class HarmonyHostBridge {
     return JSON.stringify(lanHostProbe.joinPrototypeRoom(host, port, roomCode, instanceId));
   }
 
+  connectGameRoom(host: string, port: number, roomCode: string, instanceId: string): string {
+    return JSON.stringify(lanHostProbe.connectGameRoom(host, port, roomCode, instanceId));
+  }
+
+  gameConnectionStatus(): string {
+    return JSON.stringify(lanHostProbe.gameConnectionStatus());
+  }
+
+  drainGameMessages(): string {
+    return JSON.stringify(lanHostProbe.drainGameMessages());
+  }
+
+  sendGameMessage(payload: string): string {
+    return JSON.stringify({ accepted: lanHostProbe.sendGameMessage(payload) });
+  }
+
+  sendGamePeer(peerId: string, payload: string): string {
+    return JSON.stringify({ accepted: lanHostProbe.sendGamePeer(peerId, payload) });
+  }
+
+  setHostedRoomPlayers(players: number): string {
+    return JSON.stringify({ accepted: lanHostProbe.setHostedRoomPlayers(players) });
+  }
+
+  closeHostedRoom(): string {
+    lanHostProbe.closeHostedRoom();
+    return '{"accepted":true}';
+  }
+
   startQrScan(): string {
     if (this.context === null) {
       this.scanStatus = { state: 'error', payload: null, error: 'UI context is not ready' };
@@ -156,6 +185,13 @@ struct Index {
             'nearbyRooms',
             'createPrototypeRoom',
             'joinPrototypeRoom',
+            'connectGameRoom',
+            'gameConnectionStatus',
+            'drainGameMessages',
+            'sendGameMessage',
+            'sendGamePeer',
+            'setHostedRoomPlayers',
+            'closeHostedRoom',
             'startQrScan',
             'qrScanStatus',
             'reportReady',

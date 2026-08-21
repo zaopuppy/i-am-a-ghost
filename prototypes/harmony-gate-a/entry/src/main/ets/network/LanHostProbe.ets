@@ -1,9 +1,14 @@
 import { common } from '@kit.AbilityKit';
+import { util } from '@kit.ArkTS';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { connection, mdns, socket } from '@kit.NetworkKit';
 
 const SERVICE_TYPE = '_iamaghost._tcp';
 const SERVICE_NAME_PREFIX = 'I Am A Ghost Gate A';
+const GAME_PROTOCOL = 'gate-a-game-v1';
+const MAX_FRAME_CHARACTERS = 65_536;
+const MAX_INBOX_MESSAGES = 512;
+const ROOM_PROBE_INTERVAL_MS = 1_500;
 
 export interface LanHostStatus {
   listening: boolean;
@@ -22,9 +27,13 @@ export interface NearbyRoomStatus {
   protocol: string | null;
   build: string | null;
   players: number | null;
+  roomCode: string | null;
+  instanceId: string | null;
+  joinable: boolean;
   state: string;
   receivedBytes: number;
   error: string | null;
+  lastProbeAt: number;
 }
 
 export interface PrototypeRoomStatus {
@@ -43,9 +52,39 @@ export interface PrototypeJoinStatus {
   error: string | null;
 }
 
+export interface GameConnectionStatus {
+  state: string;
+  host: string | null;
+  port: number | null;
+  roomCode: string | null;
+  instanceId: string | null;
+  error: string | null;
+}
+
+export interface GameInboxMessage {
+  peerId: string;
+  payload: string;
+}
+
+interface RoomInfoMessage {
+  type?: string;
+  protocol?: string;
+  roomCode?: string | null;
+  instanceId?: string | null;
+  players?: number;
+  joinable?: boolean;
+}
+
+interface SplitLinesResult {
+  lines: Array<string>;
+  remainder: string;
+}
+
 class LanHostProbe {
   private server: socket.TCPSocketServer | null = null;
   private clients: Map<number, socket.TCPSocketConnection> = new Map();
+  private clientBuffers: Map<number, string> = new Map();
+  private clientDecoders: Map<number, util.TextDecoder> = new Map();
   private probeClients: Map<string, socket.TCPSocket> = new Map();
   private registeredService: mdns.LocalServiceInfo | null = null;
   private discovery: mdns.DiscoveryService | null = null;
@@ -56,6 +95,13 @@ class LanHostProbe {
   private discoveryActive: boolean = false;
   private lastError: string | null = null;
   private readonly serviceName: string = `${SERVICE_NAME_PREFIX} ${randomSuffix()}`;
+  private hostedRoom: PrototypeRoomStatus | null = null;
+  private hostedPlayers: number = 0;
+  private gameClient: socket.TCPSocket | null = null;
+  private gameClientBuffer: string = '';
+  private gameClientDecoder: util.TextDecoder = util.TextDecoder.create('utf-8');
+  private gameConnection: GameConnectionStatus = disconnectedGameStatus();
+  private gameInbox: Array<GameInboxMessage> = [];
 
   status(): LanHostStatus {
     return {
@@ -79,11 +125,18 @@ class LanHostProbe {
         protocol: room.protocol,
         build: room.build,
         players: room.players,
+        roomCode: room.roomCode,
+        instanceId: room.instanceId,
+        joinable: room.joinable,
         state: room.state,
         receivedBytes: room.receivedBytes,
         error: room.error,
+        lastProbeAt: room.lastProbeAt,
       };
       snapshots.push(snapshot);
+      if (Date.now() - room.lastProbeAt >= ROOM_PROBE_INTERVAL_MS) {
+        void this.probeRoom(serviceKeyFromStatus(room), room);
+      }
     }
     return snapshots;
   }
@@ -106,7 +159,7 @@ class LanHostProbe {
       const instanceId = `gate-a-${Date.now()}-${randomSuffix()}`;
       const payload = 'iamaghost://gate-a/join' +
         `?v=1&instance=${instanceId}&room=${roomCode}&host=${address}&port=${this.port}`;
-      return {
+      const room: PrototypeRoomStatus = {
         ok: true,
         roomCode,
         instanceId,
@@ -115,9 +168,83 @@ class LanHostProbe {
         payload,
         error: null,
       };
+      this.hostedRoom = room;
+      this.hostedPlayers = 1;
+      return room;
     } catch (error) {
       return failedPrototypeRoom(`Network address: ${stringifyError(error)}`);
     }
+  }
+
+  gameConnectionStatus(): GameConnectionStatus {
+    return {
+      state: this.gameConnection.state,
+      host: this.gameConnection.host,
+      port: this.gameConnection.port,
+      roomCode: this.gameConnection.roomCode,
+      instanceId: this.gameConnection.instanceId,
+      error: this.gameConnection.error,
+    };
+  }
+
+  connectGameRoom(host: string, port: number, roomCode: string, instanceId: string): PrototypeJoinStatus {
+    if (!isUsableIpv4(host) || !Number.isInteger(port) || port < 1 || port > 65_535) {
+      return { accepted: false, serviceName: null, error: 'Invalid game endpoint' };
+    }
+    const normalizedRoomCode = roomCode.replace(/[^A-Z0-9]/g, '').slice(0, 6);
+    if (normalizedRoomCode.length !== 6 || instanceId.length < 1 || instanceId.length > 80) {
+      return { accepted: false, serviceName: null, error: 'Invalid game room identity' };
+    }
+    this.closeGameClient();
+    this.gameConnection = {
+      state: 'connecting',
+      host,
+      port,
+      roomCode: normalizedRoomCode,
+      instanceId,
+      error: null,
+    };
+    void this.connectGameRoomInternal(host, port);
+    return { accepted: true, serviceName: `Game ${normalizedRoomCode}`, error: null };
+  }
+
+  sendGameMessage(payload: string): boolean {
+    const client = this.gameClient;
+    if (client === null || this.gameConnection.state !== 'connected' || !validPayload(payload)) return false;
+    void client.send({ data: `${payload}\n`, encoding: 'UTF-8' }).catch((error: BusinessError) => {
+      this.gameConnection.state = 'error';
+      this.gameConnection.error = stringifyError(error);
+    });
+    return true;
+  }
+
+  sendGamePeer(peerId: string, payload: string): boolean {
+    if (!validPayload(payload)) return false;
+    const clientId = parsePeerId(peerId);
+    const client = clientId === null ? undefined : this.clients.get(clientId);
+    if (client === undefined) return false;
+    void client.send({ data: `${payload}\n`, encoding: 'UTF-8' }).catch((error: BusinessError) => {
+      console.warn(`[HarmonyGateA] game peer send failed: ${stringifyError(error)}`);
+      this.removeClient(clientId as number);
+    });
+    return true;
+  }
+
+  drainGameMessages(): Array<GameInboxMessage> {
+    const messages = this.gameInbox;
+    this.gameInbox = [];
+    return messages;
+  }
+
+  setHostedRoomPlayers(players: number): boolean {
+    if (!Number.isInteger(players) || players < 0 || players > 5 || this.hostedRoom === null) return false;
+    this.hostedPlayers = players;
+    return true;
+  }
+
+  closeHostedRoom(): void {
+    this.hostedRoom = null;
+    this.hostedPlayers = 0;
   }
 
   joinPrototypeRoom(host: string, port: number, roomCode: string, instanceId: string): PrototypeJoinStatus {
@@ -137,9 +264,13 @@ class LanHostProbe {
       protocol: 'gate-a-v1',
       build: 'prototype',
       players: null,
+      roomCode: normalizedRoomCode,
+      instanceId,
+      joinable: true,
       state: 'resolved',
       receivedBytes: 0,
       error: null,
+      lastProbeAt: 0,
     };
     this.discoveredRooms.set(key, room);
     void this.probeRoom(key, room);
@@ -180,6 +311,8 @@ class LanHostProbe {
 
     const clients = Array.from(this.clients.values());
     this.clients.clear();
+    this.clientBuffers.clear();
+    this.clientDecoders.clear();
     await Promise.all(clients.map(async (client) => {
       try {
         await client.close();
@@ -187,6 +320,11 @@ class LanHostProbe {
         console.warn(`[HarmonyGateA] peer close skipped: ${stringifyError(error)}`);
       }
     }));
+
+    this.closeGameClient();
+    this.hostedRoom = null;
+    this.hostedPlayers = 0;
+    this.gameInbox = [];
 
     const server = this.server;
     this.server = null;
@@ -306,10 +444,14 @@ class LanHostProbe {
         port: null,
         protocol: null,
         build: null,
-        players: null,
-        state: 'found',
+          players: null,
+          roomCode: null,
+          instanceId: null,
+          joinable: false,
+          state: 'found',
         receivedBytes: 0,
-        error: null,
+          error: null,
+          lastProbeAt: 0,
       });
       console.info(`[HarmonyGateA] nearby service found: ${serviceInfo.serviceName}`);
     }
@@ -372,13 +514,20 @@ class LanHostProbe {
     if (room.host === null || room.port === null || this.probeClients.has(key)) return;
     const client = socket.constructTCPSocketInstance();
     this.probeClients.set(key, client);
+    room.lastProbeAt = Date.now();
     room.state = 'probing';
+    let responseBuffer = '';
+    const responseDecoder = util.TextDecoder.create('utf-8');
     client.on('message', (messageInfo) => {
       const current = this.discoveredRooms.get(key);
       if (current === undefined) return;
       current.state = 'reachable';
       current.receivedBytes += messageInfo.message.byteLength;
       current.error = null;
+      responseBuffer += responseDecoder.decodeToString(new Uint8Array(messageInfo.message), { stream: true });
+      const split = splitCompleteLines(responseBuffer);
+      responseBuffer = split.remainder;
+      for (const line of split.lines) this.acceptRoomInfo(current, line);
     });
     client.on('error', (error) => {
       const current = this.discoveredRooms.get(key);
@@ -396,7 +545,10 @@ class LanHostProbe {
         },
         timeout: 3_000,
       });
-      await client.send({ data: 'gate-a-two-device-probe\n', encoding: 'UTF-8' });
+      await client.send({
+        data: `${JSON.stringify({ type: 'gate-a-room-info-request', protocol: GAME_PROTOCOL })}\n`,
+        encoding: 'UTF-8',
+      });
       await delay(1_000);
       if (room.state !== 'reachable') {
         room.state = 'unreachable';
@@ -417,16 +569,14 @@ class LanHostProbe {
 
   private acceptClient(client: socket.TCPSocketConnection): void {
     this.clients.set(client.clientId, client);
+    this.clientBuffers.set(client.clientId, '');
+    this.clientDecoders.set(client.clientId, util.TextDecoder.create('utf-8'));
     console.info(`[HarmonyGateA] TCP peer connected; peers=${this.clients.size}`);
     client.on('message', (messageInfo) => {
-      const response = JSON.stringify({
-        type: 'gate-a-echo',
-        protocol: 'gate-a-v1',
-        receivedBytes: messageInfo.message.byteLength,
-      });
-      void client.send({ data: `${response}\n`, encoding: 'UTF-8' }).catch((error: BusinessError) => {
-        console.error(`[HarmonyGateA] TCP reply failed: ${stringifyError(error)}`);
-      });
+      const decoder = this.clientDecoders.get(client.clientId);
+      if (decoder !== undefined) {
+        this.acceptClientChunk(client, decoder.decodeToString(new Uint8Array(messageInfo.message), { stream: true }));
+      }
     });
     client.on('close', () => this.removeClient(client.clientId));
     client.on('error', (error) => {
@@ -440,13 +590,220 @@ class LanHostProbe {
   }
 
   private removeClient(clientId: number): void {
+    if (!this.clients.has(clientId)) return;
     this.clients.delete(clientId);
+    this.clientBuffers.delete(clientId);
+    this.clientDecoders.delete(clientId);
+    this.pushGameInbox({
+      peerId: formatPeerId(clientId),
+      payload: JSON.stringify({ type: 'peer-disconnected' }),
+    });
     console.info(`[HarmonyGateA] TCP peer disconnected; peers=${this.clients.size}`);
+  }
+
+  private acceptClientChunk(client: socket.TCPSocketConnection, chunk: string): void {
+    const combined = `${this.clientBuffers.get(client.clientId) ?? ''}${chunk}`;
+    if (combined.length > MAX_FRAME_CHARACTERS * 2) {
+      this.closeAcceptedClient(client);
+      return;
+    }
+    const split = splitCompleteLines(combined);
+    this.clientBuffers.set(client.clientId, split.remainder);
+    for (const line of split.lines) this.acceptClientLine(client, line);
+  }
+
+  private acceptClientLine(client: socket.TCPSocketConnection, line: string): void {
+    if (!validPayload(line)) {
+      this.closeAcceptedClient(client);
+      return;
+    }
+    if (line === 'gate-a-two-device-probe') {
+      const response = JSON.stringify({ type: 'gate-a-echo', protocol: 'gate-a-v1', receivedBytes: line.length + 1 });
+      this.sendAcceptedClient(client, response);
+      return;
+    }
+    try {
+      const message = JSON.parse(line) as RoomInfoMessage;
+      if (message.type === 'gate-a-room-info-request') {
+        this.sendAcceptedClient(client, this.roomInfoPayload());
+        return;
+      }
+    } catch (_) {
+      this.closeAcceptedClient(client);
+      return;
+    }
+    this.pushGameInbox({ peerId: formatPeerId(client.clientId), payload: line });
+  }
+
+  private sendAcceptedClient(client: socket.TCPSocketConnection, payload: string): void {
+    try {
+      void client.send({ data: `${payload}\n`, encoding: 'UTF-8' }).catch((error: BusinessError) => {
+        console.warn(`[HarmonyGateA] TCP peer send failed: ${stringifyError(error)}`);
+        this.removeClient(client.clientId);
+      });
+    } catch (error) {
+      console.warn(`[HarmonyGateA] TCP peer send failed: ${stringifyError(error)}`);
+      this.removeClient(client.clientId);
+    }
+  }
+
+  private closeAcceptedClient(client: socket.TCPSocketConnection): void {
+    try {
+      void client.close().catch((error: BusinessError) => {
+        console.warn(`[HarmonyGateA] TCP peer close skipped: ${stringifyError(error)}`);
+      });
+    } catch (error) {
+      console.warn(`[HarmonyGateA] TCP peer close skipped: ${stringifyError(error)}`);
+    }
+  }
+
+  private roomInfoPayload(): string {
+    const room = this.hostedRoom;
+    return JSON.stringify({
+      type: 'gate-a-room-info',
+      protocol: GAME_PROTOCOL,
+      roomCode: room?.roomCode ?? null,
+      instanceId: room?.instanceId ?? null,
+      players: room === null ? 0 : this.hostedPlayers,
+      joinable: room !== null && this.hostedPlayers < 5,
+    });
+  }
+
+  private acceptRoomInfo(room: NearbyRoomStatus, line: string): void {
+    try {
+      const message = JSON.parse(line) as RoomInfoMessage;
+      if (message.type !== 'gate-a-room-info' || message.protocol !== GAME_PROTOCOL) return;
+      room.roomCode = typeof message.roomCode === 'string' ? message.roomCode : null;
+      room.instanceId = typeof message.instanceId === 'string' ? message.instanceId : null;
+      room.players = typeof message.players === 'number' ? message.players : null;
+      room.joinable = message.joinable === true && room.roomCode !== null && room.instanceId !== null;
+    } catch (_) {
+      // Greeting and legacy echo lines are intentionally ignored.
+    }
+  }
+
+  private async connectGameRoomInternal(host: string, port: number): Promise<void> {
+    const client = socket.constructTCPSocketInstance();
+    this.gameClient = client;
+    this.gameClientBuffer = '';
+    this.gameClientDecoder = util.TextDecoder.create('utf-8');
+    client.on('message', (messageInfo) => {
+      this.acceptGameClientChunk(
+        this.gameClientDecoder.decodeToString(new Uint8Array(messageInfo.message), { stream: true }),
+      );
+    });
+    client.on('close', () => {
+      if (this.gameClient !== client) return;
+      this.gameClient = null;
+      this.gameConnection.state = 'disconnected';
+      this.pushGameInbox({ peerId: 'host', payload: JSON.stringify({ type: 'host-closed' }) });
+    });
+    client.on('error', (error) => {
+      if (this.gameClient !== client) return;
+      this.gameConnection.state = 'error';
+      this.gameConnection.error = stringifyError(error);
+    });
+    try {
+      await client.connect({
+        address: { address: host, family: host.includes(':') ? 2 : 1, port },
+        timeout: 3_000,
+      });
+      if (this.gameClient !== client) {
+        await client.close();
+        return;
+      }
+      this.gameConnection.state = 'connected';
+    } catch (error) {
+      if (this.gameClient === client) {
+        this.gameClient = null;
+        this.gameConnection.state = 'error';
+        this.gameConnection.error = stringifyError(error);
+      }
+      try {
+        await client.close();
+      } catch (_) {
+        // The socket may not have reached the connected state.
+      }
+    }
+  }
+
+  private acceptGameClientChunk(chunk: string): void {
+    this.gameClientBuffer += chunk;
+    if (this.gameClientBuffer.length > MAX_FRAME_CHARACTERS * 2) {
+      this.closeGameClient();
+      return;
+    }
+    const split = splitCompleteLines(this.gameClientBuffer);
+    this.gameClientBuffer = split.remainder;
+    for (const line of split.lines) {
+      if (!validPayload(line)) continue;
+      try {
+        const message = JSON.parse(line) as RoomInfoMessage;
+        if (message.type === 'gate-a-ready' || message.type === 'gate-a-echo') continue;
+      } catch (_) {
+        continue;
+      }
+      this.pushGameInbox({ peerId: 'host', payload: line });
+    }
+  }
+
+  private closeGameClient(): void {
+    const client = this.gameClient;
+    this.gameClient = null;
+    this.gameClientBuffer = '';
+    this.gameConnection = disconnectedGameStatus();
+    if (client !== null) {
+      try {
+        void client.close();
+      } catch (_) {
+        // The socket may already be closed.
+      }
+    }
+  }
+
+  private pushGameInbox(message: GameInboxMessage): void {
+    if (this.gameInbox.length >= MAX_INBOX_MESSAGES) this.gameInbox.shift();
+    this.gameInbox.push(message);
   }
 }
 
 function serviceKey(serviceInfo: mdns.LocalServiceInfo): string {
   return `${serviceInfo.serviceType}|${serviceInfo.serviceName}`;
+}
+
+function serviceKeyFromStatus(room: NearbyRoomStatus): string {
+  return `${SERVICE_TYPE}|${room.serviceName}`;
+}
+
+function formatPeerId(clientId: number): string {
+  return `peer-${clientId}`;
+}
+
+function parsePeerId(peerId: string): number | null {
+  if (!/^peer-\d+$/.test(peerId)) return null;
+  const clientId = Number.parseInt(peerId.slice(5), 10);
+  return Number.isInteger(clientId) ? clientId : null;
+}
+
+function splitCompleteLines(value: string): SplitLinesResult {
+  const parts = value.split('\n');
+  const remainder = parts.pop() ?? '';
+  return { lines: parts.filter((line) => line.length > 0), remainder };
+}
+
+function validPayload(payload: string): boolean {
+  return payload.length > 0 && payload.length <= MAX_FRAME_CHARACTERS && !payload.includes('\n');
+}
+
+function disconnectedGameStatus(): GameConnectionStatus {
+  return {
+    state: 'disconnected',
+    host: null,
+    port: null,
+    roomCode: null,
+    instanceId: null,
+    error: null,
+  };
 }
 
 function asciiBytes(value: string): Array<number> {
