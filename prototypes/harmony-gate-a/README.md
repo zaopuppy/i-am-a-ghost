@@ -45,9 +45,15 @@ join path.
 
 The first 2026-08-21 two-device run was isolated and correctly reported the QR
 endpoint as `unreachable`. After both phones moved to a LAN that permits client
-traffic, each phone discovered the other and completed the native probe. The H3
-playable-session implementation still needs its final two-device run before the
-prototype can claim a real shared match.
+traffic, each phone discovered the other and completed the native probe. H3 then
+completed a real two-phone room flow: nearby-list join, synchronized two-player
+lobby, host start, distinct ghost/child viewer frames, authoritative movement
+from both touch joysticks, and a held child flashlight action. The discovery and
+QR debug overlays now close during play so the landscape HUD remains usable.
+
+H3 does not complete Gate A. A successful real QR join on the new LAN, game-time
+host-background handling, the `WebMessagePort` / `ArrayBuffer` bridge, 15-minute
+soak, and device performance/thermal measurements remain open.
 
 Run from the repository root:
 
