@@ -27,5 +27,5 @@ package-lock.json
 
 # HarmonyOS signing secrets and machine-specific encrypted credentials.
 /prototypes/harmony-gate-a/signing/local-signing.cjs
-/prototypes/harmony-gate-a/signing/*.p12
-/prototypes/harmony-gate-a/signing/*.csr
+/prototypes/harmony-gate-a/signing/**/*.p12
+/prototypes/harmony-gate-a/signing/**/*.csr

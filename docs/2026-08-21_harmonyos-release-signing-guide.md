@@ -33,11 +33,12 @@
 - 已执行：`devecocli signature generate --product default --team-id <团队 ID>`
 - 已生成：位于 `%USERPROFILE%\.ohos\config` 的 `.p12`、`.csr`、调试 `.cer` 和调试 `.p7b`
 - 已取得：AGC 发布证书 `GameHack.cer` 与绑定本应用的发布 Profile `gamehackRelease.p7b`
-- 已配置：release signing 复用现有 `.p12` 和加密凭据，`certpath/profile` 指向上述发布材料
-- 已验证：`npm run prototype:harmony:release` 完成 `SignHap`、`SignApp`，构建成功
-- 发布产物：`prototypes/harmony-gate-a/build/outputs/default/harmony-gate-a-default-signed.app`
+- 已配置：`.p12` 路径和加密凭据位于被 Git 忽略的 `signing/local-signing.cjs`
+- 已拆分：`default/debug` 使用调试证书，`release/release` 使用发布证书
+- 已验证：调试构建完成 `SignHap`；`npm run prototype:harmony:release` 完成 `SignHap`、`SignApp`
+- 发布产物：`prototypes/harmony-gate-a/build/outputs/release/harmony-gate-a-release-signed.app`
 
-当前产物已经使用发布证书链完成本地签名，可以提交 AGC 做邀请测试、公测或正式发布校验。AGC 的上传校验仍是最终判定；本地构建成功不能替代平台校验。签名配置含本机绝对路径和可用加密凭据，不提交 Git。
+当前产物已经使用发布证书链完成本地签名，可以提交 AGC 做邀请测试、公测或正式发布校验。AGC 的上传校验仍是最终判定；本地构建成功不能替代平台校验。发布 `.cer/.p7b` 已版本化，`.p12` 和本机加密凭据不进入 Git。
 
 可用以下只读命令定位现有密钥与 CSR；命令不会显示密钥或密码正文：
 
@@ -94,20 +95,34 @@ Get-ChildItem -LiteralPath "$env:USERPROFILE\.ohos\config" -File |
 
 字段含义和手动配置入口来自[华为官方开发者文章的完整打包示例](https://developer.huawei.com/consumer/cn/blog/topic/03170961386142106)及[华为“配置调试签名”](https://developer.huawei.com/consumer/cn/doc/harmonyos-guides/ide-signing)；发布包不得处于可调试状态见本地官方 FAQ `faqs-project-management-27`。
 
-命令行/CI 没有另一套证书格式：它仍读取工程的签名配置。官方 `build-profile.json5` 模型中，`app.signingConfigs[].material` 保存或引用 `storeFile`、`storePassword`、`keyAlias`、`keyPassword`、`signAlg`、`profile`、`certpath`，具体 product 通过 `products[].signingConfig` 选择配置。[华为 `build-profile.json5` 配置说明](https://developer.huawei.com/consumer/cn/doc/harmonyos-guides-V5/ide-hvigor-build-profile-V5) 本项目应由负责人通过 DevEco 或 CI 的受控配置完成这些映射；本文不写入真实值，也不修改当前文件。
+命令行/CI 没有另一套证书格式：它仍读取工程的签名配置。官方 `build-profile.json5` 模型中，`app.signingConfigs[].material` 保存或引用 `storeFile`、`storePassword`、`keyAlias`、`keyPassword`、`signAlg`、`profile`、`certpath`，具体 product 通过 `products[].signingConfig` 选择配置。[华为 `build-profile.json5` 配置说明](https://developer.huawei.com/consumer/cn/doc/harmonyos-guides-V5/ide-hvigor-build-profile-V5)
 
-> 本次研究没有修改 `build-profile.json5`。实际配置前应先决定：个人开发机使用 DevEco 的本地安全配置，CI 使用其密钥库/Secret 注入；两者都不要把真实密码、私钥正文或可直接解密的凭据提交到 Git。
+本项目按华为官方推荐的 Hvigor hook 方案外置签名：受版本控制的 `build-profile.json5` 只声明 `debug/release` product 与签名名称；根 `hvigorfile.ts` 从 `signing/local-signing.cjs` 或 `HARMONY_SIGNING_CONFIG` 指定路径读取本机材料并动态注入。个人开发机使用本地文件，CI 可在临时目录生成同结构文件；两者都不提交 `.p12` 或密码。
 
 ### 5. 用命令行构建 release 包
 
 签名配置完成后，在 HarmonyOS 工程目录执行：
 
 ```powershell
-Set-Location prototypes/harmony-gate-a
-devecocli build --product default --build-mode release
+npm run prototype:harmony:release
 ```
 
-`devecocli build --help` 明确说明 `--product` 读取 `build-profile.json5` 中的产品名，`--build-mode` 选择构建模式且默认值是 `debug`。因此发布构建必须显式指定 `release`，并在构建前确认所选产品已绑定手动发布签名。构建出的正式 `.app` 再上传 AGC；AGC 会对正式包做合法性检测。[华为“发布应用”](https://developer.huawei.com/consumer/cn/doc/doccenter-submission/agc-help-release-0000002235870050)、[华为“上传软件包”](https://developer.huawei.com/consumer/cn/doc/doccenter-submission/agc-help-release-game-upload-pkg-0000002399249081)
+该脚本先检查本地签名配置，再执行 Web release 构建和 `devecocli build --product release --build-mode release`。调试使用 `npm run prototype:harmony:build` 或 `npm run prototype:harmony:run`，对应 `default/debug`。构建出的正式 `.app` 再上传 AGC；AGC 会对正式包做合法性检测。[华为“发布应用”](https://developer.huawei.com/consumer/cn/doc/doccenter-submission/agc-help-release-0000002235870050)、[华为“上传软件包”](https://developer.huawei.com/consumer/cn/doc/doccenter-submission/agc-help-release-game-upload-pkg-0000002399249081)
+
+### 6. 在新电脑恢复或捕获本地签名
+
+正常换电脑时，应从受控备份恢复原 `.p12` 和密码，不要生成新私钥。在 DevEco Studio 中配置一次手动签名，让它把本机加密值写入 `build-profile.json5`，然后执行：
+
+```powershell
+npm run prototype:harmony:signing:capture
+git restore -- prototypes/harmony-gate-a/build-profile.json5
+npm run prototype:harmony:build
+npm run prototype:harmony:release
+```
+
+捕获命令只把当前签名配置写入被忽略的 `signing/local-signing.cjs`，不会打印密码。若本地文件已存在，命令拒绝覆盖；确认备份后可执行 `npm run prototype:harmony:signing:capture -- --force`。
+
+只有在明确轮换或丢失私钥时，才重新运行 `devecocli signature generate`。新 `.p12/.csr` 需要重新申请匹配的发布 `.cer/.p7b`，并替换 `signing/release/` 中的版本化文件；旧发布证书/Profile 不能与新私钥混用。更完整的本地操作见 `prototypes/harmony-gate-a/signing/README.md`。
 
 不要用以下推理代替检查：
 
@@ -166,6 +181,8 @@ devecocli build --product default --build-mode release
 - [x] 为当前应用和该发布证书申请的是**发布 Profile** `.p7b`。
 - [ ] Profile 的 ACL 与软件包实际受限权限一致。
 - [x] 本机 release signing 同时引用同一链路的 `.p12`、`.cer`、`.p7b`。
+- [x] 调试与发布 product 分离，发布脚本固定选择 `release/release`。
+- [x] `.p12` 和本机加密凭据已外置；发布 `.cer/.p7b` 使用相对路径并已版本化。
 - [x] `debuggable`/`debug` 为 `false` 或省略；命令显式使用 `--build-mode release`。
 - [ ] 密钥和密码未进入 Git、日志、截图、文档或聊天；CI 从 Secret/密钥库注入。
 - [ ] 对最终 `.app` 做上架自检并上传 AGC 验证，不用“本地安装成功”替代验证。
@@ -203,4 +220,4 @@ devecocli docs read FAQ/工程管理/使用发布证书打release包未成功的
 
 ## 边界说明
 
-本次已执行 `devecocli signature generate`，之后把 AGC 发布证书/Profile 接入本机 `build-profile.json5`，并完成 release 模式的 HAP 与 APP 签名构建。未读取或输出 `.p12` 私钥、密码或证书正文，也未实际上传发布包。包含本机签名路径和加密凭据的 `build-profile.json5` 改动不会提交 Git。AGC 页面名称会随平台迭代调整；若界面与本文略有不同，应以同一官方概念——发布证书、发布 Profile、应用、证书和 ACL 的匹配关系——完成配置。
+本次已执行 `devecocli signature generate`，之后把 AGC 发布证书/Profile 接入发布签名，并完成 debug HAP 与 release HAP/APP 签名构建。未读取或输出 `.p12` 私钥、密码或证书正文，也未实际上传发布包。`build-profile.json5`、发布 `.cer/.p7b` 和注入逻辑已提交；`.p12`、本机路径及加密凭据只存在于被忽略的本地配置。AGC 页面名称会随平台迭代调整；若界面与本文略有不同，应以同一官方概念——发布证书、发布 Profile、应用、证书和 ACL 的匹配关系——完成配置。
