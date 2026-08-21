@@ -32,10 +32,12 @@
 - Bundle Name：`com.zero.gamehack.iamaghost`
 - 已执行：`devecocli signature generate --product default --team-id <团队 ID>`
 - 已生成：位于 `%USERPROFILE%\.ohos\config` 的 `.p12`、`.csr`、调试 `.cer` 和调试 `.p7b`
-- 已验证：`devecocli build --product default --build-mode release` 可以完成构建和签名
-- 尚未具备：AGC 颁发的**发布证书** `.cer` 与绑定本应用、该发布证书的**发布 Profile** `.p7b`
+- 已取得：AGC 发布证书 `GameHack.cer` 与绑定本应用的发布 Profile `gamehackRelease.p7b`
+- 已配置：release signing 复用现有 `.p12` 和加密凭据，`certpath/profile` 指向上述发布材料
+- 已验证：`npm run prototype:harmony:release` 完成 `SignHap`、`SignApp`，构建成功
+- 发布产物：`prototypes/harmony-gate-a/build/outputs/default/harmony-gate-a-default-signed.app`
 
-因此当前构建虽然使用 release 构建模式，签名身份仍是调试签名，不能上传邀请测试、公测或正式发布。下一步只需要在 AGC 完成本文第 2、3 步；下载发布 `.cer/.p7b` 后，用它们替换 release signing 中的 `certpath/profile`，继续沿用现有 `storeFile`、`storePassword`、`keyAlias` 和 `keyPassword`。签名配置含可用凭据，不提交 Git。
+当前产物已经使用发布证书链完成本地签名，可以提交 AGC 做邀请测试、公测或正式发布校验。AGC 的上传校验仍是最终判定；本地构建成功不能替代平台校验。签名配置含本机绝对路径和可用加密凭据，不提交 Git。
 
 可用以下只读命令定位现有密钥与 CSR；命令不会显示密钥或密码正文：
 
@@ -160,11 +162,11 @@ devecocli build --product default --build-mode release
 - [ ] 明确采用“传统本地发布签名”还是“云管理证书”，记录责任人。
 - [x] 当前项目采用传统方案，复用 devecocli 已生成且构建验证通过的 `.p12`/`.csr`。
 - [ ] 已把 `.p12`、`.csr` 和所需凭据纳入可恢复的受控备份。
-- [ ] AGC 中申请的是**发布证书** `.cer`，不是调试证书。
-- [ ] 为当前应用和该发布证书申请的是**发布 Profile** `.p7b`。
+- [x] AGC 中申请的是**发布证书** `.cer`，不是调试证书。
+- [x] 为当前应用和该发布证书申请的是**发布 Profile** `.p7b`。
 - [ ] Profile 的 ACL 与软件包实际受限权限一致。
-- [ ] DevEco 中关闭自动调试签名，release signing 同时引用同一链路的 `.p12`、`.cer`、`.p7b`。
-- [ ] `debuggable`/`debug` 为 `false` 或省略；命令显式使用 `--build-mode release`。
+- [x] 本机 release signing 同时引用同一链路的 `.p12`、`.cer`、`.p7b`。
+- [x] `debuggable`/`debug` 为 `false` 或省略；命令显式使用 `--build-mode release`。
 - [ ] 密钥和密码未进入 Git、日志、截图、文档或聊天；CI 从 Secret/密钥库注入。
 - [ ] 对最终 `.app` 做上架自检并上传 AGC 验证，不用“本地安装成功”替代验证。
 - [ ] 已设置证书到期提醒，并在台账中安排至少提前 90 天轮换。
@@ -201,4 +203,4 @@ devecocli docs read FAQ/工程管理/使用发布证书打release包未成功的
 
 ## 边界说明
 
-本次已执行 `devecocli signature generate` 并完成 release 模式构建验证；该命令生成了调试签名材料并更新了本机工程签名配置。未读取或输出 `.p12` 私钥、密码或证书正文，尚未在 AGC 申请发布证书/Profile，也未实际上传发布包。AGC 页面名称会随平台迭代调整；若界面与本文略有不同，应以同一官方概念——发布证书、发布 Profile、应用、证书和 ACL 的匹配关系——完成配置。
+本次已执行 `devecocli signature generate`，之后把 AGC 发布证书/Profile 接入本机 `build-profile.json5`，并完成 release 模式的 HAP 与 APP 签名构建。未读取或输出 `.p12` 私钥、密码或证书正文，也未实际上传发布包。包含本机签名路径和加密凭据的 `build-profile.json5` 改动不会提交 Git。AGC 页面名称会随平台迭代调整；若界面与本文略有不同，应以同一官方概念——发布证书、发布 Profile、应用、证书和 ACL 的匹配关系——完成配置。
