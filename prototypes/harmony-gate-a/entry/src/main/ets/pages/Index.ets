@@ -2,6 +2,7 @@ import { common } from '@kit.AbilityKit';
 import { webview } from '@kit.ArkWeb';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { scanBarcode, scanCore } from '@kit.ScanKit';
+import BuildProfile from 'entry/BuildProfile';
 import { lanHostProbe } from '../network/LanHostProbe';
 
 const BRIDGE_PERMISSION = '{"javascriptProxyPermission":{"urlPermissionList":' +
@@ -121,7 +122,7 @@ struct Index {
   private hostBridge: HarmonyHostBridge = new HarmonyHostBridge();
 
   aboutToAppear(): void {
-    webview.WebviewController.setWebDebuggingAccess(true);
+    webview.WebviewController.setWebDebuggingAccess(BuildProfile.DEBUG);
     const context = this.getUIContext().getHostContext();
     if (context !== undefined) this.hostBridge.setContext(context);
   }
@@ -173,8 +174,8 @@ struct Index {
         controller: this.controller,
       })
         .javaScriptAccess(true)
-        .domStorageAccess(true)
-        .fileAccess(true)
+        .domStorageAccess(false)
+        .fileAccess(false)
         .javaScriptProxy({
           object: this.hostBridge,
           name: 'harmonyHost',
@@ -210,7 +211,7 @@ struct Index {
           console.info(`[HarmonyGateA] page end: ${event?.url ?? 'unknown'}`);
         })
         .onConsole((event) => {
-          console.info(`[HarmonyGateA][Web] ${event.message.getMessage()}`);
+          if (BuildProfile.DEBUG) console.info(`[HarmonyGateA][Web] ${event.message.getMessage()}`);
           return false;
         })
         .onErrorReceive((event) => {

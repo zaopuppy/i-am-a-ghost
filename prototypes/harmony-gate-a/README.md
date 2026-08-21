@@ -60,6 +60,11 @@ Run from the repository root:
 ```powershell
 npm run prototype:harmony:build
 npm run prototype:harmony:run
+npm run prototype:harmony:release
 ```
+
+`prototype:harmony:release` 会同时使用 Vite 的 `harmony-release` 模式和
+Hvigor 的 `release` 模式。Release 产物会自动关闭 ArkWeb 调试能力和前端
+sourcemap，不需要在打包前修改源码。
 
 The prototype and its verdict live on the `prototype/harmony-gate-a` branch.

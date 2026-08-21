@@ -2,7 +2,7 @@ import { defineConfig } from 'vite';
 
 const roomServerTarget = 'http://127.0.0.1:5191';
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   server: {
     host: '0.0.0.0',
     port: 5189,
@@ -28,7 +28,7 @@ export default defineConfig({
     },
   },
   build: {
-    sourcemap: true,
+    sourcemap: mode !== 'harmony-release',
     chunkSizeWarningLimit: 700,
   },
-});
+}));
