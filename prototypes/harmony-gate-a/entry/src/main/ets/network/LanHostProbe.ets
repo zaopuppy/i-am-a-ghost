@@ -8,6 +8,7 @@ const SERVICE_NAME_PREFIX = 'I Am A Ghost Gate A';
 const GAME_PROTOCOL = 'gate-a-game-v1';
 const MAX_FRAME_CHARACTERS = 65_536;
 const MAX_INBOX_MESSAGES = 512;
+const MAX_ACCEPTED_CLIENTS = 8;
 const ROOM_PROBE_INTERVAL_MS = 1_500;
 
 export interface LanHostStatus {
@@ -444,14 +445,14 @@ class LanHostProbe {
         port: null,
         protocol: null,
         build: null,
-          players: null,
-          roomCode: null,
-          instanceId: null,
-          joinable: false,
-          state: 'found',
+        players: null,
+        roomCode: null,
+        instanceId: null,
+        joinable: false,
+        state: 'found',
         receivedBytes: 0,
-          error: null,
-          lastProbeAt: 0,
+        error: null,
+        lastProbeAt: 0,
       });
       console.info(`[HarmonyGateA] nearby service found: ${serviceInfo.serviceName}`);
     }
@@ -568,6 +569,11 @@ class LanHostProbe {
   }
 
   private acceptClient(client: socket.TCPSocketConnection): void {
+    if (this.clients.size >= MAX_ACCEPTED_CLIENTS) {
+      console.warn('[HarmonyGateA] TCP peer rejected: connection limit reached');
+      this.closeAcceptedClient(client);
+      return;
+    }
     this.clients.set(client.clientId, client);
     this.clientBuffers.set(client.clientId, '');
     this.clientDecoders.set(client.clientId, util.TextDecoder.create('utf-8'));

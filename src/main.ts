@@ -14,7 +14,7 @@ import {
   getHarmonyHostApi,
   initializeHarmonyHost,
   setHarmonyNearbyRoomJoinHandler,
-} from './core/HarmonyHostBridge';
+} from './net/HarmonyHostBridge';
 import { Loop } from './core/Loop';
 import { createRenderStage } from './core/Renderer';
 import { GameWorld } from './game/GameWorld';

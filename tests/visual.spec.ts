@@ -17,7 +17,7 @@ test('the room lobby renders a nonblank canvas and reaches the authoritative ser
   });
 
   await page.goto('/');
-  await expect(page).toHaveTitle('I Am a Ghost');
+  await expect(page).toHaveTitle('不要被抓到 · I am a Ghost');
   await expect(page.getByTestId('network-status')).toHaveText('局域网房间服务已连接');
 
   await expect

@@ -4,11 +4,14 @@ import {
   MatchEngine,
   type GameplayTuning,
   type MatchEvent,
-  type PlayerCommand,
 } from '../src/game/MatchEngine';
+import { chooseNextGhost } from '../src/game/RoleRotation';
 import { DEFAULT_HOUSE_MAP } from '../src/game/defaultHouse';
 import {
-  INPUT_STALE_MS,
+  activeFlashlightPlayerIds,
+  buildAuthorityCommands,
+} from '../src/net/RoomAuthority';
+import {
   MAX_PLAYERS,
   MIN_PLAYERS,
   PROTOCOL_VERSION,
@@ -22,7 +25,6 @@ import {
   type ViewerMatchEvent,
 } from '../src/net/protocol';
 import { projectViewerFrame } from './ViewerProjection';
-import { chooseNextGhost } from './RoleRotation';
 import type { GameServer, GameSocket } from './types';
 
 const TICK_RATE = 60;
@@ -308,21 +310,7 @@ export class GameRoom {
   private tick(): void {
     if (!this.engine || !this.matchId || this.phase !== 'playing') return;
     const now = Date.now();
-    const commands: PlayerCommand[] = [...this.players.values()]
-      .filter((player) => player.role !== null)
-      .map((player) => {
-        const inputIsFresh =
-          player.connected && player.latestInput !== null && now - player.lastInputAtMs <= INPUT_STALE_MS;
-        return {
-          playerId: player.playerId,
-          move: {
-            x: inputIsFresh ? (player.latestInput?.moveX ?? 0) : 0,
-            z: inputIsFresh ? (player.latestInput?.moveZ ?? 0) : 0,
-          },
-          facingRadians: player.latestInput?.facingRadians ?? 0,
-          action: inputIsFresh ? (player.latestInput?.action ?? false) : false,
-        };
-      });
+    const commands = buildAuthorityCommands(this.players.values(), now);
     const result = this.engine.advance(commands);
     if (result.events.length > 0) this.broadcastEvents(result.events);
     if (result.checkpoint.tick % FRAME_INTERVAL_TICKS === 0 || result.checkpoint.phase === 'ended') {
@@ -340,15 +328,11 @@ export class GameRoom {
   private broadcastFrame(): void {
     if (!this.engine || !this.matchId) return;
     const checkpoint = this.engine.checkpoint();
-    const activeFlashlights = new Set(
-      [...this.players.values()]
-        .filter((player) => {
-          if (player.role !== 'child' || !player.latestInput?.action) return false;
-          const checkpointPlayer = checkpoint.players.find((candidate) => candidate.id === player.playerId);
-          return this.gameplayTuning.infiniteFlashlightEnergy
-            || (checkpointPlayer?.battery ?? 0) > 0;
-        })
-        .map((player) => player.playerId),
+    const activeFlashlights = activeFlashlightPlayerIds(
+      checkpoint,
+      this.players.values(),
+      this.gameplayTuning,
+      Date.now(),
     );
     for (const player of this.players.values()) {
       if (!player.connected) continue;

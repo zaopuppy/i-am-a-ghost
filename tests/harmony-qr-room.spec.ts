@@ -24,7 +24,11 @@ test('Harmony create-room opens a native QR and enters the local hosted lobby', 
         sendGameMessage: () => '{"accepted":false}',
         sendGamePeer: () => '{"accepted":true}',
         setHostedRoomPlayers: () => '{"accepted":true}',
-        closeHostedRoom: () => '{"accepted":true}',
+        closeHostedRoom: () => {
+          const state = window as Window & { __HARMONY_CLOSE_COUNT__?: number };
+          state.__HARMONY_CLOSE_COUNT__ = (state.__HARMONY_CLOSE_COUNT__ ?? 0) + 1;
+          return '{"accepted":true}';
+        },
         startQrScan: () => '{"started":true}',
         qrScanStatus: () => '{"state":"idle","payload":null,"error":null}',
         joinPrototypeRoom: () => '{"accepted":true}',
@@ -43,6 +47,19 @@ test('Harmony create-room opens a native QR and enters the local hosted lobby', 
   await expect(page.getByTestId('network-status')).toHaveText('已加入房间 GHOST7');
   await expect(page.getByTestId('room-code')).toHaveText('GHOST7');
   await expect(page.getByTestId('roster').locator('li')).toHaveCount(1);
+
+  const closeCount = await page.evaluate(() => (
+    window as Window & { __HARMONY_CLOSE_COUNT__?: number }
+  ).__HARMONY_CLOSE_COUNT__ ?? 0);
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'hidden', { value: true, configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await expect.poll(() => page.evaluate(() => (
+    window as Window & { __HARMONY_CLOSE_COUNT__?: number }
+  ).__HARMONY_CLOSE_COUNT__ ?? 0)).toBeGreaterThan(closeCount);
+  await expect(page.getByTestId('lobby-panel')).toBeVisible();
+  await expect(page.locator('[data-harmony-qr-room]')).toHaveCount(0);
 });
 
 test('Harmony QR scan connects and joins the game lobby', async ({ page }) => {
@@ -176,15 +193,33 @@ test('Harmony host worker admits a peer and starts authoritative frames', async 
       .__PUSH_HARMONY_PEER__;
     push?.(JSON.stringify({
       type: 'join-room',
+      requestId: 'invalid-join',
+      protocolVersion: 3,
+      buildVersion: '0.7.0-art-pass',
+      roomCode: 'GHOST7',
+      nickname: null,
+    }));
+    const validJoin = JSON.stringify({
+      type: 'join-room',
       requestId: 'remote-join',
       protocolVersion: 3,
       buildVersion: '0.7.0-art-pass',
       roomCode: 'GHOST7',
       nickname: '远端玩家',
-    }));
+    });
+    push?.(validJoin);
+    push?.(validJoin);
   });
   await expect(page.getByTestId('roster').locator('li')).toHaveCount(2);
   await expect(page.getByTestId('start-match')).toBeEnabled();
+  await expect.poll(() => page.evaluate(() => {
+    const messages = (window as Window & { __HARMONY_PEER_MESSAGES__?: string[] })
+      .__HARMONY_PEER_MESSAGES__ ?? [];
+    return messages.filter((payload) => {
+      const message = JSON.parse(payload) as { type?: string; requestId?: string };
+      return message.type === 'response' && message.requestId === 'remote-join';
+    }).length;
+  })).toBe(2);
 
   await page.getByTestId('start-match').click();
   await expect(page.getByTestId('lobby-panel')).toBeHidden();

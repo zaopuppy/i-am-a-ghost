@@ -99,6 +99,91 @@ export type RoomActionResponse =
 
 export type BasicActionResponse = { ok: true } | { ok: false; error: RoomError };
 
+export type HarmonyActionResult = RoomActionResponse | BasicActionResponse;
+
+export type HarmonyClientMessage =
+  | {
+    type: 'create-room';
+    requestId: string;
+    nickname: string;
+  }
+  | {
+    type: 'join-room';
+    requestId: string;
+    protocolVersion: number;
+    buildVersion: string;
+    roomCode: string;
+    nickname: string;
+  }
+  | {
+    type: 'start-match';
+    requestId: string;
+  }
+  | {
+    type: 'set-ready';
+    requestId: string;
+    ready: boolean;
+  }
+  | {
+    type: 'input-frame';
+    frame: ClientInputFrame;
+  };
+
+export type HarmonyServerMessage =
+  | {
+    type: 'response';
+    requestId: string;
+    result: HarmonyActionResult;
+  }
+  | {
+    type: 'room-state';
+    state: RoomState;
+  }
+  | {
+    type: 'match-frame';
+    envelope: MatchFrameEnvelope;
+  }
+  | {
+    type: 'match-events';
+    envelope: MatchEventEnvelope;
+  }
+  | {
+    type: 'room-error';
+    message: string;
+  }
+  | {
+    type: 'host-closed';
+  };
+
+export type HarmonyWorkerInput =
+  | {
+    type: 'configure';
+    roomCode: string;
+  }
+  | {
+    type: 'peer-message';
+    peerId: string;
+    payload: string;
+  }
+  | {
+    type: 'peer-disconnected';
+    peerId: string;
+  }
+  | {
+    type: 'close';
+  };
+
+export type HarmonyWorkerOutput =
+  | {
+    type: 'send';
+    peerId: string;
+    payload: string;
+  }
+  | {
+    type: 'player-count';
+    count: number;
+  };
+
 type Acknowledge<T> = (response: T) => void;
 
 export interface ClientToServerEvents {
@@ -154,6 +239,48 @@ export function parseClientInputFrame(value: unknown): ClientInputFrame | null {
   return frame as ClientInputFrame;
 }
 
+export function parseHarmonyClientMessage(value: unknown): HarmonyClientMessage | null {
+  if (!isRecord(value) || typeof value.type !== 'string') return null;
+  switch (value.type) {
+    case 'create-room':
+      if (!isRequestId(value.requestId) || !isNickname(value.nickname)) return null;
+      return { type: value.type, requestId: value.requestId, nickname: value.nickname };
+    case 'join-room':
+      if (
+        !isRequestId(value.requestId)
+        || typeof value.protocolVersion !== 'number'
+        || !Number.isSafeInteger(value.protocolVersion)
+        || typeof value.buildVersion !== 'string'
+        || value.buildVersion.length > 64
+        || typeof value.roomCode !== 'string'
+        || !/^[A-Z0-9]{6}$/.test(value.roomCode)
+        || !isNickname(value.nickname)
+      ) return null;
+      return {
+        type: value.type,
+        requestId: value.requestId,
+        protocolVersion: value.protocolVersion,
+        buildVersion: value.buildVersion,
+        roomCode: value.roomCode,
+        nickname: value.nickname,
+      };
+    case 'start-match':
+      return isRequestId(value.requestId)
+        ? { type: value.type, requestId: value.requestId }
+        : null;
+    case 'set-ready':
+      return isRequestId(value.requestId) && typeof value.ready === 'boolean'
+        ? { type: value.type, requestId: value.requestId, ready: value.ready }
+        : null;
+    case 'input-frame': {
+      const frame = parseClientInputFrame(value.frame);
+      return frame ? { type: value.type, frame } : null;
+    }
+    default:
+      return null;
+  }
+}
+
 export function parseGameplayTuning(value: unknown): GameplayTuning | null {
   if (!value || typeof value !== 'object') return null;
   const tuning = value as Partial<GameplayTuning>;
@@ -185,4 +312,16 @@ export function parseGameplayTuning(value: unknown): GameplayTuning | null {
     infiniteGhostHealth: tuning.infiniteGhostHealth as boolean,
     infiniteFlashlightEnergy: tuning.infiniteFlashlightEnergy as boolean,
   };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isRequestId(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= 128;
+}
+
+function isNickname(value: unknown): value is string {
+  return typeof value === 'string' && value.length <= 64;
 }

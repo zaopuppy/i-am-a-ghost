@@ -1,8 +1,9 @@
 import {
+  clearHarmonyRoomSurfaces,
   createHarmonyPrototypeRoom,
   findHarmonyRoomByCode,
   type HarmonyHostApi,
-} from '../core/HarmonyHostBridge';
+} from './HarmonyHostBridge';
 import { EventLedger } from './EventLedger';
 import type { GameClientListener, NetworkStats } from './GameClient';
 import {
@@ -11,20 +12,18 @@ import {
   type BasicActionResponse,
   type ClientInputFrame,
   type GameplayTuning,
+  type HarmonyActionResult,
+  type HarmonyClientMessage,
+  type HarmonyServerMessage,
+  type HarmonyWorkerInput,
+  type HarmonyWorkerOutput,
   type MatchEventEnvelope,
   type MatchFrameEnvelope,
   type RoomActionResponse,
   type RoomSession,
   type RoomState,
 } from './protocol';
-import type {
-  HarmonyActionResult,
-  HarmonyClientMessage,
-  HarmonyRoomEndpoint,
-  HarmonyServerMessage,
-  HarmonyWorkerInput,
-  HarmonyWorkerOutput,
-} from './HarmonyLanProtocol';
+import type { HarmonyRoomEndpoint } from './HarmonyLanProtocol';
 
 interface NativeAccepted {
   accepted?: unknown;
@@ -70,6 +69,7 @@ export class HarmonyLanGameClient {
 
   constructor(private readonly host: HarmonyHostApi) {
     this.pollTimer = window.setInterval(() => this.pollNative(), 25);
+    document.addEventListener('visibilitychange', this.onVisibilityChange);
   }
 
   subscribe(listener: GameClientListener): () => void {
@@ -173,12 +173,8 @@ export class HarmonyLanGameClient {
 
   dispose(): void {
     window.clearInterval(this.pollTimer);
-    this.worker?.postMessage({ type: 'close' } satisfies HarmonyWorkerInput);
-    this.worker?.terminate();
-    this.worker = null;
-    this.host.closeHostedRoom();
-    for (const request of this.pending.values()) window.clearTimeout(request.timer);
-    this.pending.clear();
+    document.removeEventListener('visibilitychange', this.onVisibilityChange);
+    this.resetSession();
     this.listeners.clear();
   }
 
@@ -340,18 +336,33 @@ export class HarmonyLanGameClient {
   }
 
   private resetSession(): void {
+    this.worker?.postMessage({ type: 'close' } satisfies HarmonyWorkerInput);
     this.worker?.terminate();
     this.worker = null;
+    this.host.closeHostedRoom();
+    clearHarmonyRoomSurfaces();
     this.hostMode = false;
     this.session = null;
     this.roomState = null;
     this.latestFrame = null;
     this.latestEvents = null;
     this.errorMessage = '';
+    this.inputSequence = 0;
+    this.clientTick = 0;
+    this.lastFrameReceivedAt = 0;
+    this.lastAckLatencyMs = null;
     this.inputSentAt.clear();
+    this.eventLedger.clear();
     for (const pending of this.pending.values()) window.clearTimeout(pending.timer);
     this.pending.clear();
+    this.notify();
   }
+
+  private readonly onVisibilityChange = (): void => {
+    if (!document.hidden) return;
+    if (this.session === null && this.worker === null && !this.hostMode) return;
+    this.resetSession();
+  };
 
   private async waitForNativeConnection(): Promise<boolean> {
     const startedAt = performance.now();
@@ -378,4 +389,3 @@ export class HarmonyLanGameClient {
 function requestId(): string {
   return `request-${crypto.randomUUID()}`;
 }
-

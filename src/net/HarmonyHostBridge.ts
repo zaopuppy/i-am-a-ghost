@@ -1,5 +1,5 @@
 import QRCode from 'qrcode';
-import type { HarmonyRoomEndpoint } from '../net/HarmonyLanProtocol';
+import type { HarmonyRoomEndpoint } from './HarmonyLanProtocol';
 
 export interface HarmonyHostState {
   active: boolean;
@@ -141,7 +141,7 @@ export async function createHarmonyPrototypeRoom(): Promise<HarmonyRoomEndpoint 
   const host = activeHost;
   if (host === null) return null;
   setHarmonyError('');
-    setNetworkStatus('正在创建局域网游戏房间…');
+  setNetworkStatus('正在创建局域网游戏房间…');
   try {
     const room = JSON.parse(host.createPrototypeRoom()) as HarmonyPrototypeRoom;
     if (
@@ -191,6 +191,11 @@ export function setHarmonyNearbyRoomJoinHandler(
   handler: ((endpoint: HarmonyRoomEndpoint) => void) | null,
 ): void {
   nearbyJoinHandler = handler;
+}
+
+export function clearHarmonyRoomSurfaces(): void {
+  document.querySelector('[data-harmony-qr-room]')?.remove();
+  stopScanPoll();
 }
 
 export function startHarmonyQrScan(): void {

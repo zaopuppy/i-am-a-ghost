@@ -11,7 +11,8 @@ test('the house keeps box-wall collision and loads grounded room furniture', asy
     const diagnostics = window.__THREE_GAME_DIAGNOSTICS__;
     return diagnostics
       && diagnostics.frame > 10
-      && diagnostics.world.assets.furniture.status !== 'loading';
+      && diagnostics.world.assets.furniture.status === 'ready'
+      && diagnostics.world.environmentProps === 34;
   });
   const diagnostics = await page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__);
   expect(wallRequests).toBe(0);
