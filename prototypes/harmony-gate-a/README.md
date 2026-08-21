@@ -10,6 +10,7 @@ lifecycle, bridge, and LAN hosting experiments?
 - Target SDK: HarmonyOS 6.1.1 / API 24 (highest scaffold SDK available locally)
 - Compatible SDK: HarmonyOS 6.1.0 / API 23
 - Target device for Gate A: the connected Pura X reporting API 26 through HDC
+- Window mode: immersive landscape with status and navigation bars hidden
 
 The desktop Vite application remains authoritative. Generated web assets are
 copied into the HAP by the repository-level prototype packaging command and are

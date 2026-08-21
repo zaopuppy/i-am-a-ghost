@@ -309,6 +309,7 @@ interface PlayerIntent {
 - 桌面 Node/PowerShell 探针经临时 HDC 端口转发收到 `gate-a-ready`，发送 22 字节后收到 `gate-a-echo` 与 `receivedBytes: 22`；转发规则在验证后已删除。电脑直接连接真机 WLAN 地址超时，因此本次不能宣称真实同一 LAN 的端到端单播已经通过。
 - 触发 Home 后旧监听端口消失；重新前台启动后获得新的监听端口并重新注册服务，符合“主机退后台即终止房间”的生命周期边界。
 - `npm run prototype:harmony:build`、真机安装/启动和 `npm run test:rules`（98 项）通过；未发现应用 crash。
+- 真机首轮 UI 复核发现共享样式的 `body { min-width: 960px; }` 会把 707 CSS px 的横屏视口撑宽到 960px，同时默认非沉浸式窗口在底部保留 84 物理像素导航区域。现已移除固定最小宽度，并在加载 ArkWeb 前调用 `setWindowLayoutFullScreen(true)` 与 `setWindowSystemBarEnable([])`；复测页面 `scrollWidth/clientWidth=707/707`，截图底部系统白带为 0px。新增 707×440 浏览器回归测试保护共享布局。
 
 本结果只证明宿主、资源加载、原生桥、TCP API、mDNS 注册和生命周期的基本可行性，**尚不等于 Gate A 整体通过**。仍未覆盖：第二台鸿蒙手机的真实 mDNS 发现与 LAN 直连、Worker/WebMessagePort 30/20 Hz 链路、15 分钟稳定性、Web Audio/触控完整路径、P95 帧时间/温度/内存，以及权威规则的跨宿主一致性。因此目前不触发 Gate B，也不把原型结构升级为生产架构。
 

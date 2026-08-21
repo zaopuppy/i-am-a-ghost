@@ -14,6 +14,7 @@
  */
 
 import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
+import { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
 import { lanHostProbe } from '../network/LanHostProbe';
@@ -36,9 +37,24 @@ export default class EntryAbility extends UIAbility {
   }
 
   onWindowStageCreate(windowStage: window.WindowStage): void {
-    // Main window is created, set main page for this ability
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onWindowStageCreate');
 
+    try {
+      const mainWindow = windowStage.getMainWindowSync();
+      void mainWindow.setWindowLayoutFullScreen(true)
+        .then(() => mainWindow.setWindowSystemBarEnable([]))
+        .then(() => this.loadMainPage(windowStage))
+        .catch((error: BusinessError) => {
+          hilog.error(DOMAIN, 'HarmonyGateA', 'Failed to enter immersive mode: %{public}s', JSON.stringify(error));
+          this.loadMainPage(windowStage);
+        });
+    } catch (error) {
+      hilog.error(DOMAIN, 'HarmonyGateA', 'Failed to obtain main window: %{public}s', JSON.stringify(error));
+      this.loadMainPage(windowStage);
+    }
+  }
+
+  private loadMainPage(windowStage: window.WindowStage): void {
     windowStage.loadContent('pages/Index', (err) => {
       if (err.code) {
         hilog.error(DOMAIN, 'testTag', 'Failed to load the content. Cause: %{public}s', JSON.stringify(err));
