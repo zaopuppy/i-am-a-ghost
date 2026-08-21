@@ -4,6 +4,7 @@ export interface HarmonyHostState {
   platform: string;
   error: string | null;
   lan: HarmonyLanHostStatus | null;
+  nearbyRooms: HarmonyNearbyRoom[];
 }
 
 interface HarmonyLanHostStatus {
@@ -12,10 +13,20 @@ interface HarmonyLanHostStatus {
   mdnsRegistered?: unknown;
 }
 
+interface HarmonyNearbyRoom {
+  serviceName?: unknown;
+  host?: unknown;
+  port?: unknown;
+  protocol?: unknown;
+  state?: unknown;
+  receivedBytes?: unknown;
+}
+
 interface HarmonyHostApi {
   ping(message: string): string;
   runtimeInfo(): string;
   lanStatus(): string;
+  nearbyRooms(): string;
   reportReady(payload: string): string;
 }
 
@@ -28,7 +39,14 @@ interface HarmonyRuntimeInfo {
 export function initializeHarmonyHost(): HarmonyHostState {
   const host = (window as Window & { harmonyHost?: HarmonyHostApi }).harmonyHost;
   if (!host) {
-    return { active: false, bridgeVersion: null, platform: 'browser', error: null, lan: null };
+    return {
+      active: false,
+      bridgeVersion: null,
+      platform: 'browser',
+      error: null,
+      lan: null,
+      nearbyRooms: [],
+    };
   }
 
   try {
@@ -41,6 +59,7 @@ export function initializeHarmonyHost(): HarmonyHostState {
       platform: typeof rawInfo.platform === 'string' ? rawInfo.platform : 'HarmonyOS',
       error: null,
       lan: rawLan,
+      nearbyRooms: readNearbyRooms(host),
     };
     const report = JSON.stringify({
       href: window.location.href,
@@ -49,9 +68,12 @@ export function initializeHarmonyHost(): HarmonyHostState {
     });
     host.reportReady(report);
     const output = surfaceState(state);
+    const nearbyOutput = surfaceNearbyRooms(state.nearbyRooms);
     window.setInterval(() => {
       state.lan = readLanStatus(host);
+      state.nearbyRooms = readNearbyRooms(host);
       output.textContent = readyLabel(state);
+      nearbyOutput.textContent = nearbyRoomsLabel(state.nearbyRooms);
     }, 1_000);
     console.info(`[HarmonyGateA] bridge ready ${report}`);
     return state;
@@ -63,6 +85,7 @@ export function initializeHarmonyHost(): HarmonyHostState {
       platform: 'HarmonyOS',
       error: message,
       lan: null,
+      nearbyRooms: [],
     };
     surfaceState(state);
     console.error(`[HarmonyGateA] bridge failed: ${message}`);
@@ -95,6 +118,47 @@ function surfaceState(state: HarmonyHostState): HTMLOutputElement {
 function readLanStatus(host: HarmonyHostApi): HarmonyLanHostStatus | null {
   const parsed = JSON.parse(host.lanStatus()) as HarmonyLanHostStatus;
   return typeof parsed === 'object' && parsed !== null ? parsed : null;
+}
+
+function readNearbyRooms(host: HarmonyHostApi): HarmonyNearbyRoom[] {
+  const parsed = JSON.parse(host.nearbyRooms()) as unknown;
+  return Array.isArray(parsed) ? parsed as HarmonyNearbyRoom[] : [];
+}
+
+function surfaceNearbyRooms(rooms: HarmonyNearbyRoom[]): HTMLElement {
+  const output = document.createElement('aside');
+  output.dataset.harmonyNearbyRooms = 'true';
+  output.textContent = nearbyRoomsLabel(rooms);
+  output.style.cssText = [
+    'position:fixed',
+    'z-index:10000',
+    'top:max(48px, calc(env(safe-area-inset-top) + 48px))',
+    'right:max(8px, env(safe-area-inset-right))',
+    'max-width:min(480px,calc(100vw - 16px))',
+    'padding:7px 10px',
+    'border:1px solid rgba(216,189,114,.38)',
+    'background:rgba(12,12,17,.88)',
+    'color:#ead99f',
+    'font:600 10px/1.45 system-ui,sans-serif',
+    'white-space:pre-line',
+    'overflow-wrap:anywhere',
+    'pointer-events:none',
+  ].join(';');
+  document.body.append(output);
+  return output;
+}
+
+function nearbyRoomsLabel(rooms: HarmonyNearbyRoom[]): string {
+  if (rooms.length === 0) return '附近原型房间 · 搜索中（0）';
+  const lines = rooms.map((room) => {
+    const serviceName = typeof room.serviceName === 'string' ? room.serviceName : '未命名';
+    const state = typeof room.state === 'string' ? room.state : 'found';
+    const host = typeof room.host === 'string' ? room.host : '?';
+    const port = typeof room.port === 'number' ? room.port : '?';
+    const receivedBytes = typeof room.receivedBytes === 'number' ? ` · ${room.receivedBytes}B` : '';
+    return `${serviceName} · ${state} · ${host}:${port}${receivedBytes}`;
+  });
+  return `附近原型房间 · ${rooms.length}\n${lines.join('\n')}`;
 }
 
 function readyLabel(state: HarmonyHostState): string {

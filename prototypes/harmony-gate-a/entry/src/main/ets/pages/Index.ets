@@ -19,6 +19,10 @@ class HarmonyHostBridge {
     return JSON.stringify(lanHostProbe.status());
   }
 
+  nearbyRooms(): string {
+    return JSON.stringify(lanHostProbe.nearbyRooms());
+  }
+
   reportReady(payload: string): string {
     console.info(`[HarmonyGateA] web ready: ${payload}`);
     return 'accepted';
@@ -87,7 +91,7 @@ struct Index {
         .javaScriptProxy({
           object: this.hostBridge,
           name: 'harmonyHost',
-          methodList: ['ping', 'runtimeInfo', 'lanStatus', 'reportReady'],
+          methodList: ['ping', 'runtimeInfo', 'lanStatus', 'nearbyRooms', 'reportReady'],
           controller: this.controller,
           asyncMethodList: [],
           permission: BRIDGE_PERMISSION,
