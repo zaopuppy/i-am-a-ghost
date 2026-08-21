@@ -1,4 +1,4 @@
-# I Am a Ghost
+# 不要被抓到 / I am a Ghost
 
 一款面向 PC、仅支持 2–5 人本机或局域网联机的 Three.js 非对称追逐游戏。
 
@@ -25,6 +25,28 @@ npm run stop
 - 房间服务健康检查：`http://127.0.0.1:5191/healthz`
 
 局域网中的其他电脑可通过开发机的 IPv4 地址和端口 `5189` 访问页面。
+
+## 鸿蒙 APP 原型
+
+构建或运行鸿蒙原型时，除 Node.js 外还需要安装 DevEco Studio 对应的 HarmonyOS SDK，以及全局 DevEco CLI：
+
+```powershell
+npm install -g @deveco/deveco-cli@latest
+```
+
+在仓库根目录构建 HAP：
+
+```powershell
+npm run prototype:harmony:build
+```
+
+连接并配置好签名真机后，可以构建、安装并启动：
+
+```powershell
+npm run prototype:harmony:run
+```
+
+多真机、签名和故障排查说明见 [鸿蒙 Gate A 原型](prototypes/harmony-gate-a/README.md)；首次真机准备与签名边界见 [鸿蒙原生宿主研究](docs/2026-08-20_harmonyos-native-host-research.md)。
 
 ## 本地页面与参数
 
