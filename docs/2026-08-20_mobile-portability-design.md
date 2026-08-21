@@ -309,11 +309,13 @@ interface PlayerIntent {
 - 两台设备现均会同时发现 `_iamaghost._tcp`、以 `(serviceType, serviceName)` 去重、调用 `resolveLocalService` 获取地址/TXT，再用原生 `TCPSocket` 发送 greeting 并等待 echo；ArkWeb 右上角的临时面板显示 `found / resolved / probing / reachable / unreachable` 状态。`serviceFound` 的占位 host/port 不会直接进入连接逻辑。
 - 桌面 Node/PowerShell 探针经临时 HDC 端口转发收到 `gate-a-ready`，发送 22 字节后收到 `gate-a-echo` 与 `receivedBytes: 22`；转发规则在验证后已删除。电脑直接连接真机 WLAN 地址超时，因此本次不能宣称真实同一 LAN 的端到端单播已经通过。
 - 第二台 nova 16 Pro 已使用同一调试签名成功安装并与 Pura X 同时启动。两端应用内部均确认 TCP listener、mDNS 注册和 mDNS discovery active，且没有应用错误；但两台手机的 WLAN 路由实际落在不同的 `/23` 链路，双向 ICMP 不可达，等待后双方附近列表仍为 0。这次结果验证了“空列表/网络隔离”状态能被正确呈现，但**没有通过 H2 的真实 mDNS 发现与 LAN 直连门槛**。下一轮必须换用允许终端互访与 multicast 的家用路由器或手机热点再测；同一网络名称不作为通过证据。
+- 首轮 HAP 的“创建房间”仍错误调用 `127.0.0.1:5191` 的浏览器 `GameClient`，而 HAP 内并没有 Node/Socket.IO server，`emitWithAck` 因此没有响应。现已在 Harmony 模式关闭该 Socket.IO 自动连接，并把按钮接到原生 QR probe：从默认网络连接属性取得 IPv4、生成六位码/房间实例/`IP:port` payload，并在 ArkWeb 显示二维码；加入端通过系统 Scan Kit 扫码后调用原生 `TCPSocket` greeting/echo 探测。
+- 两机已完成一次真实“生成二维码 → 系统图库扫码 → payload 解析 → 原生 TCP 尝试”。扫码和地址解析成功，加入端最终明确显示 `unreachable` 及“二维码只能绕过 mDNS”提示；这验证了二维码后备入口本身有效，也再次证明当前隔离网络仍不能满足 H2。测试时临时导入第二台手机图库的二维码图片已删除。
 - 触发 Home 后旧监听端口消失；重新前台启动后获得新的监听端口并重新注册服务，符合“主机退后台即终止房间”的生命周期边界。
 - `npm run prototype:harmony:build`、真机安装/启动和 `npm run test:rules`（98 项）通过；未发现应用 crash。
 - 真机首轮 UI 复核发现共享样式的 `body { min-width: 960px; }` 会把 707 CSS px 的横屏视口撑宽到 960px，同时默认非沉浸式窗口在底部保留 84 物理像素导航区域。现已移除固定最小宽度，并在加载 ArkWeb 前调用 `setWindowLayoutFullScreen(true)` 与 `setWindowSystemBarEnable([])`；复测页面 `scrollWidth/clientWidth=707/707`，截图底部系统白带为 0px。新增 707×440 浏览器回归测试保护共享布局。
 
-本结果只证明宿主、资源加载、原生桥、TCP API、mDNS 注册/发现代码、第二台设备安装和生命周期的基本可行性，**尚不等于 Gate A 整体通过**。仍未覆盖：允许终端互访的本地链路上的成功 mDNS 发现与 LAN 直连、Worker/WebMessagePort 30/20 Hz 链路、15 分钟稳定性、Web Audio/触控完整路径、P95 帧时间/温度/内存，以及权威规则的跨宿主一致性。因此目前不触发 Gate B，也不把原型结构升级为生产架构。
+本结果只证明宿主、资源加载、原生桥、TCP API、mDNS 注册/发现代码、二维码生成/系统扫码/地址解析、第二台设备安装和生命周期的基本可行性，**尚不等于 Gate A 整体通过**。仍未覆盖：允许终端互访的本地链路上的成功 mDNS 发现与 LAN 直连、二维码端点的成功 TCP 直连、Worker/WebMessagePort 30/20 Hz 链路、15 分钟稳定性、Web Audio/触控完整路径、P95 帧时间/温度/内存，以及权威规则的跨宿主一致性。因此目前不触发 Gate B，也不把原型结构升级为生产架构。
 
 ### 当前真机输入
 

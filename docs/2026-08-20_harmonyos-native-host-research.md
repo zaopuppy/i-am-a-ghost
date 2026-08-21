@@ -273,7 +273,7 @@ XComponent 应只在 ArkWeb 真机验证失败后进入讨论。它能换来更�
 
 ## 9. 必须先做的时间盒原型（已授权，执行中）
 
-2026-08-21 已完成 H1/H2 的首个真机切片：HAP 包内 ArkWeb 资源、WebGL2、同步原生桥、前台 TCP listener、mDNS 注册/发现、HDC 转发下的 TCP greeting/echo，以及退后台关闭 listener/撤销 mDNS 均已验证。第二台真机也已安装同包；两端 discovery 均 active，但现场网络把两台手机分配到不同的 `/23` 链路，双向不可达，附近列表均为 0，因此成功的两机发现/直连仍未验证。该切片仍在 UI ability 进程内使用最小 TCP probe，不包含 ArkTS Worker、`WebMessagePort` 持续帧链路或 15 分钟性能测试，因此 H1/H2 尚未整体通过。详细证据与边界见主设计第 12 节。
+2026-08-21 已完成 H1/H2 的首个真机切片：HAP 包内 ArkWeb 资源、WebGL2、同步原生桥、前台 TCP listener、mDNS 注册/发现、HDC 转发下的 TCP greeting/echo，以及退后台关闭 listener/撤销 mDNS 均已验证。第二台真机也已安装同包；两端 discovery 均 active，但现场网络把两台手机分配到不同的 `/23` 链路，双向不可达，附近列表均为 0。二维码后备路径已完成真机生成与系统扫码，payload 解析成功后 TCP 探测明确返回 `unreachable`，证明二维码能绕过发现但不能绕过隔离。因此成功的两机发现/直连仍未验证。该切片仍在 UI ability 进程内使用最小 TCP probe，不包含 ArkTS Worker、`WebMessagePort` 持续帧链路或 15 分钟性能测试，因此 H1/H2 尚未整体通过。详细证据与边界见主设计第 12 节。
 
 ### 原型 H1：ArkWeb 客户端宿主
 

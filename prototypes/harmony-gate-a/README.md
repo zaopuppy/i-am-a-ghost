@@ -34,6 +34,18 @@ only appear when the devices share an mDNS multicast domain and have direct TCP
 reachability. Merely showing the same Wi-Fi name is not sufficient on a network
 that isolates clients or assigns them to different routed links.
 
+On HarmonyOS, **Create Room** creates a QR probe room rather than calling the
+desktop Socket.IO server. The QR contains the ephemeral room code, instance,
+active-network IPv4 address, and TCP probe port; it contains no token or stable
+device identifier. **Scan QR Probe Room** opens the system Scan Kit UI, parses
+that payload, and performs the same native greeting/echo reachability check.
+This is deliberately a transport probe, not yet an authoritative playable room.
+
+The 2026-08-21 two-device run successfully generated and scanned the QR, then
+reported the endpoint as `unreachable`. That is the expected and useful result
+on the currently isolated network: QR bypasses discovery failure, but cannot
+bypass missing routes or client isolation.
+
 Run from the repository root:
 
 ```powershell
