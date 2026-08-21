@@ -24,7 +24,7 @@ class HarmonyHostBridge {
   }
 
   ping(message: string): string {
-    console.info(`[HarmonyGateA] bridge ping: ${message}`);
+    if (BuildProfile.DEBUG) console.info(`[HarmonyGateA] bridge ping: ${message}`);
     return `pong:${message}`;
   }
 
@@ -124,7 +124,7 @@ class HarmonyHostBridge {
   }
 
   reportReady(payload: string): string {
-    console.info(`[HarmonyGateA] web ready: ${payload}`);
+    if (BuildProfile.DEBUG) console.info(`[HarmonyGateA] web ready: ${payload}`);
     return 'accepted';
   }
 }
@@ -145,7 +145,7 @@ struct Index {
     try {
       this.controller.deleteJavaScriptRegister('harmonyHost');
     } catch (error) {
-      console.warn(`[HarmonyGateA] bridge cleanup skipped: ${JSON.stringify(error)}`);
+      if (BuildProfile.DEBUG) console.warn(`[HarmonyGateA] bridge cleanup skipped: ${JSON.stringify(error)}`);
     }
   }
 
@@ -158,7 +158,6 @@ struct Index {
 
     const response = new WebResourceResponse();
     const headers: Header[] = [
-      { headerKey: 'Access-Control-Allow-Origin', headerValue: '*' },
       { headerKey: 'Cache-Control', headerValue: 'no-store' },
     ];
     response.setResponseHeader(headers);
@@ -221,17 +220,20 @@ struct Index {
           return event ? this.interceptGameResource(event.request.getRequestUrl()) : null;
         })
         .onPageBegin((event) => {
-          console.info(`[HarmonyGateA] page begin: ${event?.url ?? 'unknown'}`);
+          if (BuildProfile.DEBUG) console.info(`[HarmonyGateA] page begin: ${event?.url ?? 'unknown'}`);
         })
         .onPageEnd((event) => {
-          console.info(`[HarmonyGateA] page end: ${event?.url ?? 'unknown'}`);
+          if (BuildProfile.DEBUG) console.info(`[HarmonyGateA] page end: ${event?.url ?? 'unknown'}`);
         })
         .onConsole((event) => {
-          if (BuildProfile.DEBUG) console.info(`[HarmonyGateA][Web] ${event.message.getMessage()}`);
-          return false;
+          if (BuildProfile.DEBUG) {
+            console.info(`[HarmonyGateA][Web] ${event.message.getMessage()}`);
+            return false;
+          }
+          return true;
         })
         .onErrorReceive((event) => {
-          if (!event) return;
+          if (!event || !BuildProfile.DEBUG) return;
           console.error(
             `[HarmonyGateA] resource error ${event.error.getErrorCode()}: ` +
               `${event.error.getErrorInfo()} @ ${event.request.getRequestUrl()}`,

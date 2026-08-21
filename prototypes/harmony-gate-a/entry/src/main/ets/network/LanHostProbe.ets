@@ -2,6 +2,7 @@ import { common } from '@kit.AbilityKit';
 import { util } from '@kit.ArkTS';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { connection, mdns, socket } from '@kit.NetworkKit';
+import BuildProfile from 'entry/BuildProfile';
 
 const SERVICE_TYPE = '_iamaghost._tcp';
 const SERVICE_NAME_PREFIX = 'I Am A Ghost Gate A';
@@ -225,7 +226,7 @@ class LanHostProbe {
     const client = clientId === null ? undefined : this.clients.get(clientId);
     if (client === undefined) return false;
     void client.send({ data: `${payload}\n`, encoding: 'UTF-8' }).catch((error: BusinessError) => {
-      console.warn(`[HarmonyGateA] game peer send failed: ${stringifyError(error)}`);
+      debugWarn(`game peer send failed: ${stringifyError(error)}`);
       this.removeClient(clientId as number);
     });
     return true;
@@ -296,7 +297,7 @@ class LanHostProbe {
       try {
         await mdns.removeLocalService(context, service);
       } catch (error) {
-        console.warn(`[HarmonyGateA] mDNS removal skipped: ${stringifyError(error)}`);
+        debugWarn(`mDNS removal skipped: ${stringifyError(error)}`);
       }
     }
 
@@ -306,7 +307,7 @@ class LanHostProbe {
       try {
         await client.close();
       } catch (error) {
-        console.warn(`[HarmonyGateA] probe close skipped: ${stringifyError(error)}`);
+        debugWarn(`probe close skipped: ${stringifyError(error)}`);
       }
     }));
 
@@ -318,7 +319,7 @@ class LanHostProbe {
       try {
         await client.close();
       } catch (error) {
-        console.warn(`[HarmonyGateA] peer close skipped: ${stringifyError(error)}`);
+        debugWarn(`peer close skipped: ${stringifyError(error)}`);
       }
     }));
 
@@ -334,10 +335,10 @@ class LanHostProbe {
       try {
         await server.close();
       } catch (error) {
-        console.warn(`[HarmonyGateA] TCP server close skipped: ${stringifyError(error)}`);
+        debugWarn(`TCP server close skipped: ${stringifyError(error)}`);
       }
     }
-    console.info('[HarmonyGateA] LAN host stopped');
+    debugInfo('LAN host stopped');
   }
 
   private async startInternal(context: common.UIAbilityContext): Promise<LanHostStatus> {
@@ -347,7 +348,7 @@ class LanHostProbe {
     server.on('connect', (client) => this.acceptClient(client));
     server.on('error', (error) => {
       this.lastError = stringifyError(error);
-      console.error(`[HarmonyGateA] TCP server error: ${this.lastError}`);
+      debugError(`TCP server error: ${this.lastError}`);
     });
 
     try {
@@ -357,7 +358,7 @@ class LanHostProbe {
         throw new Error('TCP server did not report an allocated port');
       }
       this.port = address.port;
-      console.info(`[HarmonyGateA] TCP host listening on 0.0.0.0:${this.port}`);
+      debugInfo(`TCP host listening on 0.0.0.0:${this.port}`);
 
       const serviceInfo: mdns.LocalServiceInfo = {
         serviceType: SERVICE_TYPE,
@@ -372,10 +373,10 @@ class LanHostProbe {
       };
       try {
         this.registeredService = await mdns.addLocalService(context, serviceInfo);
-        console.info(`[HarmonyGateA] mDNS registered ${SERVICE_TYPE} on port ${this.port}`);
+        debugInfo(`mDNS registered ${SERVICE_TYPE} on port ${this.port}`);
       } catch (error) {
         this.lastError = `mDNS: ${stringifyError(error)}`;
-        console.error(`[HarmonyGateA] ${this.lastError}`);
+        debugError(this.lastError);
       }
       this.startDiscovery(context);
       return this.status();
@@ -388,7 +389,7 @@ class LanHostProbe {
       } catch (_) {
         // The socket may not have reached the listening state.
       }
-      console.error(`[HarmonyGateA] LAN host start failed: ${this.lastError}`);
+      debugError(`LAN host start failed: ${this.lastError}`);
       return this.status();
     }
   }
@@ -399,11 +400,11 @@ class LanHostProbe {
       this.discovery = discovery;
       discovery.on('discoveryStart', (event) => {
         this.discoveryActive = event.errorCode === undefined;
-        console.info(`[HarmonyGateA] mDNS discovery started; active=${this.discoveryActive}`);
+        debugInfo(`mDNS discovery started; active=${this.discoveryActive}`);
       });
       discovery.on('discoveryStop', () => {
         this.discoveryActive = false;
-        console.info('[HarmonyGateA] mDNS discovery stopped');
+        debugInfo('mDNS discovery stopped');
       });
       discovery.on('serviceFound', (serviceInfo) => this.handleServiceFound(context, serviceInfo));
       discovery.on('serviceLost', (serviceInfo) => this.handleServiceLost(serviceInfo));
@@ -413,7 +414,7 @@ class LanHostProbe {
       this.discovery = null;
       this.discoveryActive = false;
       this.lastError = `mDNS discovery: ${stringifyError(error)}`;
-      console.error(`[HarmonyGateA] ${this.lastError}`);
+      debugError(this.lastError);
     }
   }
 
@@ -431,7 +432,7 @@ class LanHostProbe {
       discovery.off('serviceFound');
       discovery.off('serviceLost');
     } catch (error) {
-      console.warn(`[HarmonyGateA] discovery cleanup skipped: ${stringifyError(error)}`);
+      debugWarn(`discovery cleanup skipped: ${stringifyError(error)}`);
     }
   }
 
@@ -454,7 +455,7 @@ class LanHostProbe {
         error: null,
         lastProbeAt: 0,
       });
-      console.info(`[HarmonyGateA] nearby service found: ${serviceInfo.serviceName}`);
+      debugInfo(`nearby service found: ${serviceInfo.serviceName}`);
     }
     if (this.resolvingRooms.has(key)) return;
     this.resolvingRooms.add(key);
@@ -470,13 +471,13 @@ class LanHostProbe {
     if (probe !== undefined) {
       try {
         void probe.close().catch((error: BusinessError) => {
-          console.warn(`[HarmonyGateA] lost-service probe close skipped: ${stringifyError(error)}`);
+          debugWarn(`lost-service probe close skipped: ${stringifyError(error)}`);
         });
       } catch (error) {
-        console.warn(`[HarmonyGateA] lost-service probe close skipped: ${stringifyError(error)}`);
+        debugWarn(`lost-service probe close skipped: ${stringifyError(error)}`);
       }
     }
-    console.info(`[HarmonyGateA] nearby service lost: ${serviceInfo.serviceName}`);
+    debugInfo(`nearby service lost: ${serviceInfo.serviceName}`);
   }
 
   private async resolveRoom(
@@ -495,7 +496,7 @@ class LanHostProbe {
       room.players = parsePlayerCount(attributeText(resolved.serviceAttribute, 'players'));
       room.state = 'resolved';
       room.error = null;
-      console.info(`[HarmonyGateA] nearby service resolved: ${room.serviceName} ${room.host}:${room.port}`);
+      debugInfo(`nearby service resolved: ${room.serviceName} ${room.host}:${room.port}`);
       if (room.host !== null && room.port !== null) {
         void this.probeRoom(key, room);
       }
@@ -505,7 +506,7 @@ class LanHostProbe {
         room.state = 'resolve-failed';
         room.error = stringifyError(error);
       }
-      console.warn(`[HarmonyGateA] nearby service resolve failed: ${stringifyError(error)}`);
+      debugWarn(`nearby service resolve failed: ${stringifyError(error)}`);
     } finally {
       this.resolvingRooms.delete(key);
     }
@@ -570,14 +571,14 @@ class LanHostProbe {
 
   private acceptClient(client: socket.TCPSocketConnection): void {
     if (this.clients.size >= MAX_ACCEPTED_CLIENTS) {
-      console.warn('[HarmonyGateA] TCP peer rejected: connection limit reached');
+      debugWarn('TCP peer rejected: connection limit reached');
       this.closeAcceptedClient(client);
       return;
     }
     this.clients.set(client.clientId, client);
     this.clientBuffers.set(client.clientId, '');
     this.clientDecoders.set(client.clientId, util.TextDecoder.create('utf-8'));
-    console.info(`[HarmonyGateA] TCP peer connected; peers=${this.clients.size}`);
+    debugInfo(`TCP peer connected; peers=${this.clients.size}`);
     client.on('message', (messageInfo) => {
       const decoder = this.clientDecoders.get(client.clientId);
       if (decoder !== undefined) {
@@ -586,12 +587,12 @@ class LanHostProbe {
     });
     client.on('close', () => this.removeClient(client.clientId));
     client.on('error', (error) => {
-      console.warn(`[HarmonyGateA] TCP peer error: ${stringifyError(error)}`);
+      debugWarn(`TCP peer error: ${stringifyError(error)}`);
       this.removeClient(client.clientId);
     });
     const greeting = JSON.stringify({ type: 'gate-a-ready', protocol: 'gate-a-v1' });
     void client.send({ data: `${greeting}\n`, encoding: 'UTF-8' }).catch((error: BusinessError) => {
-      console.error(`[HarmonyGateA] TCP greeting failed: ${stringifyError(error)}`);
+      debugError(`TCP greeting failed: ${stringifyError(error)}`);
     });
   }
 
@@ -604,7 +605,7 @@ class LanHostProbe {
       peerId: formatPeerId(clientId),
       payload: JSON.stringify({ type: 'peer-disconnected' }),
     });
-    console.info(`[HarmonyGateA] TCP peer disconnected; peers=${this.clients.size}`);
+    debugInfo(`TCP peer disconnected; peers=${this.clients.size}`);
   }
 
   private acceptClientChunk(client: socket.TCPSocketConnection, chunk: string): void {
@@ -644,11 +645,11 @@ class LanHostProbe {
   private sendAcceptedClient(client: socket.TCPSocketConnection, payload: string): void {
     try {
       void client.send({ data: `${payload}\n`, encoding: 'UTF-8' }).catch((error: BusinessError) => {
-        console.warn(`[HarmonyGateA] TCP peer send failed: ${stringifyError(error)}`);
+        debugWarn(`TCP peer send failed: ${stringifyError(error)}`);
         this.removeClient(client.clientId);
       });
     } catch (error) {
-      console.warn(`[HarmonyGateA] TCP peer send failed: ${stringifyError(error)}`);
+      debugWarn(`TCP peer send failed: ${stringifyError(error)}`);
       this.removeClient(client.clientId);
     }
   }
@@ -656,10 +657,10 @@ class LanHostProbe {
   private closeAcceptedClient(client: socket.TCPSocketConnection): void {
     try {
       void client.close().catch((error: BusinessError) => {
-        console.warn(`[HarmonyGateA] TCP peer close skipped: ${stringifyError(error)}`);
+        debugWarn(`TCP peer close skipped: ${stringifyError(error)}`);
       });
     } catch (error) {
-      console.warn(`[HarmonyGateA] TCP peer close skipped: ${stringifyError(error)}`);
+      debugWarn(`TCP peer close skipped: ${stringifyError(error)}`);
     }
   }
 
@@ -878,6 +879,18 @@ function stringifyError(error: Object): string {
   } catch (_) {
     return String(error);
   }
+}
+
+function debugInfo(message: string): void {
+  if (BuildProfile.DEBUG) console.info(`[HarmonyGateA] ${message}`);
+}
+
+function debugWarn(message: string): void {
+  if (BuildProfile.DEBUG) console.warn(`[HarmonyGateA] ${message}`);
+}
+
+function debugError(message: string | null): void {
+  if (BuildProfile.DEBUG) console.error(`[HarmonyGateA] ${message ?? 'unknown error'}`);
 }
 
 export const lanHostProbe = new LanHostProbe();

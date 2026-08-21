@@ -10,6 +10,8 @@ test('Harmony release build disables browser source maps', async () => {
   }, 'build', 'harmony-release');
 
   assert.equal(config.build.sourcemap, false);
+  assert.equal(config.build.minify, 'esbuild');
+  assert.deepEqual(config.esbuild.drop, ['console', 'debugger']);
 });
 
 test('Harmony release command selects both web and native release modes', async () => {
