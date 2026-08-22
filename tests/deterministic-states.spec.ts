@@ -294,6 +294,40 @@ test('laptop PC viewport keeps the HUD bands separated and visible', async ({ pa
   expect(rectanglesOverlap(layout.locator, layout.audio)).toBe(false);
 });
 
+test('phone landscape keeps the gameplay HUD in a thin safe-area band', async ({ page }) => {
+  await page.setViewportSize({ width: 707, height: 440 });
+  await openState(page, 'ghost-playing');
+
+  const layout = await page.evaluate(() => {
+    const hud = document.querySelector('.m2-hud')?.getBoundingClientRect();
+    const role = document.querySelector('.hud-role-block')?.getBoundingClientRect();
+    const objective = document.querySelector('.hud-objective')?.getBoundingClientRect();
+    const captures = document.querySelector('.hud-captures')?.getBoundingClientRect();
+    const controlHint = document.querySelector('.control-hint');
+    const healthLabel = document.querySelector('.hud-health-label');
+    return {
+      hud,
+      role,
+      objective,
+      captures,
+      controlHintDisplay: controlHint ? getComputedStyle(controlHint).display : null,
+      healthLabelDisplay: healthLabel ? getComputedStyle(healthLabel).display : null,
+    };
+  });
+
+  expect(layout.hud?.left ?? -1).toBeGreaterThanOrEqual(0);
+  expect(layout.hud?.right ?? 2000).toBeLessThanOrEqual(707);
+  expect(layout.hud?.bottom ?? 2000).toBeLessThanOrEqual(48);
+  expect(rectanglesOverlap(layout.role, layout.objective)).toBe(false);
+  expect(rectanglesOverlap(layout.objective, layout.captures)).toBe(false);
+  expect(layout.controlHintDisplay).toBe('none');
+  expect(layout.healthLabelDisplay).toBe('none');
+  await expect(page).toHaveScreenshot('phone-landscape-compact-hud.png', {
+    animations: 'disabled',
+    maxDiffPixelRatio: 0.008,
+  });
+});
+
 test('gameplay HUD shows a live FPS readout', async ({ page }) => {
   await openState(page, 'ghost-playing');
   await page.evaluate(() => window.__THREE_GAME_TEST_HOOKS__?.hideDebugUi(false));
