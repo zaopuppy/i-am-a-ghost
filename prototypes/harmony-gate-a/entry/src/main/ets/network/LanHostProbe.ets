@@ -93,6 +93,8 @@ class LanHostProbe {
   private discoveredRooms: Map<string, NearbyRoomStatus> = new Map();
   private resolvingRooms: Set<string> = new Set();
   private startPromise: Promise<LanHostStatus> | null = null;
+  private stopPromise: Promise<void> | null = null;
+  private consentGranted: boolean = false;
   private port: number | null = null;
   private discoveryActive: boolean = false;
   private lastError: string | null = null;
@@ -280,6 +282,15 @@ class LanHostProbe {
   }
 
   start(context: common.UIAbilityContext): Promise<LanHostStatus> {
+    this.consentGranted = true;
+    return this.resume(context);
+  }
+
+  resume(context: common.UIAbilityContext): Promise<LanHostStatus> {
+    if (!this.consentGranted) return Promise.resolve(this.status());
+    if (this.stopPromise !== null) {
+      return this.stopPromise.then(() => this.resume(context));
+    }
     if (this.startPromise !== null) return this.startPromise;
     if (this.server !== null && this.port !== null) return Promise.resolve(this.status());
     this.startPromise = this.startInternal(context).finally(() => {
@@ -288,7 +299,21 @@ class LanHostProbe {
     return this.startPromise;
   }
 
-  async stop(context: common.UIAbilityContext): Promise<void> {
+  stop(context: common.UIAbilityContext): Promise<void> {
+    this.consentGranted = false;
+    return this.pause(context);
+  }
+
+  pause(context: common.UIAbilityContext): Promise<void> {
+    if (this.stopPromise !== null) return this.stopPromise;
+    this.stopPromise = this.stopInternal(context).finally(() => {
+      this.stopPromise = null;
+    });
+    return this.stopPromise;
+  }
+
+  private async stopInternal(context: common.UIAbilityContext): Promise<void> {
+    if (this.startPromise !== null) await this.startPromise;
     this.stopDiscovery();
 
     const service = this.registeredService;

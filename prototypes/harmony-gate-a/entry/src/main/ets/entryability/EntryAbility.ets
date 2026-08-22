@@ -71,10 +71,11 @@ export default class EntryAbility extends UIAbility {
 
   onForeground(): void {
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onForeground');
+    void lanHostProbe.resume(this.context);
   }
 
   onBackground(): void {
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onBackground');
-    void lanHostProbe.stop(this.context);
+    void lanHostProbe.pause(this.context);
   }
 }

@@ -35,8 +35,8 @@ export interface HarmonyHostApi {
   runtimeInfo(): string;
   lanStatus(): string;
   nearbyRooms(): string;
-  startLan(): Promise<string>;
-  stopLan(): Promise<string>;
+  startLan(): Promise<unknown>;
+  stopLan(): Promise<unknown>;
   createPrototypeRoom(): string;
   joinPrototypeRoom(host: string, port: number, roomCode: string, instanceId: string): string;
   connectGameRoom(host: string, port: number, roomCode: string, instanceId: string): string;
@@ -279,19 +279,35 @@ async function updateLanConsent(
   setHarmonyActionsEnabled(false);
   try {
     if (!input.checked) {
-      await host.stopLan();
-      state.lan = readLanStatus(host);
+      let stopFailure: unknown = null;
+      try {
+        await host.stopLan();
+      } catch (error) {
+        stopFailure = error;
+      }
+      state.lan = await waitForLanListening(host, false);
+      if (state.lan?.listening === true) {
+        throw stopFailure instanceof Error ? stopFailure : new Error('局域网房间服务停止失败');
+      }
+      setHarmonyError('');
       setNetworkStatus('请先同意局域网联机说明');
       return;
     }
     setNetworkStatus('正在启动原生局域网房间服务…');
-    const started = JSON.parse(await host.startLan()) as HarmonyLanHostStatus & { error?: unknown };
-    if (started.listening !== true) {
-      throw new Error(typeof started.error === 'string' ? started.error : '局域网房间服务启动失败');
+    let startFailure: unknown = null;
+    try {
+      await host.startLan();
+    } catch (error) {
+      startFailure = error;
+    }
+    const started = await waitForLanListening(host, true);
+    if (started?.listening !== true) {
+      throw startFailure instanceof Error ? startFailure : new Error('局域网房间服务启动失败');
     }
     state.lan = started;
     state.consentGranted = true;
     setHarmonyActionsEnabled(true);
+    setHarmonyError('');
     setNetworkStatus('原生局域网房间服务已就绪');
   } catch (error) {
     input.checked = false;
@@ -428,6 +444,20 @@ function setHarmonyError(message: string): void {
 function readLanStatus(host: HarmonyHostApi): HarmonyLanHostStatus | null {
   const parsed = JSON.parse(host.lanStatus()) as HarmonyLanHostStatus;
   return typeof parsed === 'object' && parsed !== null ? parsed : null;
+}
+
+async function waitForLanListening(
+  host: HarmonyHostApi,
+  expected: boolean,
+  timeoutMs = 2_500,
+): Promise<HarmonyLanHostStatus | null> {
+  const startedAt = performance.now();
+  let status = readLanStatus(host);
+  while ((status?.listening === true) !== expected && performance.now() - startedAt < timeoutMs) {
+    await new Promise((resolve) => window.setTimeout(resolve, 50));
+    status = readLanStatus(host);
+  }
+  return status;
 }
 
 function readNearbyRooms(host: HarmonyHostApi): HarmonyNearbyRoom[] {

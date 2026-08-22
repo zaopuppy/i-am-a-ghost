@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 
 test('Harmony create-room opens a native QR and enters the local hosted lobby', async ({ page }) => {
   await page.addInitScript(() => {
+    let nativeLanListening = false;
     const room = {
       ok: true,
       roomCode: 'GHOST7',
@@ -16,17 +17,28 @@ test('Harmony create-room opens a native QR and enters the local hosted lobby', 
       value: {
         ping: (message: string) => `pong:${message}`,
         runtimeInfo: () => '{"platform":"HarmonyOS","prototype":"gate-a","bridgeVersion":1}',
-        lanStatus: () => '{"listening":true,"port":34567,"mdnsRegistered":true}',
+        lanStatus: () => JSON.stringify({
+          listening: nativeLanListening,
+          port: nativeLanListening ? 34567 : null,
+          mdnsRegistered: nativeLanListening,
+        }),
         nearbyRooms: () => '[]',
         startLan: async () => {
           const state = window as Window & { __HARMONY_START_COUNT__?: number };
           state.__HARMONY_START_COUNT__ = (state.__HARMONY_START_COUNT__ ?? 0) + 1;
-          return '{"listening":true,"port":34567,"mdnsRegistered":true}';
+          window.setTimeout(() => {
+            nativeLanListening = true;
+          }, 100);
+          // ArkWeb can reject an async proxy result after the ArkTS side effect succeeded.
+          throw new Error('ArkWeb async result unavailable');
         },
         stopLan: async () => {
           const state = window as Window & { __HARMONY_STOP_COUNT__?: number };
           state.__HARMONY_STOP_COUNT__ = (state.__HARMONY_STOP_COUNT__ ?? 0) + 1;
-          return '{"accepted":true}';
+          window.setTimeout(() => {
+            nativeLanListening = false;
+          }, 100);
+          throw new Error('ArkWeb async result unavailable');
         },
         createPrototypeRoom: () => JSON.stringify(room),
         connectGameRoom: () => '{"accepted":true}',
@@ -83,6 +95,7 @@ test('Harmony create-room opens a native QR and enters the local hosted lobby', 
 
   await page.getByTestId('harmony-lan-consent').uncheck();
   await expect(page.getByTestId('create-room')).toBeDisabled();
+  await expect(page.locator('#error-message')).toHaveText('');
   await expect.poll(() => page.evaluate(() => (
     window as Window & { __HARMONY_STOP_COUNT__?: number }
   ).__HARMONY_STOP_COUNT__ ?? 0)).toBe(1);

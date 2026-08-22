@@ -22,3 +22,20 @@ test('Harmony release command selects both web and native release modes', async 
   assert.match(packageJson.scripts?.['build:harmony-release'] ?? '', /--mode harmony-release/);
   assert.match(packageJson.scripts?.['prototype:harmony:release'] ?? '', /--build-mode release/);
 });
+
+test('Harmony LAN pauses in background and resumes only after in-process consent', async () => {
+  const abilitySource = await readFile(
+    'prototypes/harmony-gate-a/entry/src/main/ets/entryability/EntryAbility.ets',
+    'utf8',
+  );
+  const probeSource = await readFile(
+    'prototypes/harmony-gate-a/entry/src/main/ets/network/LanHostProbe.ets',
+    'utf8',
+  );
+
+  assert.match(abilitySource, /onForeground\(\): void \{[\s\S]*?lanHostProbe\.resume\(this\.context\)/);
+  assert.match(abilitySource, /onBackground\(\): void \{[\s\S]*?lanHostProbe\.pause\(this\.context\)/);
+  assert.match(probeSource, /private consentGranted: boolean = false;/);
+  assert.match(probeSource, /start\([^)]*\)[\s\S]*?this\.consentGranted = true;[\s\S]*?this\.resume\(context\)/);
+  assert.match(probeSource, /stop\([^)]*\)[\s\S]*?this\.consentGranted = false;/);
+});
