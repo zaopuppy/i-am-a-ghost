@@ -106,7 +106,7 @@ test('two browser pages join, start, and move through the authoritative input pa
       () => host.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.audio.loaded ?? 0),
       { timeout: 15_000 },
     )
-    .toBe(5);
+    .toBe(8);
   expect(await host.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.audio.failed)).toBe(0);
   const childFrame = await childPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.viewerFrame);
   expect(childFrame?.viewerRole).toBe('child');

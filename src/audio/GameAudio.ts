@@ -20,6 +20,12 @@ interface AudioPack {
   samples: Record<string, string>;
 }
 
+interface ThunderPlaybackSnapshot {
+  variant: 0 | 1 | 2;
+  delaySeconds: number;
+  pan: number;
+}
+
 export class GameAudio {
   private context: AudioContext | null = null;
   private master: GainNode | null = null;
@@ -27,6 +33,8 @@ export class GameAudio {
   private loadPromise: Promise<void> | null = null;
   private muted = false;
   private failedAssets = 0;
+  private thunderPlays = 0;
+  private lastThunder: ThunderPlaybackSnapshot | null = null;
   private lastCaptureScareAt = Number.NEGATIVE_INFINITY;
   private fireLoop: { source: AudioBufferSourceNode; gain: GainNode } | null = null;
   private lastIgnitionAt = Number.NEGATIVE_INFINITY;
@@ -83,6 +91,12 @@ export class GameAudio {
     gain.gain.value = 0.95 + (0.55 - 0.95) * distanceRatio;
     source.connect(filter).connect(panner).connect(gain).connect(this.master);
     source.start();
+    this.thunderPlays += 1;
+    this.lastThunder = {
+      variant,
+      delaySeconds,
+      pan: panner.pan.value,
+    };
   }
 
   playIgnition(): void {
@@ -150,12 +164,21 @@ export class GameAudio {
     return this.muted;
   }
 
-  metrics(): { unlocked: boolean; muted: boolean; loaded: number; failed: number } {
+  metrics(): {
+    unlocked: boolean;
+    muted: boolean;
+    loaded: number;
+    failed: number;
+    thunderPlays: number;
+    lastThunder: ThunderPlaybackSnapshot | null;
+  } {
     return {
       unlocked: this.context?.state === 'running',
       muted: this.muted,
       loaded: this.buffers.size,
       failed: this.failedAssets,
+      thunderPlays: this.thunderPlays,
+      lastThunder: this.lastThunder ? { ...this.lastThunder } : null,
     };
   }
 

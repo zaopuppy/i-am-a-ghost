@@ -47,17 +47,32 @@ interface GhostGameDiagnostics {
     environmentProps: number;
     wallDressings: number;
     pendingAssetUpgrades: number;
-      assets: {
-        kid: ImportedAssetDiagnostics;
-        ghost: ImportedAssetDiagnostics;
-        furniture: ImportedAssetDiagnostics;
-      };
+    lightning: {
+      strikeId: number | null;
+      direction: 'north' | 'east' | 'south' | 'west' | null;
+      intensity: number;
+      pulseKind: 'preflash' | 'main' | null;
+      visualTick: number | null;
+      shadowMapSize: number;
+      shadowUpdates: number;
+    };
+    assets: {
+      kid: ImportedAssetDiagnostics;
+      ghost: ImportedAssetDiagnostics;
+      furniture: ImportedAssetDiagnostics;
+    };
   };
   audio: {
     unlocked: boolean;
     muted: boolean;
     loaded: number;
     failed: number;
+    thunderPlays: number;
+    lastThunder: {
+      variant: 0 | 1 | 2;
+      delaySeconds: number;
+      pan: number;
+    } | null;
   };
   input: {
     actionHeld: boolean;

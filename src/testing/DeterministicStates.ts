@@ -1,4 +1,8 @@
-import { MATCH_RULES } from '../game/MatchEngine';
+import {
+  MATCH_RULES,
+  type LightningDirection,
+  type LightningStrike,
+} from '../game/MatchEngine';
 import type {
   GhostViewerFrame,
   ViewerFrame,
@@ -18,6 +22,10 @@ export const DETERMINISTIC_STATE_NAMES = [
   'protection',
   'child-win',
   'ghost-win',
+  'lightning-north-main',
+  'lightning-east-main',
+  'lightning-south-main',
+  'lightning-west-main',
 ] as const;
 
 export type DeterministicStateName = (typeof DETERMINISTIC_STATE_NAMES)[number];
@@ -51,12 +59,13 @@ export function createDeterministicViewerFrame(
   seed = 0,
 ): ViewerFrame {
   const tick = 4200 + Math.abs(Math.trunc(seed)) % 60;
+  const lightningDirection = lightningDirectionForState(state);
   const common = {
     tick,
     remainingTicks: 13_800,
     captureCount: 1,
     ghostHealth: 62,
-    lightning: null,
+    lightning: lightningDirection ? lightningAtMainPeak(lightningDirection, tick) : null,
     winner: null,
     capture: null,
   } as const;
@@ -121,6 +130,10 @@ export function createDeterministicViewerFrame(
       ]
     : [];
 
+  const ghost = lightningDirection
+    ? { ...GHOST, position: lightningGhostPosition(lightningDirection) }
+    : { ...GHOST, position: { ...GHOST.position } };
+
   return {
     ...common,
     phase,
@@ -140,9 +153,46 @@ export function createDeterministicViewerFrame(
     children,
     dolls: hidden && children.length === 2 ? cloneDolls(DOLLS.slice(1)) : [],
     batteries,
-    ...(!hidden ? { ghost: { ...GHOST, position: { ...GHOST.position } } } : {}),
+    ...(!hidden ? { ghost } : {}),
     ...(batteries[0] ? { battery: batteries[0] } : {}),
   };
+}
+
+function lightningDirectionForState(state: DeterministicStateName): LightningDirection | null {
+  switch (state) {
+    case 'lightning-north-main': return 'north';
+    case 'lightning-east-main': return 'east';
+    case 'lightning-south-main': return 'south';
+    case 'lightning-west-main': return 'west';
+    default: return null;
+  }
+}
+
+function lightningAtMainPeak(direction: LightningDirection, tick: number): LightningStrike {
+  const startTick = tick - 30;
+  const mainStartTick = tick - 4;
+  const mainDurationTicks = 12;
+  return {
+    id: 1,
+    startTick,
+    direction,
+    pulses: [
+      { kind: 'preflash', startTick, durationTicks: 5 },
+      { kind: 'preflash', startTick: startTick + 12, durationTicks: 5 },
+      { kind: 'main', startTick: mainStartTick, durationTicks: mainDurationTicks },
+    ],
+    thunderTick: mainStartTick + mainDurationTicks + 30,
+    thunderVariant: 0,
+  };
+}
+
+function lightningGhostPosition(direction: LightningDirection): { x: number; z: number } {
+  switch (direction) {
+    case 'north': return { x: 0, z: 6.7 };
+    case 'east': return { x: 10.45, z: 0 };
+    case 'south': return { x: 0, z: -6.7 };
+    case 'west': return { x: -10.45, z: 0 };
+  }
 }
 
 function child(

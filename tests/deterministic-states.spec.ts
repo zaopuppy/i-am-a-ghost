@@ -1,6 +1,13 @@
 import { expect, test, type Page } from '@playwright/test';
 import { PNG } from 'pngjs';
 
+const LIGHTNING_STATES = [
+  ['lightning-north-main', 'north'],
+  ['lightning-east-main', 'east'],
+  ['lightning-south-main', 'south'],
+  ['lightning-west-main', 'west'],
+] as const;
+
 const VISUAL_STATES = [
   'child-playing',
   'flashlight-off-range',
@@ -9,6 +16,7 @@ const VISUAL_STATES = [
   'low-battery',
   'capture',
   'child-win',
+  ...LIGHTNING_STATES.map(([state]) => state),
 ] as const;
 
 for (const state of VISUAL_STATES) {
@@ -56,6 +64,9 @@ for (const state of VISUAL_STATES) {
       expect(frame?.viewerRole).toBe('child');
       if (frame?.viewerRole === 'child') expect(frame.ghost).toBeDefined();
     }
+    if (state.startsWith('lightning-')) {
+      await expectLightningDiagnostics(page, state.split('-')[1]);
+    }
     await expect(page).toHaveScreenshot(`${state}.png`, {
       animations: 'disabled',
       maxDiffPixelRatio: 0.008,
@@ -63,6 +74,13 @@ for (const state of VISUAL_STATES) {
     expect(errors).toEqual([]);
   });
 }
+
+test('lightning states expose stable peak and shadow diagnostics without snapshots', async ({ page }) => {
+  for (const [state, direction] of LIGHTNING_STATES) {
+    await openState(page, state);
+    await expectLightningDiagnostics(page, direction);
+  }
+});
 
 test('hidden child state does not leak a ghost through browser diagnostics', async ({ page }) => {
   await openState(page, 'child-hidden');
@@ -360,6 +378,15 @@ function rectanglesOverlap(
     && left.right > right.left
     && left.top < right.bottom
     && left.bottom > right.top;
+}
+
+async function expectLightningDiagnostics(page: Page, expectedDirection: string): Promise<void> {
+  const diagnostics = await page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__);
+  expect(diagnostics?.world.lightning.direction).toBe(expectedDirection);
+  expect(diagnostics?.world.lightning.pulseKind).toBe('main');
+  expect(diagnostics?.world.lightning.intensity).toBeGreaterThanOrEqual(0.95);
+  expect(diagnostics?.world.lightning.shadowUpdates).toBeGreaterThanOrEqual(1);
+  expect(diagnostics?.world.lightning.shadowMapSize).toBe(1024);
 }
 
 async function openState(page: Page, state: string): Promise<void> {

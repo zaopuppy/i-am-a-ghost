@@ -61,6 +61,10 @@ test('Harmony create-room opens a native QR and enters the local hosted lobby', 
   });
   await page.goto('/');
 
+  await expect.poll(() => page.evaluate(() => (
+    window.__THREE_GAME_DIAGNOSTICS__?.world.lightning.shadowMapSize ?? null
+  ))).toBe(512);
+
   await expect(page.getByTestId('create-room')).toBeDisabled();
   await expect.poll(() => page.evaluate(() => (
     window as Window & { __HARMONY_START_COUNT__?: number }
