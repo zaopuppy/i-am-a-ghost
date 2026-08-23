@@ -15,6 +15,12 @@ test('interior wall gaps become twelve doorways and ignore spur walls', () => {
   assert.ok(openings.every((opening) => opening.maxX > opening.minX && opening.maxZ > opening.minZ));
   assert.equal(openings.filter((opening) => opening.axis === 'x').length, 6);
   assert.equal(openings.filter((opening) => opening.axis === 'z').length, 6);
+  assert.ok(openings
+    .filter((opening) => opening.axis === 'x')
+    .every((opening) => Math.abs(opening.maxZ - opening.minZ - 1.92) < 1e-9));
+  assert.ok(openings
+    .filter((opening) => opening.axis === 'z')
+    .every((opening) => Math.abs(opening.maxX - opening.minX - 2.4) < 1e-9));
 });
 
 test('every named room belongs to a stage family', () => {

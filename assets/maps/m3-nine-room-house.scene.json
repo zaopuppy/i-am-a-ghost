@@ -13,27 +13,27 @@
       "minX": -5.1,
       "maxX": -4.9,
       "minZ": -10,
-      "maxZ": -5.6
+      "maxZ": -5.76
     },
     {
       "id": "left-lower-b",
       "minX": -5.1,
       "maxX": -4.9,
-      "minZ": -4,
-      "maxZ": 1.2
+      "minZ": -3.84,
+      "maxZ": 1.04
     },
     {
       "id": "left-upper-a",
       "minX": -5.1,
       "maxX": -4.9,
-      "minZ": 2.8,
-      "maxZ": 7.1
+      "minZ": 2.96,
+      "maxZ": 6.94
     },
     {
       "id": "left-upper-b",
       "minX": -5.1,
       "maxX": -4.9,
-      "minZ": 8.7,
+      "minZ": 8.86,
       "maxZ": 10
     },
     {
@@ -41,53 +41,53 @@
       "minX": 4.9,
       "maxX": 5.1,
       "minZ": -10,
-      "maxZ": -7.5
+      "maxZ": -7.66
     },
     {
       "id": "right-lower-b",
       "minX": 4.9,
       "maxX": 5.1,
-      "minZ": -5.9,
-      "maxZ": -0.8
+      "minZ": -5.74,
+      "maxZ": -0.96
     },
     {
       "id": "right-upper-a",
       "minX": 4.9,
       "maxX": 5.1,
-      "minZ": 0.8,
-      "maxZ": 5.5
+      "minZ": 0.96,
+      "maxZ": 5.34
     },
     {
       "id": "right-upper-b",
       "minX": 4.9,
       "maxX": 5.1,
-      "minZ": 7.1,
+      "minZ": 7.26,
       "maxZ": 10
     },
     {
       "id": "lower-west-a",
       "minX": -16,
-      "maxX": -12,
+      "maxX": -12.2,
       "minZ": -3.6,
       "maxZ": -3.4
     },
     {
       "id": "lower-west-b",
-      "minX": -10,
-      "maxX": -3,
+      "minX": -9.8,
+      "maxX": -3.2,
       "minZ": -3.6,
       "maxZ": -3.4
     },
     {
       "id": "lower-east-a",
-      "minX": -1,
-      "maxX": 7,
+      "minX": -0.8,
+      "maxX": 6.8,
       "minZ": -3.6,
       "maxZ": -3.4
     },
     {
       "id": "lower-east-b",
-      "minX": 9,
+      "minX": 9.2,
       "maxX": 16,
       "minZ": -3.6,
       "maxZ": -3.4
@@ -95,27 +95,27 @@
     {
       "id": "upper-west-a",
       "minX": -16,
-      "maxX": -9,
+      "maxX": -9.2,
       "minZ": 3.4,
       "maxZ": 3.6
     },
     {
       "id": "upper-west-b",
-      "minX": -7,
-      "maxX": 0,
+      "minX": -6.8,
+      "maxX": -0.2,
       "minZ": 3.4,
       "maxZ": 3.6
     },
     {
       "id": "upper-east-a",
-      "minX": 2,
-      "maxX": 10,
+      "minX": 2.2,
+      "maxX": 9.8,
       "minZ": 3.4,
       "maxZ": 3.6
     },
     {
       "id": "upper-east-b",
-      "minX": 12,
+      "minX": 12.2,
       "maxX": 16,
       "minZ": 3.4,
       "maxZ": 3.6
