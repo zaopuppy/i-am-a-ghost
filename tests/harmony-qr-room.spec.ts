@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { BUILD_VERSION, PROTOCOL_VERSION } from '../src/net/protocol';
 
 test('Harmony create-room opens a native QR and enters the local hosted lobby', async ({ page }) => {
   await page.addInitScript(() => {
@@ -237,28 +238,28 @@ test('Harmony host worker admits a peer and starts authoritative frames', async 
   await page.getByTestId('create-room').click();
   await expect(page.getByTestId('roster').locator('li')).toHaveCount(1);
 
-  await page.evaluate(() => {
+  await page.evaluate(({ protocolVersion, buildVersion }) => {
     const push = (window as Window & { __PUSH_HARMONY_PEER__?: (payload: string) => void })
       .__PUSH_HARMONY_PEER__;
     push?.(JSON.stringify({
       type: 'join-room',
       requestId: 'invalid-join',
-      protocolVersion: 3,
-      buildVersion: '0.7.0-art-pass',
+      protocolVersion,
+      buildVersion,
       roomCode: 'GHOST7',
       nickname: null,
     }));
     const validJoin = JSON.stringify({
       type: 'join-room',
       requestId: 'remote-join',
-      protocolVersion: 3,
-      buildVersion: '0.7.0-art-pass',
+      protocolVersion,
+      buildVersion,
       roomCode: 'GHOST7',
       nickname: '远端玩家',
     });
     push?.(validJoin);
     push?.(validJoin);
-  });
+  }, { protocolVersion: PROTOCOL_VERSION, buildVersion: BUILD_VERSION });
   await expect(page.getByTestId('roster').locator('li')).toHaveCount(2);
   await expect(page.getByTestId('start-match')).toBeEnabled();
   await expect.poll(() => page.evaluate(() => {

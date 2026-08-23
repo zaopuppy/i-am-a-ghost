@@ -22,6 +22,13 @@ test('the developer scene editor edits furniture, rooms, and walls with live val
   expect(collapsedCanvas!.x).toBeLessThan(openCanvas!.x);
   await page.locator('[data-editor-collapse]').click();
   await expect.poll(() => page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.snapshot().panelCollapsed)).toBe(false);
+  await expect.poll(async () => {
+    const bounds = await page.locator('#game-canvas').boundingBox();
+    return bounds ? [Math.round(bounds.x), Math.round(bounds.width)] : null;
+  }).toEqual([Math.round(openCanvas!.x), Math.round(openCanvas!.width)]);
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  }));
 
   const baseline = await page.evaluate(() => window.__HOUSE_SCENE_EDITOR__?.snapshot());
   expect(baseline?.errors).toBe(0);

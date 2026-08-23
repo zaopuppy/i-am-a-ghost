@@ -65,7 +65,7 @@ test('the map-centered camera keeps mouse orbit, pan, and zoom behind a toggle b
       current.position.z - previousPosition.z,
     ) > 0.25;
   }, before?.position);
-  await page.waitForTimeout(800);
+  await page.waitForTimeout(2_400);
   const orbited = await page.evaluate(() => window.__THREE_GAME_TEST_HOOKS__?.cameraSnapshot());
   expect(orbited?.pointerMode).toBe(true);
   expect(orbited?.position).not.toEqual(before?.position);

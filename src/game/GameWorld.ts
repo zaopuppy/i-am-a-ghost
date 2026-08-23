@@ -517,7 +517,7 @@ export class GameWorld {
     const size = Math.max(1, Math.round(requestedSize));
     const shadow = this.lightningLight.shadow;
     this.lightningLight.name = 'lightning-directional-light';
-    this.lightningLight.castShadow = true;
+    this.lightningLight.castShadow = false;
     this.lightningLight.target.name = 'lightning-directional-target';
     shadow.mapSize.set(size, size);
     shadow.camera.near = 1;
@@ -536,6 +536,7 @@ export class GameWorld {
       : `${frame.strikeId}:${frame.strikeStartTick}`;
     if (strikeKey !== null && strikeKey !== this.lightningShadowKey && frame.direction) {
       this.positionLightning(frame.direction);
+      this.lightningLight.castShadow = true;
       this.lightningLight.shadow.needsUpdate = true;
       this.lightningShadowUpdates += 1;
     }
