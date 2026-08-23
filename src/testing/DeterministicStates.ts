@@ -169,16 +169,16 @@ function lightningDirectionForState(state: DeterministicStateName): LightningDir
 }
 
 function lightningAtMainPeak(direction: LightningDirection, tick: number): LightningStrike {
-  const startTick = tick - 30;
-  const mainStartTick = tick - 4;
-  const mainDurationTicks = 12;
+  const mainStartTick = tick - 12;
+  const mainDurationTicks = 54;
+  const startTick = mainStartTick - 48;
   return {
     id: 1,
     startTick,
     direction,
     pulses: [
-      { kind: 'preflash', startTick, durationTicks: 5 },
-      { kind: 'preflash', startTick: startTick + 12, durationTicks: 5 },
+      { kind: 'preflash', startTick, durationTicks: 6 },
+      { kind: 'preflash', startTick: startTick + 24, durationTicks: 6 },
       { kind: 'main', startTick: mainStartTick, durationTicks: mainDurationTicks },
     ],
     thunderTick: mainStartTick + mainDurationTicks + 30,

@@ -27,7 +27,7 @@ function assertApproximately(actual: number, expected: number, epsilon = 1e-9): 
   assert.ok(Math.abs(actual - expected) <= epsilon, `expected ${actual} to be approximately ${expected}`);
 }
 
-test('lightning schedules independently after 20 to 45 seconds of playing time', () => {
+test('lightning schedules independently after 10 to 20 seconds of playing time', () => {
   const engine = new MatchEngine({
     seed: 101,
     map: OPEN_MAP,
@@ -71,6 +71,15 @@ test('lightning schedules independently after 20 to 45 seconds of playing time',
   }
   const main = event.lightning.pulses.at(-1);
   assert.ok(main);
+  const sequenceDuration = main.startTick + main.durationTicks - event.lightning.startTick;
+  const minimumSequenceDuration = MATCH_RULES.lightningPreflashMinimumTicks * 2
+    + MATCH_RULES.lightningGapMinimumTicks * 2
+    + MATCH_RULES.lightningMainMinimumTicks;
+  const maximumSequenceDuration = MATCH_RULES.lightningPreflashMaximumTicks * 3
+    + MATCH_RULES.lightningGapMaximumTicks * 3
+    + MATCH_RULES.lightningMainMaximumTicks;
+  assert.ok(sequenceDuration >= minimumSequenceDuration);
+  assert.ok(sequenceDuration <= maximumSequenceDuration);
   const thunderDelay = event.lightning.thunderTick - main.startTick - main.durationTicks;
   assert.ok(thunderDelay >= MATCH_RULES.lightningThunderMinimumDelayTicks);
   assert.ok(thunderDelay <= MATCH_RULES.lightningThunderMaximumDelayTicks);
