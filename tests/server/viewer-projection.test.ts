@@ -97,6 +97,35 @@ test('one successful beam reveals the ghost in every child-directed frame', () =
   }
 });
 
+test('lightning state and its frozen reveal are shared without exposing scheduler state', () => {
+  const engine = new MatchEngine({
+    seed: 19,
+    map: TEST_MAP,
+    ghostPlayerId: 'ghost',
+    childPlayerIds: ['first-child', 'second-child'],
+  });
+  const waitTicks = engine.checkpoint().nextLightningPlayingTick;
+  engine.advance([], waitTicks);
+  const checkpoint = engine.checkpoint();
+  assert.ok(checkpoint.lightning && checkpoint.lightningReveal);
+
+  for (const playerId of ['first-child', 'second-child']) {
+    const frame = projectViewerFrame(checkpoint, playerId);
+    assert.equal(frame.viewerRole, 'child');
+    assert.deepEqual(frame.lightning, checkpoint.lightning);
+    assert.deepEqual(frame.ghost?.position, checkpoint.lightningReveal.position);
+    assert.doesNotMatch(
+      JSON.stringify(frame),
+      /lightningRandomState|lightningPlayingTick|nextLightningPlayingTick|lightningSerial/,
+    );
+  }
+
+  const frame = projectViewerFrame(checkpoint, 'first-child');
+  assert.ok(frame.lightning);
+  frame.lightning.pulses[0].durationTicks = 999;
+  assert.notEqual(checkpoint.lightning.pulses[0].durationTicks, 999);
+});
+
 test('capture presentation reveals the ghost only to the captured child', () => {
   const engine = new MatchEngine({
     seed: 15,

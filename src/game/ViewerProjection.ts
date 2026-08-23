@@ -27,6 +27,12 @@ export function projectViewerFrame(
     remainingTicks: checkpoint.remainingTicks,
     captureCount: checkpoint.captureCount,
     ghostHealth: checkpoint.ghostHealth,
+    lightning: checkpoint.lightning
+      ? {
+          ...checkpoint.lightning,
+          pulses: checkpoint.lightning.pulses.map((pulse) => ({ ...pulse })),
+        }
+      : null,
     capture: checkpoint.phase === 'capture-animation' && checkpoint.capturedChildPlayerId
       ? {
           childPlayerId: checkpoint.capturedChildPlayerId,
@@ -70,6 +76,14 @@ export function projectViewerFrame(
     burning: checkpoint.ghostBurnTicksRemaining > 0,
     burnTicksRemaining: checkpoint.ghostBurnTicksRemaining,
   };
+  const lightningGhost: VisibleGhost | undefined = checkpoint.lightningReveal
+    ? {
+        position: { ...checkpoint.lightningReveal.position },
+        facingRadians: checkpoint.lightningReveal.facingRadians,
+        burning: false,
+        burnTicksRemaining: 0,
+      }
+    : undefined;
   const batteries = checkpoint.batteries.map((battery) => ({
     batteryId: battery.id,
     position: { ...battery.position },
@@ -104,7 +118,9 @@ export function projectViewerFrame(
       || checkpoint.ghostBurnTicksRemaining > 0
       || checkpoint.capturedChildPlayerId === viewerPlayerId
       ? { ghost }
-      : {}),
+      : lightningGhost
+        ? { ghost: lightningGhost }
+        : {}),
     ...(battery ? { battery } : {}),
   };
   return frame;

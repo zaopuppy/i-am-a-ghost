@@ -1,4 +1,4 @@
-import type { HeadlampBand, Vec2 } from './MatchEngine';
+import type { HeadlampBand, LightningStrike, Vec2 } from './MatchEngine';
 
 export interface SharedMatchFrame {
   tick: number;
@@ -7,6 +7,7 @@ export interface SharedMatchFrame {
   remainingTicks: number;
   captureCount: number;
   ghostHealth: number;
+  lightning: LightningStrike | null;
   capture: {
     childPlayerId: string;
     ticksRemaining: number;

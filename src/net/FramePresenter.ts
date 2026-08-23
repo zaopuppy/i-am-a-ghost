@@ -4,6 +4,8 @@ import {
   DEFAULT_GAMEPLAY_TUNING,
   MATCH_RULES,
   type GameplayTuning,
+  type LightningPulse,
+  type LightningStrike,
   type Vec2,
 } from '../game/MatchEngine';
 import type {
@@ -49,6 +51,7 @@ void ({
     remainingTicks: 'value',
     captureCount: 'value',
     ghostHealth: 'value',
+    lightning: 'clone',
     capture: 'clone',
     viewerRole: 'value',
     viewerPlayerId: 'value',
@@ -66,6 +69,7 @@ void ({
     remainingTicks: 'value',
     captureCount: 'value',
     ghostHealth: 'value',
+    lightning: 'clone',
     capture: 'clone',
     viewerRole: 'value',
     viewerPlayerId: 'value',
@@ -105,6 +109,19 @@ void ({
     ticksRemaining: 'value',
     durationTicks: 'value',
   },
+  lightning: {
+    id: 'value',
+    startTick: 'value',
+    direction: 'value',
+    pulses: 'clone',
+    thunderTick: 'value',
+    thunderVariant: 'value',
+  },
+  lightningPulse: {
+    kind: 'value',
+    startTick: 'value',
+    durationTicks: 'value',
+  },
   position: {
     x: 'value',
     z: 'value',
@@ -117,6 +134,8 @@ void ({
   ghost: ClonePolicy<VisibleGhost>;
   battery: ClonePolicy<VisibleBattery>;
   capture: ClonePolicy<CaptureFrame>;
+  lightning: ClonePolicy<LightningStrike>;
+  lightningPulse: ClonePolicy<LightningPulse>;
   position: ClonePolicy<Vec2>;
 });
 
@@ -364,6 +383,9 @@ function cloneFrame<T extends ViewerFrame>(frame: T): T {
   const shared = {
     ...frame,
     capture: frame.capture ? { ...frame.capture } : null,
+    lightning: frame.lightning
+      ? { ...frame.lightning, pulses: frame.lightning.pulses.map((pulse) => ({ ...pulse })) }
+      : null,
     children: frame.children.map((child) => ({
       ...child,
       position: { ...child.position },

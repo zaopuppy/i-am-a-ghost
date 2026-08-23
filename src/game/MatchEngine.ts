@@ -7,6 +7,29 @@ export interface Vec2 {
 
 export type HeadlampBand = 'off' | 'slow' | 'fast' | 'solid';
 
+export type LightningDirection = 'north' | 'east' | 'south' | 'west';
+
+export interface LightningPulse {
+  kind: 'preflash' | 'main';
+  startTick: number;
+  durationTicks: number;
+}
+
+export interface LightningStrike {
+  id: number;
+  startTick: number;
+  direction: LightningDirection;
+  pulses: LightningPulse[];
+  thunderTick: number;
+  thunderVariant: 0 | 1 | 2;
+}
+
+export interface LightningRevealCheckpoint {
+  position: Vec2;
+  facingRadians: number;
+  ticksRemaining: number;
+}
+
 export interface MatchMap {
   id: string;
   bounds: { minX: number; maxX: number; minZ: number; maxZ: number };
@@ -84,6 +107,12 @@ export interface MatchCheckpoint {
   ghostRevealed: boolean;
   ghostBurnTicksRemaining: number;
   randomState: number;
+  lightningRandomState: number;
+  lightningPlayingTick: number;
+  nextLightningPlayingTick: number;
+  lightningSerial: number;
+  lightning: LightningStrike | null;
+  lightningReveal: LightningRevealCheckpoint | null;
   players: PlayerCheckpoint[];
   dolls: DollCheckpoint[];
   batteries: BatteryCheckpoint[];
@@ -95,6 +124,7 @@ type MatchEventPayload =
   | { type: 'child-captured'; childPlayerId: string; captureCount: number }
   | { type: 'battery-spawned'; battery: BatteryCheckpoint }
   | { type: 'battery-collected'; batteryId: string; childPlayerId: string }
+  | { type: 'lightning-started'; lightning: LightningStrike }
   | { type: 'match-ended'; winner: 'children' | 'ghost' };
 
 export type MatchEvent = MatchEventPayload & { id: number; tick: number };
@@ -126,6 +156,17 @@ export const MATCH_RULES = Object.freeze({
   batterySpawnThreshold: 0.7,
   batteryDoubleSpawnThreshold: 0.5,
   batteryPickupRadius: 0.75,
+  lightningMinimumIntervalTicks: 1_200,
+  lightningMaximumIntervalTicks: 2_700,
+  lightningRevealHoldTicks: 15,
+  lightningPreflashMinimumTicks: 4,
+  lightningPreflashMaximumTicks: 6,
+  lightningGapMinimumTicks: 5,
+  lightningGapMaximumTicks: 8,
+  lightningMainMinimumTicks: 11,
+  lightningMainMaximumTicks: 15,
+  lightningThunderMinimumDelayTicks: 12,
+  lightningThunderMaximumDelayTicks: 72,
 });
 
 export const DEFAULT_GAMEPLAY_TUNING: Readonly<GameplayTuning> = Object.freeze({
@@ -162,6 +203,12 @@ export class MatchEngine {
   private nextEventId = 1;
   private events: MatchEvent[] = [];
   private randomState: number;
+  private lightningRandomState: number;
+  private lightningPlayingTick = 0;
+  private nextLightningPlayingTick: number;
+  private lightningSerial = 0;
+  private lightning: LightningStrike | null = null;
+  private lightningReveal: LightningRevealCheckpoint | null = null;
   private batterySerial = 0;
   private readonly batteries: BatteryCheckpoint[] = [];
   private gameplayTuning: GameplayTuning;
@@ -170,6 +217,8 @@ export class MatchEngine {
     validateSetup(setup);
     this.gameplayTuning = normalizeGameplayTuning(setup.gameplayTuning);
     this.randomState = setup.seed >>> 0;
+    this.lightningRandomState = (setup.seed ^ 0xa511e9b3) >>> 0;
+    this.nextLightningPlayingTick = this.nextLightningIntervalTicks();
     this.players = [
       {
         id: setup.ghostPlayerId,
@@ -254,6 +303,14 @@ export class MatchEngine {
       ghostRevealed: this.ghostRevealed,
       ghostBurnTicksRemaining: this.ghostBurnTicksRemaining,
       randomState: this.randomState,
+      lightningRandomState: this.lightningRandomState,
+      lightningPlayingTick: this.lightningPlayingTick,
+      nextLightningPlayingTick: this.nextLightningPlayingTick,
+      lightningSerial: this.lightningSerial,
+      lightning: cloneLightning(this.lightning),
+      lightningReveal: this.lightningReveal
+        ? { ...this.lightningReveal, position: { ...this.lightningReveal.position } }
+        : null,
       players: this.players.map((player) => ({
         ...player,
         position: { ...player.position },
@@ -274,6 +331,9 @@ export class MatchEngine {
       return;
     }
 
+    this.updateLightningTimeline();
+    this.lightningPlayingTick += 1;
+    if (this.lightningPlayingTick >= this.nextLightningPlayingTick) this.startLightning();
     const illuminatedAtStart = this.findFlashlightHitters().length > 0;
     const burningAtStart = illuminatedAtStart || this.ghostBurnTicksRemaining > 0;
     const secondsPerTick = 1 / MATCH_RULES.tickRate;
@@ -307,6 +367,7 @@ export class MatchEngine {
       if (this.isPositionOpen(player.id, zCandidate)) player.position.z = zCandidate.z;
     }
     this.updateFlashlights();
+    this.updateLightningReveal();
     this.updateBattery();
     this.remainingTicks = Math.max(0, this.remainingTicks - 1);
     if (this.ghostHealth <= 0 || this.remainingTicks === 0) {
@@ -323,6 +384,8 @@ export class MatchEngine {
 
   private updatePausedPhase(): void {
     this.ghostRevealed = false;
+    this.lightningReveal = null;
+    this.updateLightningTimeline();
     this.phaseTicksRemaining = Math.max(0, this.phaseTicksRemaining - 1);
     if (this.phaseTicksRemaining > 0) return;
 
@@ -349,6 +412,7 @@ export class MatchEngine {
     this.emit({ type: 'child-captured', childPlayerId: target.id, captureCount: this.captureCount });
     this.phase = 'capture-animation';
     this.phaseTicksRemaining = MATCH_RULES.captureAnimationTicks;
+    this.lightningReveal = null;
   }
 
   private findCaptureTarget(): PlayerCheckpoint | undefined {
@@ -386,6 +450,7 @@ export class MatchEngine {
     this.phase = 'ended';
     this.phaseTicksRemaining = 0;
     this.capturedChildPlayerId = null;
+    this.lightningReveal = null;
     this.emit({ type: 'match-ended', winner });
   }
 
@@ -519,6 +584,97 @@ export class MatchEngine {
     return Math.floor(normalized * maximum);
   }
 
+  private nextLightningRandomInt(maximum: number): number {
+    this.lightningRandomState = (this.lightningRandomState + 0x6d2b79f5) >>> 0;
+    let value = this.lightningRandomState;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    const normalized = ((value ^ (value >>> 14)) >>> 0) / 4_294_967_296;
+    return Math.floor(normalized * maximum);
+  }
+
+  private nextLightningIntervalTicks(): number {
+    return randomIntegerInRange(
+      MATCH_RULES.lightningMinimumIntervalTicks,
+      MATCH_RULES.lightningMaximumIntervalTicks,
+      (maximum) => this.nextLightningRandomInt(maximum),
+    );
+  }
+
+  private startLightning(): void {
+    const directions: readonly LightningDirection[] = ['north', 'east', 'south', 'west'];
+    const direction = directions[this.nextLightningRandomInt(directions.length)];
+    const preflashCount = 2 + this.nextLightningRandomInt(2);
+    const pulses: LightningPulse[] = [];
+    let pulseStartTick = this.tick;
+    for (let index = 0; index < preflashCount; index += 1) {
+      const durationTicks = randomIntegerInRange(
+        MATCH_RULES.lightningPreflashMinimumTicks,
+        MATCH_RULES.lightningPreflashMaximumTicks,
+        (maximum) => this.nextLightningRandomInt(maximum),
+      );
+      pulses.push({ kind: 'preflash', startTick: pulseStartTick, durationTicks });
+      pulseStartTick += durationTicks + randomIntegerInRange(
+        MATCH_RULES.lightningGapMinimumTicks,
+        MATCH_RULES.lightningGapMaximumTicks,
+        (maximum) => this.nextLightningRandomInt(maximum),
+      );
+    }
+    const mainDurationTicks = randomIntegerInRange(
+      MATCH_RULES.lightningMainMinimumTicks,
+      MATCH_RULES.lightningMainMaximumTicks,
+      (maximum) => this.nextLightningRandomInt(maximum),
+    );
+    pulses.push({ kind: 'main', startTick: pulseStartTick, durationTicks: mainDurationTicks });
+    const thunderDelayTicks = randomIntegerInRange(
+      MATCH_RULES.lightningThunderMinimumDelayTicks,
+      MATCH_RULES.lightningThunderMaximumDelayTicks,
+      (maximum) => this.nextLightningRandomInt(maximum),
+    );
+    this.lightningSerial += 1;
+    this.lightning = {
+      id: this.lightningSerial,
+      startTick: this.tick,
+      direction,
+      pulses,
+      thunderTick: pulseStartTick + mainDurationTicks + thunderDelayTicks,
+      thunderVariant: this.nextLightningRandomInt(3) as 0 | 1 | 2,
+    };
+    this.nextLightningPlayingTick = this.lightningPlayingTick + this.nextLightningIntervalTicks();
+    this.emit({
+      type: 'lightning-started',
+      lightning: cloneLightning(this.lightning) as LightningStrike,
+    });
+  }
+
+  private updateLightningTimeline(): void {
+    if (this.lightning && this.tick > this.lightning.thunderTick) this.lightning = null;
+  }
+
+  private updateLightningReveal(): void {
+    const lightning = this.lightning;
+    const pulseActive = lightning?.pulses.some((pulse) =>
+      this.tick >= pulse.startTick && this.tick < pulse.startTick + pulse.durationTicks,
+    ) ?? false;
+    const ghost = this.players.find((player) => player.role === 'ghost');
+    if (
+      lightning
+      && pulseActive
+      && ghost
+      && isPositionLitByLightning(this.setup.map, ghost.position, lightning.direction)
+    ) {
+      this.lightningReveal = {
+        position: { ...ghost.position },
+        facingRadians: ghost.facingRadians,
+        ticksRemaining: MATCH_RULES.lightningRevealHoldTicks,
+      };
+      return;
+    }
+    if (!this.lightningReveal) return;
+    this.lightningReveal.ticksRemaining = Math.max(0, this.lightningReveal.ticksRemaining - 1);
+    if (this.lightningReveal.ticksRemaining === 0) this.lightningReveal = null;
+  }
+
   private findFlashlightHitters(): PlayerCheckpoint[] {
     return this.players.filter((player) => {
       if (
@@ -563,6 +719,58 @@ export class MatchEngine {
 
     return true;
   }
+}
+
+export function isPositionLitByLightning(
+  map: MatchMap,
+  position: Vec2,
+  direction: LightningDirection,
+  sampleRadius = MATCH_RULES.playerRadius,
+): boolean {
+  const sampleOffsets = [-sampleRadius, 0, sampleRadius];
+  let openSamples = 0;
+  for (const offset of sampleOffsets) {
+    const sample = direction === 'north' || direction === 'south'
+      ? { x: position.x + offset, z: position.z }
+      : { x: position.x, z: position.z + offset };
+    const source = lightningRaySource(map, sample, direction);
+    const blocked = map.walls
+      .filter((wall) => !wall.id.startsWith('boundary:'))
+      .some((wall) => segmentIntersectsRectangle(source, sample, wall));
+    if (!blocked) openSamples += 1;
+  }
+  return openSamples >= 2;
+}
+
+function lightningRaySource(
+  map: MatchMap,
+  sample: Vec2,
+  direction: LightningDirection,
+): Vec2 {
+  switch (direction) {
+    case 'north':
+      return { x: sample.x, z: map.bounds.maxZ + 1 };
+    case 'east':
+      return { x: map.bounds.maxX + 1, z: sample.z };
+    case 'south':
+      return { x: sample.x, z: map.bounds.minZ - 1 };
+    case 'west':
+      return { x: map.bounds.minX - 1, z: sample.z };
+  }
+}
+
+function cloneLightning(lightning: LightningStrike | null): LightningStrike | null {
+  return lightning
+    ? { ...lightning, pulses: lightning.pulses.map((pulse) => ({ ...pulse })) }
+    : null;
+}
+
+function randomIntegerInRange(
+  minimum: number,
+  maximum: number,
+  nextRandomInt: (maximumExclusive: number) => number,
+): number {
+  return minimum + nextRandomInt(maximum - minimum + 1);
 }
 
 function validateSetup(setup: MatchSetup): void {

@@ -56,6 +56,7 @@ export function createDeterministicViewerFrame(
     remainingTicks: 13_800,
     captureCount: 1,
     ghostHealth: 62,
+    lightning: null,
     winner: null,
     capture: null,
   } as const;

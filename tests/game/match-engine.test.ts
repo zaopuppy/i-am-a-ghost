@@ -4,6 +4,7 @@ import { DEFAULT_HOUSE_MAP } from '../../src/game/defaultHouse';
 import {
   MATCH_RULES,
   MatchEngine,
+  isPositionLitByLightning,
   type MatchAdvanceResult,
   type MatchMap,
 } from '../../src/game/MatchEngine';
@@ -25,6 +26,218 @@ const OPEN_MAP: MatchMap = {
 function assertApproximately(actual: number, expected: number, epsilon = 1e-9): void {
   assert.ok(Math.abs(actual - expected) <= epsilon, `expected ${actual} to be approximately ${expected}`);
 }
+
+test('lightning schedules independently after 20 to 45 seconds of playing time', () => {
+  const engine = new MatchEngine({
+    seed: 101,
+    map: OPEN_MAP,
+    ghostPlayerId: 'ghost',
+    childPlayerIds: ['child'],
+  });
+  const initial = engine.checkpoint();
+  assert.ok(initial.nextLightningPlayingTick >= MATCH_RULES.lightningMinimumIntervalTicks);
+  assert.ok(initial.nextLightningPlayingTick <= MATCH_RULES.lightningMaximumIntervalTicks);
+  const gameplayRandomState = initial.randomState;
+
+  const result = engine.advance([], initial.nextLightningPlayingTick);
+  const event = result.events.find((candidate) => candidate.type === 'lightning-started');
+  assert.ok(event?.type === 'lightning-started');
+  assert.deepEqual(result.checkpoint.lightning, event.lightning);
+  assert.equal(result.checkpoint.lightningSerial, event.lightning.id);
+  assert.equal(result.checkpoint.randomState, gameplayRandomState);
+  assert.ok(['north', 'east', 'south', 'west'].includes(event.lightning.direction));
+  assert.ok(event.lightning.pulses.length === 3 || event.lightning.pulses.length === 4);
+  assert.equal(event.lightning.pulses.at(-1)?.kind, 'main');
+  assert.ok(result.checkpoint.nextLightningPlayingTick - result.checkpoint.lightningPlayingTick
+    >= MATCH_RULES.lightningMinimumIntervalTicks);
+  assert.ok(result.checkpoint.nextLightningPlayingTick - result.checkpoint.lightningPlayingTick
+    <= MATCH_RULES.lightningMaximumIntervalTicks);
+  for (const pulse of event.lightning.pulses) {
+    const minimum = pulse.kind === 'main'
+      ? MATCH_RULES.lightningMainMinimumTicks
+      : MATCH_RULES.lightningPreflashMinimumTicks;
+    const maximum = pulse.kind === 'main'
+      ? MATCH_RULES.lightningMainMaximumTicks
+      : MATCH_RULES.lightningPreflashMaximumTicks;
+    assert.ok(pulse.durationTicks >= minimum && pulse.durationTicks <= maximum);
+  }
+  for (let index = 1; index < event.lightning.pulses.length; index += 1) {
+    const previous = event.lightning.pulses[index - 1];
+    const gap = event.lightning.pulses[index].startTick
+      - previous.startTick
+      - previous.durationTicks;
+    assert.ok(gap >= MATCH_RULES.lightningGapMinimumTicks);
+    assert.ok(gap <= MATCH_RULES.lightningGapMaximumTicks);
+  }
+  const main = event.lightning.pulses.at(-1);
+  assert.ok(main);
+  const thunderDelay = event.lightning.thunderTick - main.startTick - main.durationTicks;
+  assert.ok(thunderDelay >= MATCH_RULES.lightningThunderMinimumDelayTicks);
+  assert.ok(thunderDelay <= MATCH_RULES.lightningThunderMaximumDelayTicks);
+});
+
+test('lightning direction draws are independent and may repeat consecutively', () => {
+  const engine = new MatchEngine({
+    seed: 1,
+    map: OPEN_MAP,
+    ghostPlayerId: 'ghost',
+    childPlayerIds: ['child'],
+  });
+  let checkpoint = engine.checkpoint();
+  engine.advance([], checkpoint.nextLightningPlayingTick);
+  const firstDirection = engine.checkpoint().lightning?.direction;
+  checkpoint = engine.checkpoint();
+  engine.advance([], checkpoint.nextLightningPlayingTick - checkpoint.lightningPlayingTick);
+  const secondDirection = engine.checkpoint().lightning?.direction;
+  assert.equal(firstDirection, 'west');
+  assert.equal(secondDirection, firstDirection);
+});
+
+test('lightning cooldown pauses throughout capture animation and protection', () => {
+  const engine = new MatchEngine({
+    seed: 103,
+    map: {
+      ...OPEN_MAP,
+      ghostSpawn: { x: 0, z: 0 },
+      childSpawns: [
+        { x: 0.95, z: 0 },
+        OPEN_MAP.childSpawns[1],
+        OPEN_MAP.childSpawns[2],
+        OPEN_MAP.childSpawns[3],
+      ],
+    },
+    ghostPlayerId: 'ghost',
+    childPlayerIds: ['child'],
+  });
+  engine.advance();
+  const captured = engine.checkpoint();
+  assert.equal(captured.phase, 'capture-animation');
+  assert.equal(captured.lightningPlayingTick, 1);
+
+  engine.advance([], MATCH_RULES.captureAnimationTicks + MATCH_RULES.protectionTicks);
+  const resumed = engine.checkpoint();
+  assert.equal(resumed.phase, 'playing');
+  assert.equal(resumed.lightningPlayingTick, 1);
+  assert.equal(resumed.nextLightningPlayingTick, captured.nextLightningPlayingTick);
+});
+
+test('lightning ignores boundary walls but needs two of three samples through interior walls', () => {
+  const boundaryOnly: MatchMap = {
+    ...OPEN_MAP,
+    bounds: { minX: -10, maxX: 10, minZ: -10, maxZ: 10 },
+    walls: [
+      { id: 'boundary:north', minX: -10.2, maxX: 10.2, minZ: 9.8, maxZ: 10.2 },
+    ],
+  };
+  assert.equal(isPositionLitByLightning(boundaryOnly, { x: 0, z: 0 }, 'north'), true);
+
+  const mostlyBlocked: MatchMap = {
+    ...boundaryOnly,
+    walls: [
+      ...boundaryOnly.walls,
+      { id: 'inner-left', minX: -10, maxX: 0.1, minZ: 3, maxZ: 3.2 },
+    ],
+  };
+  assert.equal(isPositionLitByLightning(mostlyBlocked, { x: 0, z: 0 }, 'north'), false);
+
+  const doorway: MatchMap = {
+    ...boundaryOnly,
+    walls: [
+      ...boundaryOnly.walls,
+      { id: 'inner-left', minX: -10, maxX: -0.3, minZ: 3, maxZ: 3.2 },
+      { id: 'inner-right', minX: 0.6, maxX: 10, minZ: 3, maxZ: 3.2 },
+    ],
+  };
+  assert.equal(isPositionLitByLightning(doorway, { x: 0, z: 0 }, 'north'), true);
+});
+
+test('lightning reveals a frozen ghost position without burn, damage, or slowdown', () => {
+  const engine = new MatchEngine({
+    seed: 107,
+    map: OPEN_MAP,
+    ghostPlayerId: 'ghost',
+    childPlayerIds: ['child'],
+  });
+  const waitTicks = engine.checkpoint().nextLightningPlayingTick;
+  engine.advance([], waitTicks);
+  const strike = engine.checkpoint().lightning;
+  assert.ok(strike);
+
+  const moving = engine.advance([
+    { playerId: 'ghost', move: { x: 1, z: 0 }, facingRadians: 0, action: false },
+  ]).checkpoint;
+  const ghostWhileLit = moving.players.find((player) => player.role === 'ghost');
+  assert.ok(ghostWhileLit && moving.lightningReveal);
+  assertApproximately(ghostWhileLit.position.x, -10 + MATCH_RULES.ghostMoveSpeed / MATCH_RULES.tickRate);
+  assert.equal(moving.ghostHealth, MATCH_RULES.ghostMaxHealth);
+  assert.equal(moving.ghostBurnTicksRemaining, 0);
+
+  const firstPulse = strike.pulses[0];
+  const ticksUntilGap = firstPulse.startTick + firstPulse.durationTicks - moving.tick + 1;
+  const inGap = engine.advance([
+    { playerId: 'ghost', move: { x: 1, z: 0 }, facingRadians: 0, action: false },
+  ], ticksUntilGap).checkpoint;
+  assert.ok(inGap.lightningReveal);
+  const frozenPosition = { ...inGap.lightningReveal.position };
+  const movedBehindSnapshot = engine.advance([], 2).checkpoint;
+  const ghostAfterSnapshot = movedBehindSnapshot.players.find((player) => player.role === 'ghost');
+  assert.ok(ghostAfterSnapshot && movedBehindSnapshot.lightningReveal);
+  assert.ok(ghostAfterSnapshot.position.x > frozenPosition.x);
+  assert.deepEqual(movedBehindSnapshot.lightningReveal.position, frozenPosition);
+});
+
+test('lightning exposure does not prevent contact capture', () => {
+  const engine = new MatchEngine({
+    seed: 109,
+    map: {
+      ...OPEN_MAP,
+      ghostSpawn: { x: 0, z: 0 },
+      childSpawns: [
+        { x: 0.95, z: 0 },
+        OPEN_MAP.childSpawns[1],
+        OPEN_MAP.childSpawns[2],
+        OPEN_MAP.childSpawns[3],
+      ],
+    },
+    ghostPlayerId: 'ghost',
+    childPlayerIds: ['child'],
+  });
+  engine.setPlayerActive('child', false);
+  engine.advance([], engine.checkpoint().nextLightningPlayingTick);
+  assert.ok(engine.checkpoint().lightningReveal);
+
+  engine.setPlayerActive('child', true);
+  const captured = engine.advance().checkpoint;
+  assert.equal(captured.phase, 'capture-animation');
+  assert.equal(captured.captureCount, 1);
+  assert.equal(captured.ghostBurnTicksRemaining, 0);
+  assert.equal(captured.lightningReveal, null);
+});
+
+test('a strike remains resumable in the final frame while ended rules clear its reveal', () => {
+  const engine = new MatchEngine({
+    seed: 113,
+    map: { ...OPEN_MAP, ghostSpawn: { x: 1.5, z: 0 } },
+    ghostPlayerId: 'ghost',
+    childPlayerIds: ['child'],
+  });
+  const flashlightOn = {
+    playerId: 'child',
+    move: { x: 0, z: 0 },
+    facingRadians: 0,
+    action: true,
+  } as const;
+  engine.advance([flashlightOn], 479);
+  engine.advance([{ ...flashlightOn, action: false }]);
+  let checkpoint = engine.checkpoint();
+  engine.advance([], checkpoint.nextLightningPlayingTick - checkpoint.lightningPlayingTick);
+  assert.ok(engine.checkpoint().lightningReveal);
+
+  checkpoint = engine.advance([flashlightOn]).checkpoint;
+  assert.equal(checkpoint.phase, 'ended');
+  assert.ok(checkpoint.lightning, 'the final frame must retain the pending visual/audio schedule');
+  assert.equal(checkpoint.lightningReveal, null, 'ended rules must not keep exposing the ghost');
+});
 
 test('a child moves at the fixed 60 Hz rules speed', () => {
   const engine = new MatchEngine({

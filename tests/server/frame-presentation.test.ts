@@ -135,6 +135,17 @@ test('presentation frames cannot mutate buffered authority snapshots', () => {
     ticksRemaining: 90,
     durationTicks: 210,
   };
+  source.lightning = {
+    id: 4,
+    startTick: 12,
+    direction: 'north',
+    pulses: [
+      { kind: 'preflash', startTick: 12, durationTicks: 5 },
+      { kind: 'main', startTick: 24, durationTicks: 12 },
+    ],
+    thunderTick: 60,
+    thunderVariant: 1,
+  };
   source.dolls = [
     { dollId: 'doll-2', slot: 2, position: { x: 4, z: 6 }, headlamp: 'slow' },
   ];
@@ -171,6 +182,7 @@ test('presentation frames cannot mutate buffered authority snapshots', () => {
   if (presented.battery) presented.battery.position.z = 999;
   if (presented.ghost) presented.ghost.position.x = 999;
   if (presented.capture) presented.capture.ticksRemaining = 0;
+  if (presented.lightning) presented.lightning.pulses[0].durationTicks = 999;
 
   assert.deepEqual(source, sourceBeforePresentation);
   const replayed = presenter.present(0, { x: 0, z: 0 });
@@ -215,6 +227,7 @@ function childFrame(tick: number, ownX: number, remoteX: number): ChildViewerFra
     remainingTicks: 18_000 - tick,
     captureCount: 0,
     ghostHealth: 100,
+    lightning: null,
     capture: null,
     viewerRole: 'child',
     viewerPlayerId: 'own',

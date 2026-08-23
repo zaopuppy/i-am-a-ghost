@@ -26,3 +26,17 @@ test('child scene playtest exposes real flashlight state and can reset the draft
   assert.deepEqual(reset.children[0]?.position, DEFAULT_HOUSE_MAP.childSpawns[0]);
   assert.equal(reset.children[0]?.flashlightOn, false);
 });
+
+test('scene playtest carries the same deterministic lightning authority state', () => {
+  const playtest = new ScenePlaytest(DEFAULT_HOUSE_MAP, 'ghost');
+  let frame = playtest.frame();
+  assert.equal(frame.lightning, null);
+  for (let index = 0; index < 500 && !frame.lightning; index += 1) {
+    frame = playtest.update(0.1, { x: 0, z: 0 }, 0, false);
+  }
+  assert.ok(frame.lightning);
+  assert.equal(frame.lightning.id, 1);
+
+  playtest.reset();
+  assert.equal(playtest.frame().lightning, null);
+});

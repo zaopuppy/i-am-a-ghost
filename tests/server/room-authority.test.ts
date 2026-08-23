@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   DEFAULT_GAMEPLAY_TUNING,
+  MATCH_RULES,
   type MatchCheckpoint,
 } from '../../src/game/MatchEngine';
 import {
@@ -75,6 +76,12 @@ function checkpoint(battery: number): MatchCheckpoint {
     ghostRevealed: false,
     ghostBurnTicksRemaining: 0,
     randomState: 1,
+    lightningRandomState: 2,
+    lightningPlayingTick: 0,
+    nextLightningPlayingTick: MATCH_RULES.lightningMinimumIntervalTicks,
+    lightningSerial: 0,
+    lightning: null,
+    lightningReveal: null,
     players: [{
       id: 'child',
       role: 'child',
