@@ -1,0 +1,2 @@
+export const FLASHLIGHT_OCCLUDER_LAYER = 1;
+export const LIGHTNING_OCCLUDER_LAYER = 2;

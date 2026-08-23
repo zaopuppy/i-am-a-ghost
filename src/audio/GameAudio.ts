@@ -6,6 +6,9 @@ export const GAME_AUDIO_ASSETS = Object.freeze({
   captured: 'assets/audio/kenney/kid-captured.mp3',
   battery: 'assets/audio/kenney/picked-01.mp3',
   matchEnded: 'assets/audio/kenney/match-ended.mp3',
+  thunder1: 'assets/audio/freesound/thunder-01.mp3',
+  thunder2: 'assets/audio/freesound/thunder-02.mp3',
+  thunder3: 'assets/audio/freesound/thunder-03.mp3',
 });
 export const GAME_AUDIO_PACK_PATH = 'assets/audio/kenney/sfx-pack.json';
 
@@ -51,6 +54,34 @@ export class GameAudio {
     gain.gain.value = volume;
     source.buffer = buffer;
     source.connect(gain).connect(this.master);
+    source.start();
+  }
+
+  playThunder(
+    variant: 0 | 1 | 2,
+    strikeId: number,
+    delaySeconds: number,
+    pan: number,
+  ): void {
+    if (this.muted || !this.context || !this.master) return;
+    const ids = ['thunder1', 'thunder2', 'thunder3'] as const;
+    const buffer = this.buffers.get(ids[variant]);
+    if (!buffer) return;
+
+    const distanceRatio = clamp((delaySeconds - 0.2) / 1, 0, 1);
+    const pitchNoise = deterministicUnitNoise(strikeId);
+    const source = this.context.createBufferSource();
+    const filter = this.context.createBiquadFilter();
+    const panner = this.context.createStereoPanner();
+    const gain = this.context.createGain();
+    source.buffer = buffer;
+    source.playbackRate.value = 0.97 + pitchNoise * 0.06;
+    filter.type = 'lowpass';
+    filter.frequency.value = 12_000 * Math.pow(2_800 / 12_000, distanceRatio);
+    filter.Q.value = 0.45;
+    panner.pan.value = clamp(pan, -0.65, 0.65);
+    gain.gain.value = 0.95 + (0.55 - 0.95) * distanceRatio;
+    source.connect(filter).connect(panner).connect(gain).connect(this.master);
     source.start();
   }
 
@@ -245,4 +276,14 @@ function decodeBase64(encoded: string): ArrayBuffer {
     bytes[index] = binary.charCodeAt(index);
   }
   return bytes.buffer;
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.max(minimum, Math.min(maximum, value));
+}
+
+function deterministicUnitNoise(seed: number): number {
+  let value = Math.imul(seed ^ 0x9e3779b9, 0x85ebca6b) >>> 0;
+  value ^= value >>> 13;
+  return (value >>> 0) / 4_294_967_295;
 }

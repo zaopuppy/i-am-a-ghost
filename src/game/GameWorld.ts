@@ -32,6 +32,13 @@ import { buildHouseStage } from './HouseStage';
 import { createHouseBoundaryWalls, type CompiledHouseScene } from './HouseScene';
 import { DEFAULT_GAMEPLAY_TUNING, MATCH_RULES, type HeadlampBand, type Vec2 } from './MatchEngine';
 import {
+  advanceLightningPresentation,
+  createLightningPresentationState,
+  lightningSourceVector,
+  type LightningPresentationFrame,
+} from './LightningPresentation';
+import { FLASHLIGHT_OCCLUDER_LAYER, LIGHTNING_OCCLUDER_LAYER } from './RenderLayers';
+import {
   advanceChildBodyFacing,
   advanceChildLookFacing,
   advanceGhostBodyFacing,
@@ -51,11 +58,16 @@ const FLASHLIGHT_ORIGIN_HEIGHT = 1.02;
 const FLASHLIGHT_ORIGIN_FORWARD = 0.28;
 const FLASHLIGHT_BEAM_INTENSITY = 64;
 const FLASHLIGHT_MUZZLE_OFFSET = 0.33;
-const FLASHLIGHT_OCCLUDER_LAYER = 1;
 const FLASHLIGHT_SHADOW_SIZE = 512;
 const FLASHLIGHT_LENS_OFF = new THREE.Color(0x332f28);
 const FLASHLIGHT_LENS_ON = new THREE.Color(0xffefb0);
 const WALL_HEIGHT = 2.8;
+const LIGHTNING_COLOR = new THREE.Color(0xddeeff);
+const LIGHTNING_PEAK_INTENSITY = 24;
+const LIGHTNING_SOURCE_DISTANCE_PADDING = 12;
+const LIGHTNING_VERTICAL_SLOPE = 0.12;
+const LIGHTNING_SHADOW_VERTICAL_EXTENT = 6.5;
+const DEFAULT_LIGHTNING_SHADOW_SIZE = 1024;
 const HEADLAMP_SPIN_RADIANS_PER_SECOND = {
   off: 0,
   slow: 1.2,
@@ -140,6 +152,10 @@ interface GhostEcho {
   hideAt: number;
 }
 
+export interface GameWorldOptions {
+  lightningShadowMapSize?: number;
+}
+
 export class GameWorld {
   readonly scene = new THREE.Scene();
   private readonly actors = new Map<string, ActorVisual>();
@@ -147,6 +163,8 @@ export class GameWorld {
   private readonly batteries = [createBattery(this.materials), createBattery(this.materials)];
   private readonly walls = new THREE.Group();
   private readonly activeFlashlights = new Array<THREE.SpotLight>();
+  private readonly lightningLight = new THREE.DirectionalLight(LIGHTNING_COLOR, 0);
+  private readonly lightningPresentation = createLightningPresentationState();
   private readonly actorUpgradeQueue = new FrameTaskQueue();
   private readonly preparedActorPromises = new Map<string, Promise<ActorVisual>>();
   private readonly preparedActors = new Map<string, ActorVisual>();
@@ -156,9 +174,16 @@ export class GameWorld {
   private flashlightConeDegrees = DEFAULT_GAMEPLAY_TUNING.flashlightConeDegrees;
   private pendingAssetUpgrades = 0;
   private ghostEcho: GhostEcho | null = null;
+  private windowGlows: ReturnType<typeof buildHouseStage>['windowGlows'] | null = null;
+  private lightningFrame: LightningPresentationFrame | null = null;
+  private lightningShadowKey: string | null = null;
+  private lightningShadowUpdates = 0;
   private disposed = false;
 
-  constructor(private readonly house: CompiledHouseScene = COMPILED_DEFAULT_HOUSE) {
+  constructor(
+    private readonly house: CompiledHouseScene = COMPILED_DEFAULT_HOUSE,
+    options: GameWorldOptions = {},
+  ) {
     this.scene.background = new THREE.Color(0x050608);
     this.scene.fog = new THREE.FogExp2(0x050608, 0.018);
     this.scene.add(new THREE.HemisphereLight(0x69748e, 0x07080a, 0.72));
@@ -175,6 +200,7 @@ export class GameWorld {
     const warmFill = new THREE.DirectionalLight(0x6f5239, 0.52);
     warmFill.position.set(10, 7, -8);
     this.scene.add(warmFill);
+    this.configureLightningLight(options.lightningShadowMapSize);
     this.buildHouse();
     for (const battery of this.batteries) {
       battery.root.visible = false;
@@ -240,13 +266,21 @@ export class GameWorld {
     });
   }
 
-  sync(frame: ViewerFrame | null, elapsedSeconds: number): void {
+  sync(frame: ViewerFrame | null, elapsedSeconds: number): LightningPresentationFrame {
+    const lightningFrame = advanceLightningPresentation(
+      this.lightningPresentation,
+      frame?.lightning ?? null,
+      frame?.tick ?? 0,
+      elapsedSeconds,
+    );
+    this.lightningFrame = lightningFrame;
+    this.syncLightningVisual(lightningFrame);
     this.activeFlashlights.length = 0;
     for (const actor of this.actors.values()) {
       actor.root.visible = false;
       actor.captureProgress = null;
     }
-    if (!frame) return;
+    if (!frame) return lightningFrame;
 
     for (const child of frame.children) {
       const actor = this.actor(`child:${child.playerId}`, 'child', child.slot);
@@ -332,6 +366,7 @@ export class GameWorld {
       visual.root.rotation.y = elapsedSeconds * 1.4 + index * Math.PI;
     }
     this.animateHeadlamps(elapsedSeconds);
+    return lightningFrame;
   }
 
   setFlashlightTuning(length: number, coneDegrees: number): void {
@@ -360,6 +395,15 @@ export class GameWorld {
     environmentProps: number;
     wallDressings: number;
     pendingAssetUpgrades: number;
+    lightning: {
+      strikeId: number | null;
+      direction: LightningPresentationFrame['direction'];
+      intensity: number;
+      pulseKind: LightningPresentationFrame['pulseKind'];
+      visualTick: number | null;
+      shadowMapSize: number;
+      shadowUpdates: number;
+    };
     assets: ReturnType<typeof importedAssetMetrics> & {
       furniture: ReturnType<typeof furnitureAssetMetrics>;
     };
@@ -388,6 +432,15 @@ export class GameWorld {
       environmentProps,
       wallDressings,
       pendingAssetUpgrades: this.pendingAssetUpgrades,
+      lightning: {
+        strikeId: this.lightningFrame?.strikeId ?? null,
+        direction: this.lightningFrame?.direction ?? null,
+        intensity: this.lightningFrame?.intensity ?? 0,
+        pulseKind: this.lightningFrame?.pulseKind ?? null,
+        visualTick: this.lightningFrame?.visualTick ?? null,
+        shadowMapSize: this.lightningLight.shadow.mapSize.width,
+        shadowUpdates: this.lightningShadowUpdates,
+      },
       assets: {
         ...importedAssetMetrics(),
         furniture: furnitureAssetMetrics(),
@@ -397,6 +450,7 @@ export class GameWorld {
 
   dispose(): void {
     this.disposed = true;
+    this.lightningLight.shadow.dispose();
     const allActors = new Set([...this.actors.values(), ...this.preparedActors.values()]);
     for (const actor of allActors) {
       actor.imported?.mixer.stopAllAction();
@@ -424,6 +478,7 @@ export class GameWorld {
     this.scene.add(floor);
 
     const stage = buildHouseStage(this.materials, this.house);
+    this.windowGlows = stage.windowGlows;
     this.scene.add(stage.root);
     this.pendingAssetUpgrades += 1;
     void stage.ready.catch(() => undefined).finally(() => {
@@ -431,10 +486,12 @@ export class GameWorld {
     });
 
     this.walls.name = 'box-walls';
-    for (const wall of [
-      ...this.house.map.walls,
-      ...createHouseBoundaryWalls(this.house.map.bounds),
-    ]) {
+    const walls = [
+      ...this.house.map.walls.map((wall) => ({ wall, lightningOccluder: true })),
+      ...createHouseBoundaryWalls(this.house.map.bounds)
+        .map((wall) => ({ wall, lightningOccluder: false })),
+    ];
+    for (const { wall, lightningOccluder } of walls) {
       const mesh = new THREE.Mesh(
         createWallpaperWallGeometry(wall, WALL_HEIGHT),
         this.materials.wall,
@@ -443,12 +500,89 @@ export class GameWorld {
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       mesh.layers.enable(FLASHLIGHT_OCCLUDER_LAYER);
+      if (lightningOccluder) mesh.layers.enable(LIGHTNING_OCCLUDER_LAYER);
       this.walls.add(mesh);
       const edges = new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry), this.materials.trim);
       edges.position.copy(mesh.position);
       this.walls.add(edges);
     }
     this.scene.add(this.walls);
+  }
+
+  private configureLightningLight(shadowMapSize?: number): void {
+    const requestedSize = shadowMapSize ?? DEFAULT_LIGHTNING_SHADOW_SIZE;
+    if (!Number.isFinite(requestedSize) || requestedSize <= 0) {
+      throw new RangeError('Lightning shadow map size must be a positive number.');
+    }
+    const size = Math.max(1, Math.round(requestedSize));
+    const shadow = this.lightningLight.shadow;
+    this.lightningLight.name = 'lightning-directional-light';
+    this.lightningLight.castShadow = true;
+    this.lightningLight.target.name = 'lightning-directional-target';
+    shadow.mapSize.set(size, size);
+    shadow.camera.near = 1;
+    shadow.camera.layers.set(LIGHTNING_OCCLUDER_LAYER);
+    shadow.bias = -0.0004;
+    shadow.normalBias = 0.025;
+    shadow.radius = 1.2;
+    shadow.autoUpdate = false;
+    shadow.needsUpdate = false;
+    this.scene.add(this.lightningLight, this.lightningLight.target);
+  }
+
+  private syncLightningVisual(frame: LightningPresentationFrame): void {
+    const strikeKey = frame.strikeId === null || frame.strikeStartTick === null
+      ? null
+      : `${frame.strikeId}:${frame.strikeStartTick}`;
+    if (strikeKey !== null && strikeKey !== this.lightningShadowKey && frame.direction) {
+      this.positionLightning(frame.direction);
+      this.lightningLight.shadow.needsUpdate = true;
+      this.lightningShadowUpdates += 1;
+    }
+    this.lightningShadowKey = strikeKey;
+    this.lightningLight.intensity = LIGHTNING_PEAK_INTENSITY * frame.intensity;
+
+    if (!this.windowGlows) return;
+    for (const material of Object.values(this.windowGlows)) {
+      material.color.copy(this.materials.windowGlow.color);
+      material.opacity = this.materials.windowGlow.opacity;
+    }
+    if (!frame.direction || frame.intensity <= 0) return;
+    const activeWindow = this.windowGlows[frame.direction];
+    activeWindow.color.copy(this.materials.windowGlow.color).lerp(LIGHTNING_COLOR, frame.intensity);
+    activeWindow.opacity = THREE.MathUtils.lerp(
+      this.materials.windowGlow.opacity,
+      1,
+      frame.intensity,
+    );
+  }
+
+  private positionLightning(direction: NonNullable<LightningPresentationFrame['direction']>): void {
+    const { bounds } = this.house.map;
+    const width = bounds.maxX - bounds.minX;
+    const depth = bounds.maxZ - bounds.minZ;
+    const centerX = (bounds.minX + bounds.maxX) / 2;
+    const centerZ = (bounds.minZ + bounds.maxZ) / 2;
+    const sourceDistance = Math.max(width, depth) + LIGHTNING_SOURCE_DISTANCE_PADDING;
+    const source = lightningSourceVector(direction);
+    const targetHeight = 0.9;
+    this.lightningLight.target.position.set(centerX, targetHeight, centerZ);
+    this.lightningLight.position.set(
+      centerX + source.x * sourceDistance,
+      targetHeight + sourceDistance * LIGHTNING_VERTICAL_SLOPE,
+      centerZ + source.z * sourceDistance,
+    );
+
+    const crossAxisHalfExtent = direction === 'east' || direction === 'west'
+      ? depth / 2
+      : width / 2;
+    const shadowCamera = this.lightningLight.shadow.camera;
+    shadowCamera.left = -crossAxisHalfExtent - 1;
+    shadowCamera.right = crossAxisHalfExtent + 1;
+    shadowCamera.top = LIGHTNING_SHADOW_VERTICAL_EXTENT;
+    shadowCamera.bottom = -LIGHTNING_SHADOW_VERTICAL_EXTENT;
+    shadowCamera.far = sourceDistance + Math.max(width, depth) / 2 + 12;
+    shadowCamera.updateProjectionMatrix();
   }
 
   private actor(id: string, kind: 'child' | 'ghost' | 'doll', slot: number): ActorVisual {

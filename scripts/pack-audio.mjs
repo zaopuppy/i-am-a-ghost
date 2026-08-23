@@ -3,16 +3,21 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const audioDirectory = path.join(projectRoot, 'public', 'assets', 'audio', 'kenney');
-const outputPath = path.join(audioDirectory, 'sfx-pack.json');
-const files = (await readdir(audioDirectory))
-  .filter((file) => file.endsWith('.mp3'))
-  .sort();
+const audioRoot = path.join(projectRoot, 'public', 'assets', 'audio');
+const outputPath = path.join(audioRoot, 'kenney', 'sfx-pack.json');
+const audioDirectories = ['kenney', 'freesound'];
+const files = (await Promise.all(audioDirectories.map(async (directory) =>
+  (await readdir(path.join(audioRoot, directory)))
+    .filter((file) => file.endsWith('.mp3'))
+    .map((file) => ({ directory, file })),
+))).flat().sort((left, right) =>
+  `${left.directory}/${left.file}`.localeCompare(`${right.directory}/${right.file}`),
+);
 
 const samples = {};
-for (const file of files) {
-  const assetPath = `assets/audio/kenney/${file}`;
-  samples[assetPath] = (await readFile(path.join(audioDirectory, file))).toString('base64');
+for (const { directory, file } of files) {
+  const assetPath = `assets/audio/${directory}/${file}`;
+  samples[assetPath] = (await readFile(path.join(audioRoot, directory, file))).toString('base64');
 }
 
 await writeFile(outputPath, `${JSON.stringify({

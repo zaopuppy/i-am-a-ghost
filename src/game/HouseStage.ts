@@ -3,6 +3,7 @@ import { loadFurnitureLibrary } from '../assets/EnvironmentAssets';
 import type { HouseMaterialKit } from '../assets/MaterialLibrary';
 import { COMPILED_DEFAULT_HOUSE } from './defaultHouse';
 import type { CompiledHouseScene, RoomFamily } from './HouseScene';
+import type { LightningDirection } from './MatchEngine';
 
 const DOOR_HEIGHT = 2.15;
 const POST_SIZE = 0.11;
@@ -11,6 +12,7 @@ export interface HouseStageBuild {
   root: THREE.Group;
   ready: Promise<void>;
   furnitureCount: number;
+  windowGlows: Record<LightningDirection, THREE.MeshBasicMaterial>;
 }
 
 export const HOUSE_FURNITURE_COUNT = COMPILED_DEFAULT_HOUSE.furniture.length;
@@ -24,7 +26,8 @@ export function buildHouseStage(
   root.add(buildRoomFloors(materials, house));
   root.add(buildRoomInlays(materials, house));
   root.add(buildOpenings(materials, house));
-  root.add(buildWindows(materials, house));
+  const windows = buildWindows(materials, house);
+  root.add(windows.root);
   const furniture = new THREE.Group();
   furniture.name = 'room-furniture';
   root.add(furniture);
@@ -32,6 +35,7 @@ export function buildHouseStage(
     root,
     ready: populateFurniture(furniture, materials, house),
     furnitureCount: house.furniture.length,
+    windowGlows: windows.materials,
   };
 }
 
@@ -122,31 +126,50 @@ function buildOpenings(materials: HouseMaterialKit, house: CompiledHouseScene): 
   return group;
 }
 
-function buildWindows(materials: HouseMaterialKit, house: CompiledHouseScene): THREE.Group {
+function buildWindows(
+  materials: HouseMaterialKit,
+  house: CompiledHouseScene,
+): {
+  root: THREE.Group;
+  materials: Record<LightningDirection, THREE.MeshBasicMaterial>;
+} {
   const group = new THREE.Group();
   group.name = 'window-glows';
   const geometry = new THREE.PlaneGeometry(1.35, 1.05);
   const bounds = house.map.bounds;
   const westEastZ = [mix(bounds.minZ, bounds.maxZ, 0.165), mix(bounds.minZ, bounds.maxZ, 0.835)];
   const northSouthX = [mix(bounds.minX, bounds.maxX, 0.171875), mix(bounds.minX, bounds.maxX, 0.828125)];
-  const windows: Array<{ x: number; z: number; yaw: number }> = [
-    { x: bounds.minX + 0.08, z: westEastZ[0], yaw: Math.PI / 2 },
-    { x: bounds.minX + 0.08, z: westEastZ[1], yaw: Math.PI / 2 },
-    { x: bounds.maxX - 0.08, z: westEastZ[0], yaw: -Math.PI / 2 },
-    { x: bounds.maxX - 0.08, z: westEastZ[1], yaw: -Math.PI / 2 },
-    { x: northSouthX[0], z: bounds.minZ + 0.08, yaw: 0 },
-    { x: northSouthX[1], z: bounds.minZ + 0.08, yaw: 0 },
-    { x: northSouthX[0], z: bounds.maxZ - 0.08, yaw: Math.PI },
-    { x: northSouthX[1], z: bounds.maxZ - 0.08, yaw: Math.PI },
+  const windowMaterials = Object.fromEntries(
+    (['north', 'east', 'south', 'west'] as const).map((direction) => {
+      const material = materials.windowGlow.clone();
+      material.name = `window-glow-${direction}`;
+      return [direction, material];
+    }),
+  ) as Record<LightningDirection, THREE.MeshBasicMaterial>;
+  const windows: Array<{
+    x: number;
+    z: number;
+    yaw: number;
+    direction: LightningDirection;
+  }> = [
+    { x: bounds.minX + 0.08, z: westEastZ[0], yaw: Math.PI / 2, direction: 'west' },
+    { x: bounds.minX + 0.08, z: westEastZ[1], yaw: Math.PI / 2, direction: 'west' },
+    { x: bounds.maxX - 0.08, z: westEastZ[0], yaw: -Math.PI / 2, direction: 'east' },
+    { x: bounds.maxX - 0.08, z: westEastZ[1], yaw: -Math.PI / 2, direction: 'east' },
+    { x: northSouthX[0], z: bounds.minZ + 0.08, yaw: 0, direction: 'south' },
+    { x: northSouthX[1], z: bounds.minZ + 0.08, yaw: 0, direction: 'south' },
+    { x: northSouthX[0], z: bounds.maxZ - 0.08, yaw: Math.PI, direction: 'north' },
+    { x: northSouthX[1], z: bounds.maxZ - 0.08, yaw: Math.PI, direction: 'north' },
   ];
   for (const [index, window] of windows.entries()) {
-    const pane = new THREE.Mesh(geometry, materials.windowGlow);
+    const pane = new THREE.Mesh(geometry, windowMaterials[window.direction]);
     pane.name = `window-glow-${index}`;
+    pane.userData.lightningDirection = window.direction;
     pane.position.set(window.x, 1.55, window.z);
     pane.rotation.y = window.yaw;
     group.add(pane);
   }
-  return group;
+  return { root: group, materials: windowMaterials };
 }
 
 async function populateFurniture(

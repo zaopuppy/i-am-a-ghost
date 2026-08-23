@@ -20,7 +20,8 @@ import { createRenderStage } from './core/Renderer';
 import { GameWorld } from './game/GameWorld';
 import { compileHouseScene, type CompiledHouseScene } from './game/HouseScene';
 import { loadHouseSceneDraft } from './game/HouseSceneDraft';
-import type { GameplayTuning } from './game/MatchEngine';
+import { lightningSourceVector, type LightningPresentationFrame } from './game/LightningPresentation';
+import { MATCH_RULES, type GameplayTuning } from './game/MatchEngine';
 import { createRuntimeTuning } from './game/RuntimeTuning';
 import {
   parseScenePlaytestRole,
@@ -86,7 +87,9 @@ const scenePlaytestRole = import.meta.env.DEV
 const scenePlaytestHouse = scenePlaytestRole ? loadPlayableHouseDraft() : null;
 
 const stage = createRenderStage(canvas);
-const world = new GameWorld(scenePlaytestHouse ?? undefined);
+const world = new GameWorld(scenePlaytestHouse ?? undefined, {
+  lightningShadowMapSize: harmonyHost.active ? 512 : 1024,
+});
 world.prewarmCharacterAssets((objects) => stage.prewarm(world.scene, objects));
 const harmonyApi = getHarmonyHostApi();
 const client = harmonyHost.active && harmonyApi
@@ -97,6 +100,7 @@ const input = new GameInput();
 const audio = new GameAudio();
 const batteryScreenPoint = new THREE.Vector3();
 const ownScreenPoint = new THREE.Vector3();
+const listenerRight = new THREE.Vector3();
 let canvasBounds = canvas.getBoundingClientRect();
 const runtimeTuning = createRuntimeTuning();
 const scenePlaytest = scenePlaytestRole && scenePlaytestHouse
@@ -212,8 +216,9 @@ const loop = new Loop(
       ? 2.75
       : elapsedSeconds;
   world.setFlashlightTuning(runtimeTuning.flashlightLength, runtimeTuning.flashlightConeDegrees);
-    world.sync(frame, presentationSeconds);
+    const lightningFrame = world.sync(frame, presentationSeconds);
     updateCamera(frame, deltaSeconds, Boolean(deterministicState));
+    playThunder(lightningFrame);
     updateHud(frame);
     if (deterministicState && frame) renderDeterministicState(frame);
     if (scenePlaytest && frame) renderScenePlaytestState(frame);
@@ -230,6 +235,25 @@ const loop = new Loop(
   },
   () => stage.render(world.scene, world.flashlights()),
 );
+
+function playThunder(frame: LightningPresentationFrame): void {
+  if (
+    !frame.thunderDue
+    || frame.strikeId === null
+    || frame.direction === null
+    || frame.thunderDelayTicks === null
+    || frame.thunderVariant === null
+  ) return;
+  const source = lightningSourceVector(frame.direction);
+  listenerRight.set(1, 0, 0).applyQuaternion(stage.camera.quaternion);
+  const pan = source.x * listenerRight.x + source.z * listenerRight.z;
+  audio.playThunder(
+    frame.thunderVariant,
+    frame.strikeId,
+    frame.thunderDelayTicks / MATCH_RULES.tickRate,
+    pan,
+  );
+}
 
 const resizeObserver = new ResizeObserver(() => {
   stage.resize();

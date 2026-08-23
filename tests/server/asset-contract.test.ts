@@ -30,6 +30,7 @@ test('runtime model and audio assets are present with copied CC0 licenses', () =
     'public/assets/models/kaykit-medieval/LICENSE.txt',
     'public/assets/audio/kenney/LICENSE-interface-sounds.txt',
     'public/assets/audio/kenney/LICENSE-impact-sounds.txt',
+    'public/assets/audio/freesound/LICENSE-CC0-1.0.txt',
   ]) {
     assert.match(readFileSync(licensePath, 'utf8'), /Creative Commons Zero|CC0/i);
   }
