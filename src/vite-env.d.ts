@@ -97,6 +97,7 @@ interface GhostGameDiagnostics {
     lines: number;
     geometries: number;
     textures: number;
+    programs: number;
   };
 }
 

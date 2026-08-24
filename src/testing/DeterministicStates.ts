@@ -16,6 +16,9 @@ export const DETERMINISTIC_STATE_NAMES = [
   'child-playing',
   'flashlight-off-range',
   'flashlight-wall',
+  'flashlight-profile-off',
+  'flashlight-profile-on',
+  'flashlight-profile-hit',
   'ghost-playing',
   'low-battery',
   'capture',
@@ -94,6 +97,8 @@ export function createDeterministicViewerFrame(
   const hidden = state === 'child-hidden'
     || state === 'flashlight-off-range'
     || state === 'flashlight-wall'
+    || state === 'flashlight-profile-off'
+    || state === 'flashlight-profile-on'
     || state === 'protection';
   const phase = state === 'capture'
     ? 'capture-animation'
@@ -118,6 +123,17 @@ export function createDeterministicViewerFrame(
             }
           : { ...visibleChild, headlamp: 'off' as const, flashlightOn: false };
       }
+      if (state.startsWith('flashlight-profile-')) {
+        return visibleChild.playerId === 'child-1'
+          ? {
+              ...visibleChild,
+              position: { x: -8, z: -5.62 },
+              facingRadians: 0,
+              headlamp: 'off' as const,
+              flashlightOn: state !== 'flashlight-profile-off',
+            }
+          : { ...visibleChild, headlamp: 'off' as const, flashlightOn: false };
+      }
       if (state === 'low-battery' && visibleChild.playerId === 'child-1') {
         return { ...visibleChild, batteryCharge: 0.08 };
       }
@@ -130,7 +146,15 @@ export function createDeterministicViewerFrame(
       ]
     : [];
 
-  const ghost = lightningDirection
+  const ghost = state === 'flashlight-profile-hit'
+    ? {
+        ...GHOST,
+        position: { x: -3.2, z: -5.62 },
+        facingRadians: Math.PI,
+        burning: true,
+        burnTicksRemaining: MATCH_RULES.ghostBurnDurationTicks,
+      }
+    : lightningDirection
     ? { ...GHOST, position: lightningGhostPosition(lightningDirection) }
     : { ...GHOST, position: { ...GHOST.position } };
 

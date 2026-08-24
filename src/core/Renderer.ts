@@ -25,10 +25,15 @@ const FULLSCREEN_VERTEX_SHADER = `
 
 const COPY_FRAGMENT_SHADER = `
   uniform sampler2D uSceneColor;
+  uniform sampler2D uSceneDepth;
   varying vec2 vUv;
 
   void main() {
     gl_FragColor = texture2D(uSceneColor, vUv);
+    float sceneDepth = texture2D(uSceneDepth, vUv).r;
+    if (sceneDepth < 0.999999) {
+      #include <tonemapping_fragment>
+    }
     #include <colorspace_fragment>
   }
 `;
@@ -163,11 +168,12 @@ export function createRenderStage(canvas: HTMLCanvasElement): RenderStage {
   const sceneTarget = new THREE.WebGLRenderTarget(1, 1, {
     minFilter: THREE.LinearFilter,
     magFilter: THREE.LinearFilter,
+    type: THREE.HalfFloatType,
     depthBuffer: true,
     stencilBuffer: false,
   });
   sceneTarget.texture.name = 'volumetric-scene-color';
-  sceneTarget.texture.colorSpace = THREE.SRGBColorSpace;
+  sceneTarget.texture.colorSpace = THREE.LinearSRGBColorSpace;
   sceneTarget.depthTexture = new THREE.DepthTexture(1, 1, THREE.UnsignedIntType);
   sceneTarget.depthTexture.name = 'volumetric-scene-depth';
   sceneTarget.depthTexture.format = THREE.DepthFormat;
@@ -200,12 +206,13 @@ export function createRenderStage(canvas: HTMLCanvasElement): RenderStage {
     name: 'volumetric-scene-copy',
     uniforms: {
       uSceneColor: { value: sceneTarget.texture },
+      uSceneDepth: { value: sceneTarget.depthTexture },
     },
     vertexShader: FULLSCREEN_VERTEX_SHADER,
     fragmentShader: COPY_FRAGMENT_SHADER,
     depthTest: false,
     depthWrite: false,
-    toneMapped: false,
+    toneMapped: true,
   });
   const volumeMaterial = new THREE.ShaderMaterial({
     name: 'shadow-mapped-volumetric-flashlight',
@@ -273,11 +280,16 @@ export function createRenderStage(canvas: HTMLCanvasElement): RenderStage {
     );
   };
 
-  const render = (scene: THREE.Scene, flashlights: readonly THREE.SpotLight[]): void => {
+  const render = (
+    scene: THREE.Scene,
+    flashlights: readonly THREE.SpotLight[],
+    renderCamera = camera,
+    finalTarget: THREE.WebGLRenderTarget | null = null,
+  ): void => {
     renderer.info.reset();
     if (flashlights.length === 0) {
-      renderer.setRenderTarget(null);
-      renderer.render(scene, camera);
+      renderer.setRenderTarget(finalTarget);
+      renderer.render(scene, renderCamera);
       return;
     }
 
@@ -289,16 +301,16 @@ export function createRenderStage(canvas: HTMLCanvasElement): RenderStage {
     }
     renderer.setRenderTarget(sceneTarget);
     renderer.autoClear = true;
-    renderer.render(scene, camera);
+    renderer.render(scene, renderCamera);
 
-    renderer.setRenderTarget(null);
+    renderer.setRenderTarget(finalTarget);
     renderer.autoClear = false;
     renderer.clear();
     postQuad.material = copyMaterial;
     renderer.render(postScene, postCamera);
 
-    volumeMaterial.uniforms.uProjectionInverse.value.copy(camera.projectionMatrixInverse);
-    volumeMaterial.uniforms.uCameraWorld.value.copy(camera.matrixWorld);
+    volumeMaterial.uniforms.uProjectionInverse.value.copy(renderCamera.projectionMatrixInverse);
+    volumeMaterial.uniforms.uCameraWorld.value.copy(renderCamera.matrixWorld);
     for (const light of flashlights) {
       if (light.intensity <= 0) continue;
 
@@ -329,7 +341,7 @@ export function createRenderStage(canvas: HTMLCanvasElement): RenderStage {
       renderer.clear();
       renderer.render(scene, volumeShadowCamera);
       renderer.shadowMap.enabled = shadowMapEnabled;
-      renderer.setRenderTarget(null);
+      renderer.setRenderTarget(finalTarget);
       renderer.autoClear = false;
 
       volumeMaterial.uniforms.uShadowDepth.value = volumeShadowTarget.depthTexture;
@@ -361,11 +373,19 @@ export function createRenderStage(canvas: HTMLCanvasElement): RenderStage {
     const warmupGroup = new THREE.Group();
     const objectLayers = new Map<THREE.Object3D, number>();
     const lightLayers = new Map<THREE.Light, number>();
-    const shadowLayers = new Map<THREE.Camera, number>();
+    const flashlights: THREE.SpotLight[] = [];
+    const flashlightVisibility = new Map<THREE.SpotLight, boolean>();
+    const flashlightParentVisibility = new Map<THREE.Object3D, boolean>();
     for (const root of objects) {
       root.traverse((object) => {
         objectLayers.set(object, object.layers.mask);
         object.layers.set(warmupLayer);
+        if (object instanceof THREE.SpotLight) {
+          object.layers.enable(0);
+          flashlights.push(object);
+          flashlightVisibility.set(object, object.visible);
+          if (object.parent) flashlightParentVisibility.set(object.parent, object.parent.visible);
+        }
       });
       warmupGroup.add(root);
     }
@@ -373,34 +393,45 @@ export function createRenderStage(canvas: HTMLCanvasElement): RenderStage {
       if (!(object instanceof THREE.Light)) return;
       lightLayers.set(object, object.layers.mask);
       object.layers.enable(warmupLayer);
-      if (
-        object instanceof THREE.DirectionalLight
-        || object instanceof THREE.SpotLight
-        || object instanceof THREE.PointLight
-      ) {
-        shadowLayers.set(object.shadow.camera, object.shadow.camera.layers.mask);
-        object.shadow.camera.layers.set(warmupLayer);
-      }
     });
     scene.add(warmupGroup);
 
     const warmupCamera = camera.clone();
-    warmupCamera.layers.set(warmupLayer);
+    warmupCamera.layers.enable(warmupLayer);
     const previousTarget = renderer.getRenderTarget();
     const previousAutoClear = renderer.autoClear;
+    const previousPostMaterial = postQuad.material;
+    const warmupTarget = new THREE.WebGLRenderTarget(1, 1);
+    warmupTarget.texture.colorSpace = THREE.SRGBColorSpace;
     try {
-      renderer.setRenderTarget(sceneTarget);
-      renderer.autoClear = true;
-      await renderer.compileAsync(scene, warmupCamera);
-      renderer.render(scene, warmupCamera);
+      for (let activeCount = 0; activeCount <= flashlights.length; activeCount += 1) {
+        for (let index = 0; index < flashlights.length; index += 1) {
+          const active = index < activeCount;
+          const flashlight = flashlights[index];
+          flashlight.visible = active;
+          const flashlightParent = flashlight.parent;
+          if (flashlightParent) flashlightParent.visible = active;
+          if (active) flashlight.shadow.needsUpdate = true;
+        }
+        render(scene, flashlights.slice(0, activeCount), warmupCamera, warmupTarget);
+      }
+
+      renderer.setRenderTarget(null);
+      postQuad.material = copyMaterial;
+      await renderer.compileAsync(postScene, postCamera);
+      postQuad.material = volumeMaterial;
+      await renderer.compileAsync(postScene, postCamera);
     } finally {
       renderer.setRenderTarget(previousTarget);
       renderer.autoClear = previousAutoClear;
+      postQuad.material = previousPostMaterial;
+      warmupTarget.dispose();
       scene.remove(warmupGroup);
       for (const root of objects) warmupGroup.remove(root);
       for (const [light, mask] of lightLayers) light.layers.mask = mask;
       for (const [object, mask] of objectLayers) object.layers.mask = mask;
-      for (const [shadowCamera, mask] of shadowLayers) shadowCamera.layers.mask = mask;
+      for (const [light, visible] of flashlightVisibility) light.visible = visible;
+      for (const [parent, visible] of flashlightParentVisibility) parent.visible = visible;
     }
   };
 

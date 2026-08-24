@@ -169,7 +169,7 @@ export class GameWorld {
   private readonly preparedActorPromises = new Map<string, Promise<ActorVisual>>();
   private readonly preparedActors = new Map<string, ActorVisual>();
   private readonly claimedPreparedActors = new Set<string>();
-  private characterPrewarmStarted = false;
+  private characterPrewarmPromise: Promise<void> | null = null;
   private flashlightLength = DEFAULT_GAMEPLAY_TUNING.flashlightLength;
   private flashlightConeDegrees = DEFAULT_GAMEPLAY_TUNING.flashlightConeDegrees;
   private pendingAssetUpgrades = 0;
@@ -210,9 +210,8 @@ export class GameWorld {
 
   prewarmCharacterAssets(
     prewarm: (objects: readonly THREE.Object3D[]) => Promise<void>,
-  ): void {
-    if (this.characterPrewarmStarted) return;
-    this.characterPrewarmStarted = true;
+  ): Promise<void> {
+    if (this.characterPrewarmPromise) return this.characterPrewarmPromise;
     void preloadCharacterAssets();
     this.pendingAssetUpgrades += 1;
     const specs: Array<{ kind: ActorVisual['kind']; slot: number }> = [];
@@ -240,12 +239,17 @@ export class GameWorld {
       if (this.disposed) return;
       const children = visuals.filter((visual) => visual.kind === 'child');
       const ghost = visuals.find((visual) => visual.kind === 'ghost');
-      for (const child of children) child.lampHalo.visible = true;
-      try {
-        await prewarm(children.map((visual) => visual.root));
-        if (ghost) await prewarm([...children, ghost].map((visual) => visual.root));
-      } finally {
-        for (const child of children) child.lampHalo.visible = false;
+      const childRoots = children.map((visual) => visual.root);
+      await prewarm(childRoots);
+      if (ghost?.ghostRig) {
+        const revealRoots = [...childRoots, ghost.root];
+        await prewarm(revealRoots);
+        ghost.ghostRig.fireGroup.visible = true;
+        try {
+          await prewarm(revealRoots);
+        } finally {
+          ghost.ghostRig.fireGroup.visible = false;
+        }
       }
       for (const [index, { kind, slot }] of specs.entries()) {
         this.preparedActors.set(preparedActorKey(kind, slot), visuals[index]);
@@ -261,9 +265,10 @@ export class GameWorld {
         }),
       );
     }
-    void ready.catch(() => undefined).finally(() => {
+    this.characterPrewarmPromise = ready.then(() => undefined).catch(() => undefined).finally(() => {
       this.pendingAssetUpgrades -= 1;
     });
+    return this.characterPrewarmPromise;
   }
 
   sync(frame: ViewerFrame | null, elapsedSeconds: number): LightningPresentationFrame {

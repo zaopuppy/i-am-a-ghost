@@ -90,7 +90,9 @@ const stage = createRenderStage(canvas);
 const world = new GameWorld(scenePlaytestHouse ?? undefined, {
   lightningShadowMapSize: harmonyHost.active ? 512 : 1024,
 });
-world.prewarmCharacterAssets((objects) => stage.prewarm(world.scene, objects));
+const renderingReady = world.prewarmCharacterAssets(
+  (objects) => stage.prewarm(world.scene, objects),
+);
 const harmonyApi = getHarmonyHostApi();
 const client = harmonyHost.active && harmonyApi
   ? new HarmonyLanGameClient(harmonyApi)
@@ -296,6 +298,7 @@ if (import.meta.env.DEV) {
   else if (scenePlaytestRole) installScenePlaytestUi();
   else if (!deterministicState && !scenePlaytestRole) void installDebugGui();
 }
+await renderingReady;
 loop.start();
 
 if (import.meta.hot) {
@@ -988,6 +991,7 @@ function updateDiagnostics(frame: ViewerFrame | null, elapsedSeconds: number): v
       lines: stage.renderer.info.render.lines,
       geometries: stage.renderer.info.memory.geometries,
       textures: stage.renderer.info.memory.textures,
+      programs: stage.renderer.info.programs?.length ?? 0,
     },
   };
   window.__THREE_GAME_DIAGNOSTICS__ = diagnostics;
