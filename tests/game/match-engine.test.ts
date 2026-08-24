@@ -304,8 +304,39 @@ test('a moving player slides along a wall instead of crossing it', () => {
 
   const child = engine.checkpoint().players.find((player) => player.id === 'child');
   assert.ok(child);
-  assert.ok(child.position.x <= 1 - MATCH_RULES.playerRadius);
+  assert.ok(child.position.x <= 1 - MATCH_RULES.mapCollisionRadius);
   assert.ok(child.position.z > 2);
+});
+
+test('a player can pass a doorway when grazing its frame', () => {
+  const engine = new MatchEngine({
+    seed: 7,
+    map: {
+      ...OPEN_MAP,
+      walls: [
+        { id: 'divider-left', minX: 0, maxX: 0.2, minZ: -5, maxZ: -0.6 },
+        { id: 'divider-right', minX: 0, maxX: 0.2, minZ: 0.6, maxZ: 5 },
+      ],
+      childSpawns: [
+        { x: -1, z: 0.2 },
+        OPEN_MAP.childSpawns[1],
+        OPEN_MAP.childSpawns[2],
+        OPEN_MAP.childSpawns[3],
+      ],
+    },
+    ghostPlayerId: 'ghost',
+    childPlayerIds: ['child'],
+  });
+
+  engine.advance(
+    [{ playerId: 'child', move: { x: 1, z: 0 }, facingRadians: 0, action: false }],
+    MATCH_RULES.tickRate,
+  );
+
+  const child = engine.checkpoint().players.find((player) => player.id === 'child');
+  assert.ok(child);
+  assert.ok(child.position.x > 0.2 + MATCH_RULES.mapCollisionRadius);
+  assert.equal(child.position.z, 0.2);
 });
 
 test('one human player cannot move through another human player', () => {

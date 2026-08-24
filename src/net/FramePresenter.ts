@@ -332,7 +332,12 @@ export function movePredictedPosition(position: Vec2, direction: Vec2, distance:
 }
 
 function positionIsOpen(position: Vec2): boolean {
-  return mapPositionIsOpen(DEFAULT_HOUSE_MAP, position, MATCH_RULES.playerRadius);
+  return mapPositionIsOpen(
+    DEFAULT_HOUSE_MAP,
+    position,
+    MATCH_RULES.playerRadius,
+    MATCH_RULES.mapCollisionRadius,
+  );
 }
 
 function interpolateRemoteActors(target: ViewerFrame, previous: ViewerFrame, alpha: number): void {

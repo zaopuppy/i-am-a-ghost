@@ -20,7 +20,7 @@ test('the map-centered camera keeps mouse orbit, pan, and zoom behind a toggle b
   await page.waitForFunction(() => {
     const diagnostics = window.__THREE_GAME_DIAGNOSTICS__;
     return diagnostics?.deterministicState === 'ghost-playing'
-      && diagnostics.camera.mode === 'whole-house'
+      && diagnostics.camera.mode === 'follow'
       && diagnostics.world.assets.ghost.status === 'ready';
   });
 
@@ -99,11 +99,12 @@ test('the map-centered camera keeps mouse orbit, pan, and zoom behind a toggle b
     .locator('button');
   await cameraToggleOff.click();
   await page.waitForFunction(() => window.__THREE_GAME_DIAGNOSTICS__?.camera.pointerMode === false);
+  await page.waitForFunction(() => window.__THREE_GAME_DIAGNOSTICS__?.camera.mode === 'follow');
   const saved = await page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__);
-  expect(saved?.camera.mode).toBe('whole-house');
-  expect(saved?.camera.relativePosition).toEqual(saved?.tuning.cameraPresets['whole-house'].position);
-  expect(saved?.camera.relativeTarget).toEqual(saved?.tuning.cameraPresets['whole-house'].target);
-  expect(saved?.camera.viewHeight).toBe(saved?.tuning.cameraPresets['whole-house'].viewHeight);
+  expect(saved?.camera.mode).toBe('follow');
+  expect(saved?.camera.relativePosition).toEqual(saved?.tuning.cameraPresets.follow.position);
+  expect(saved?.camera.relativeTarget).toEqual(saved?.tuning.cameraPresets.follow.target);
+  expect(saved?.camera.viewHeight).toBe(saved?.tuning.cameraPresets.follow.viewHeight);
   expectCameraValuesAreFinite(saved?.camera);
 
   await cameraToggle.click();

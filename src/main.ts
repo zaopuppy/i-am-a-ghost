@@ -679,13 +679,20 @@ function updateCamera(frame: ViewerFrame | null, deltaSeconds: number, immediate
     runtimeTuning.cameraPresets['whole-house'] = cameraRig.stopDeveloperControl();
     syncCameraDebugState(runtimeTuning.cameraPresets['whole-house']);
   }
-  const mode: CameraMode = captureActive ? 'capture-closeup' : 'whole-house';
+  const ownPosition = frame ? ownActorPosition(frame) : null;
+  const mode: CameraMode = captureActive
+    ? 'capture-closeup'
+    : ownPosition
+      ? 'follow'
+      : 'whole-house';
   cameraRig.update({
     mode,
     captureActive,
     baseTarget: captureActive && frame
       ? captureCameraTarget(frame)
-      : { x: 0, y: 0, z: 0 },
+      : ownPosition
+        ? { x: ownPosition.x, y: 0, z: ownPosition.z }
+        : { x: 0, y: 0, z: 0 },
     preset: runtimeTuning.cameraPresets[mode],
     deltaSeconds,
     responsiveness: captureActive

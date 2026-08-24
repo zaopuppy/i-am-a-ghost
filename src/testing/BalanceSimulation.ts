@@ -298,7 +298,13 @@ class GridNavigator {
   }
 
   hasLineOfSight(from: Vec2, to: Vec2): boolean {
-    return mapSegmentIsOpen(this.map, from, to, MATCH_RULES.playerRadius);
+    return mapSegmentIsOpen(
+      this.map,
+      from,
+      to,
+      MATCH_RULES.playerRadius,
+      MATCH_RULES.mapCollisionRadius,
+    );
   }
 
   moveToward(id: string, from: Vec2, to: Vec2, tick: number): Vec2 {
@@ -363,7 +369,12 @@ class GridNavigator {
 }
 
 function pointIsOpen(point: Vec2, map: MatchMap): boolean {
-  return mapPositionIsOpen(map, point, MATCH_RULES.playerRadius);
+  return mapPositionIsOpen(
+    map,
+    point,
+    MATCH_RULES.playerRadius,
+    MATCH_RULES.mapCollisionRadius,
+  );
 }
 
 function trackDepletions(checkpoint: MatchCheckpoint, memory: BotMemory): void {

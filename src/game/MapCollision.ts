@@ -5,14 +5,19 @@ import {
 } from './CollisionGeometry';
 import type { MatchMap, Vec2 } from './MatchEngine';
 
-export function mapPositionIsOpen(map: MatchMap, position: Vec2, radius: number): boolean {
+export function mapPositionIsOpen(
+  map: MatchMap,
+  position: Vec2,
+  radius: number,
+  wallRadius = radius,
+): boolean {
   if (
     position.x - radius < map.bounds.minX
     || position.x + radius > map.bounds.maxX
     || position.z - radius < map.bounds.minZ
     || position.z + radius > map.bounds.maxZ
   ) return false;
-  if (map.walls.some((wall) => circleIntersectsAxisAlignedRect(position, radius, wall))) {
+  if (map.walls.some((wall) => circleIntersectsAxisAlignedRect(position, wallRadius, wall))) {
     return false;
   }
   return !(map.movementObstacles ?? []).some((obstacle) =>
@@ -25,6 +30,7 @@ export function mapSegmentIsOpen(
   from: Vec2,
   to: Vec2,
   radius: number,
+  wallRadius = radius,
 ): boolean {
   for (const wall of map.walls) {
     const obstacle = {
@@ -37,7 +43,7 @@ export function mapSegmentIsOpen(
       halfDepth: (wall.maxZ - wall.minZ) / 2,
       yawRadians: 0,
     };
-    if (segmentIntersectsOrientedRect(from, to, obstacle, radius)) return false;
+    if (segmentIntersectsOrientedRect(from, to, obstacle, wallRadius)) return false;
   }
   return !(map.movementObstacles ?? []).some((obstacle) =>
     segmentIntersectsOrientedRect(from, to, obstacle, radius),

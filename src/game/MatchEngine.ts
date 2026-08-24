@@ -139,6 +139,7 @@ export const MATCH_RULES = Object.freeze({
   childMoveSpeed: 3.6,
   ghostMoveSpeed: 3.96,
   playerRadius: 0.45,
+  mapCollisionRadius: 0.35,
   flashlightSecondsAtFullCharge: 8,
   flashlightLength: 7.5,
   flashlightConeDegrees: 36,
@@ -707,9 +708,14 @@ export class MatchEngine {
   }
 
   private isPositionOpen(playerId: string, position: Vec2): boolean {
-    const radius = MATCH_RULES.playerRadius;
-    if (!mapPositionIsOpen(this.setup.map, position, radius)) return false;
+    if (!mapPositionIsOpen(
+      this.setup.map,
+      position,
+      MATCH_RULES.playerRadius,
+      MATCH_RULES.mapCollisionRadius,
+    )) return false;
 
+    const radius = MATCH_RULES.playerRadius;
     for (const other of this.players) {
       if (other.id === playerId || !other.active) continue;
       if (Math.hypot(position.x - other.position.x, position.z - other.position.z) < radius * 2) {

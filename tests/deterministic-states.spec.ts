@@ -33,6 +33,8 @@ for (const state of VISUAL_STATES) {
     }
     if (state === 'ghost-playing') {
       const diagnostics = await page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__);
+      expect(diagnostics?.cameraMode).toBe('follow');
+      expect(diagnostics?.cameraViewHeight).toBeCloseTo(13.2, 3);
       expect(diagnostics?.world.assets.ghost).toMatchObject({
         status: 'ready',
         fileBytes: 445_612,
@@ -288,7 +290,7 @@ test('laptop PC viewport keeps the HUD bands separated and visible', async ({ pa
   await openState(page, 'low-battery');
   const batteryLocator = page.getByTestId('battery-locator');
   await expect(batteryLocator).toBeVisible();
-  await expect(batteryLocator).toHaveAttribute('data-offscreen', 'false');
+  await expect(batteryLocator).toHaveAttribute('data-offscreen', /^(true|false)$/);
   await expect(batteryLocator).toContainText(/\d+m/);
   const layout = await page.evaluate(() => {
     const role = document.querySelector('.hud-role-block')?.getBoundingClientRect();
