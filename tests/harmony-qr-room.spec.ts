@@ -147,8 +147,24 @@ test('Harmony QR scan connects and joins the game lobby', async ({ page }) => {
               matchId: null,
               round: 0,
               players: [
-                { playerId: 'host-1', nickname: '房主', isHost: true, connected: true, role: null, ready: false },
-                { playerId: 'remote-1', nickname: '访客', isHost: false, connected: true, role: null, ready: false },
+                {
+                  playerId: 'host-1',
+                  nickname: '房主',
+                  isHost: true,
+                  connected: true,
+                  role: null,
+                  ready: false,
+                  assetsReady: false,
+                },
+                {
+                  playerId: 'remote-1',
+                  nickname: '访客',
+                  isHost: false,
+                  connected: true,
+                  role: null,
+                  ready: false,
+                  assetsReady: false,
+                },
               ],
               minimumPlayers: 2,
               maximumPlayers: 5,
@@ -272,6 +288,17 @@ test('Harmony host worker admits a peer and starts authoritative frames', async 
   })).toBe(2);
 
   await page.getByTestId('start-match').click();
+  await expect(page.getByTestId('match-loading')).toBeVisible();
+  await page.evaluate(() => {
+    const push = (window as Window & { __PUSH_HARMONY_PEER__?: (payload: string) => void })
+      .__PUSH_HARMONY_PEER__;
+    push?.(JSON.stringify({
+      type: 'set-assets-ready',
+      requestId: 'remote-assets-ready',
+      ready: true,
+    }));
+  });
+  await expect(page.getByTestId('match-loading')).toBeHidden({ timeout: 20_000 });
   await expect(page.getByTestId('lobby-panel')).toBeHidden();
   await expect(page.getByTestId('role-label')).toContainText(/你是鬼|你是小孩/);
   await expect(page.locator('#touch-controls')).toBeVisible();

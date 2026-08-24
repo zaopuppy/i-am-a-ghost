@@ -134,6 +134,13 @@ export class GameClient {
     return response;
   }
 
+  async setAssetsReady(ready: boolean): Promise<BasicActionResponse> {
+    const response = await this.socket.emitWithAck('set-assets-ready', ready);
+    if (!response.ok) this.errorMessage = response.error.message;
+    this.notify();
+    return response;
+  }
+
   async setDebugTuning(tuning: GameplayTuning): Promise<BasicActionResponse> {
     const response = await this.socket.emitWithAck('set-debug-tuning', tuning);
     if (!response.ok) this.errorMessage = response.error.message;

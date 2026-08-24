@@ -6,6 +6,7 @@ export const GAME_AUDIO_ASSETS = Object.freeze({
   captured: 'assets/audio/kenney/kid-captured.mp3',
   battery: 'assets/audio/kenney/picked-01.mp3',
   matchEnded: 'assets/audio/kenney/match-ended.mp3',
+  burnScream: 'assets/audio/opengameart/ghost-burn-scream.mp3',
   thunder1: 'assets/audio/freesound/thunder-01.mp3',
   thunder2: 'assets/audio/freesound/thunder-02.mp3',
   thunder3: 'assets/audio/freesound/thunder-03.mp3',
@@ -36,8 +37,8 @@ export class GameAudio {
   private thunderPlays = 0;
   private lastThunder: ThunderPlaybackSnapshot | null = null;
   private lastCaptureScareAt = Number.NEGATIVE_INFINITY;
-  private fireLoop: { source: AudioBufferSourceNode; gain: GainNode } | null = null;
-  private lastIgnitionAt = Number.NEGATIVE_INFINITY;
+  private burnScreamPlays = 0;
+  private lastBurnScreamAt = Number.NEGATIVE_INFINITY;
 
   async unlock(): Promise<void> {
     if (!this.context) {
@@ -48,6 +49,11 @@ export class GameAudio {
     }
     if (this.context.state !== 'running') {
       await this.context.resume().catch(() => undefined);
+    }
+    if (this.failedAssets > 0) {
+      this.buffers.clear();
+      this.failedAssets = 0;
+      this.loadPromise = null;
     }
     this.loadPromise ??= this.loadAll(this.context);
     await this.loadPromise;
@@ -99,52 +105,20 @@ export class GameAudio {
     };
   }
 
-  playIgnition(): void {
+  playBurnScream(volume = 0.95): void {
     if (this.muted || !this.context || !this.master) return;
     const now = this.context.currentTime;
-    if (now - this.lastIgnitionAt < 0.2) return;
-    this.lastIgnitionAt = now;
-    this.play('flashlight', 0.38);
-    const whoosh = this.context.createOscillator();
-    const gain = this.context.createGain();
-    whoosh.type = 'sawtooth';
-    whoosh.frequency.setValueAtTime(420, now);
-    whoosh.frequency.exponentialRampToValueAtTime(90, now + 0.22);
-    gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(0.18, now + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.24);
-    whoosh.connect(gain).connect(this.master);
-    whoosh.start(now);
-    whoosh.stop(now + 0.26);
-  }
-
-  setFireLoop(active: boolean, volume = 0.22): void {
-    if (!active || this.muted || !this.context || !this.master) {
-      this.stopFireLoop();
-      return;
-    }
-    if (this.fireLoop) {
-      this.fireLoop.gain.gain.value = volume;
-      return;
-    }
-    const noise = this.context.createBuffer(1, this.context.sampleRate, this.context.sampleRate);
-    const samples = noise.getChannelData(0);
-    for (let index = 0; index < samples.length; index += 1) {
-      const hash = Math.sin((index + 1) * 19.17) * 43_758.5453;
-      samples[index] = (hash - Math.floor(hash)) * 2 - 1;
-    }
+    if (now - this.lastBurnScreamAt < 0.2) return;
+    const buffer = this.buffers.get('burnScream');
+    if (!buffer) return;
+    this.lastBurnScreamAt = now;
     const source = this.context.createBufferSource();
-    const filter = this.context.createBiquadFilter();
     const gain = this.context.createGain();
-    source.buffer = noise;
-    source.loop = true;
-    filter.type = 'bandpass';
-    filter.frequency.value = 780;
-    filter.Q.value = 0.7;
+    source.buffer = buffer;
     gain.gain.value = volume;
-    source.connect(filter).connect(gain).connect(this.master);
-    source.start();
-    this.fireLoop = { source, gain };
+    source.connect(gain).connect(this.master);
+    source.start(now);
+    this.burnScreamPlays += 1;
   }
 
   handleEvents(events: readonly ViewerMatchEvent[], viewerPlayerId?: string): void {
@@ -160,7 +134,6 @@ export class GameAudio {
   toggleMuted(): boolean {
     this.muted = !this.muted;
     if (this.master) this.master.gain.value = this.muted ? 0 : 0.72;
-    if (this.muted) this.stopFireLoop();
     return this.muted;
   }
 
@@ -170,6 +143,7 @@ export class GameAudio {
     loaded: number;
     failed: number;
     thunderPlays: number;
+    burnScreamPlays: number;
     lastThunder: ThunderPlaybackSnapshot | null;
   } {
     return {
@@ -178,25 +152,16 @@ export class GameAudio {
       loaded: this.buffers.size,
       failed: this.failedAssets,
       thunderPlays: this.thunderPlays,
+      burnScreamPlays: this.burnScreamPlays,
       lastThunder: this.lastThunder ? { ...this.lastThunder } : null,
     };
   }
 
   dispose(): void {
-    this.stopFireLoop();
     void this.context?.close();
     this.context = null;
     this.master = null;
     this.buffers.clear();
-  }
-
-  private stopFireLoop(): void {
-    try {
-      this.fireLoop?.source.stop();
-    } catch {
-      // already stopped
-    }
-    this.fireLoop = null;
   }
 
   private playCaptureScare(volume: number): void {

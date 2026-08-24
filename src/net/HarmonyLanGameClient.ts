@@ -135,6 +135,11 @@ export class HarmonyLanGameClient {
     return this.acceptBasicAction(result);
   }
 
+  async setAssetsReady(ready: boolean): Promise<BasicActionResponse> {
+    const result = await this.request({ type: 'set-assets-ready', requestId: requestId(), ready });
+    return this.acceptBasicAction(result);
+  }
+
   async setDebugTuning(_tuning: GameplayTuning): Promise<BasicActionResponse> {
     const result: BasicActionResponse = {
       ok: false,

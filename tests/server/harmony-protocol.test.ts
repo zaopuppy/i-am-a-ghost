@@ -16,6 +16,7 @@ test('Harmony room protocol rejects legal JSON with invalid fields', () => {
     nickname: null,
   }), null);
   assert.equal(parseHarmonyClientMessage({ type: 'set-ready', requestId: 'ready-1', ready: 'yes' }), null);
+  assert.equal(parseHarmonyClientMessage({ type: 'set-assets-ready', requestId: 'assets-1', ready: 'yes' }), null);
   assert.equal(parseHarmonyClientMessage({ type: 'unknown', requestId: 'unknown-1' }), null);
 });
 
@@ -35,5 +36,17 @@ test('Harmony room protocol returns a validated request copy', () => {
     buildVersion: BUILD_VERSION,
     roomCode: 'GHOST7',
     nickname: '访客',
+  });
+});
+
+test('Harmony room protocol accepts local asset readiness', () => {
+  assert.deepEqual(parseHarmonyClientMessage({
+    type: 'set-assets-ready',
+    requestId: 'assets-1',
+    ready: true,
+  }), {
+    type: 'set-assets-ready',
+    requestId: 'assets-1',
+    ready: true,
   });
 });

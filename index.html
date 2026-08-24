@@ -39,6 +39,33 @@
         </div>
         <p class="error-message" id="error-message" role="alert"></p>
       </section>
+      <section
+        class="match-loading"
+        id="match-loading"
+        data-testid="match-loading"
+        aria-live="polite"
+        aria-busy="true"
+        hidden
+      >
+        <div class="match-loading__card">
+          <div class="match-loading__sigil" aria-hidden="true">
+            <span></span>
+          </div>
+          <p class="eyebrow">对局准备 / PREPARING</p>
+          <h2>正在唤醒这栋房子</h2>
+          <p class="match-loading__status" id="loading-status">装入角色、光影和声音…</p>
+          <div class="match-loading__track" aria-hidden="true">
+            <span id="loading-progress"></span>
+          </div>
+          <ul class="match-loading__tasks" aria-label="本机加载项目">
+            <li id="loading-rendering-task" data-state="waiting"><span></span>角色与光影</li>
+            <li id="loading-audio-task" data-state="waiting"><span></span>音效与尖叫</li>
+          </ul>
+          <p class="match-loading__players" id="loading-player-count">0 / 0 台设备已就绪</p>
+          <button id="loading-retry" type="button" hidden>轻触继续加载</button>
+          <p class="match-loading__hint">所有设备完成后才会开始倒计时</p>
+        </div>
+      </section>
       <section class="m2-hud" id="game-hud" hidden>
         <div class="hud-role-block">
           <p id="role-label" data-testid="role-label"></p>

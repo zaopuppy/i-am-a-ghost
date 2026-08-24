@@ -14,6 +14,54 @@ import {
 
 type TestSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
+test('match waits in loading until every connected player has prepared local assets', async (context) => {
+  const application = createGameServer();
+  const port = await application.listen(0, '127.0.0.1');
+  const first = connect(`http://127.0.0.1:${port}`, { transports: ['websocket'] });
+  const second = connect(`http://127.0.0.1:${port}`, { transports: ['websocket'] });
+  context.after(async () => {
+    first.disconnect();
+    second.disconnect();
+    await application.close();
+  });
+  await Promise.all([waitForConnect(first), waitForConnect(second)]);
+
+  const created = (await first.emitWithAck('create-room', {
+    protocolVersion: PROTOCOL_VERSION,
+    buildVersion: BUILD_VERSION,
+    nickname: '甲',
+  })) as RoomActionResponse;
+  assert.equal(created.ok, true);
+  if (!created.ok) return;
+  const joined = (await second.emitWithAck('join-room', {
+    protocolVersion: PROTOCOL_VERSION,
+    buildVersion: BUILD_VERSION,
+    nickname: '乙',
+    roomCode: created.session.roomCode,
+  })) as RoomActionResponse;
+  assert.equal(joined.ok, true);
+
+  const loadingPromise = waitForRoomState(first, (state) => state.phase === 'loading');
+  assert.deepEqual(await first.emitWithAck('start-match'), { ok: true });
+  const loading = await loadingPromise;
+  assert.equal(loading.matchId, null);
+  assert.deepEqual(loading.players.map((player) => player.assetsReady), [false, false]);
+
+  const oneReadyPromise = waitForRoomState(
+    first,
+    (state) => state.phase === 'loading' && state.players.some((player) => player.assetsReady),
+  );
+  assert.deepEqual(await first.emitWithAck('set-assets-ready', true), { ok: true });
+  const oneReady = await oneReadyPromise;
+  assert.equal(oneReady.players.filter((player) => player.assetsReady).length, 1);
+
+  const firstFramePromise = waitForFrame(first, () => true);
+  const secondFramePromise = waitForFrame(second, () => true);
+  assert.deepEqual(await second.emitWithAck('set-assets-ready', true), { ok: true });
+  const frames = await Promise.all([firstFramePromise, secondFramePromise]);
+  assert.ok(frames.every((frame) => frame.matchId.length > 0));
+});
+
 test('two clients start an authoritative match and receive directed frames', async (context) => {
   const application = createGameServer();
   const port = await application.listen(0, '127.0.0.1');
@@ -48,6 +96,8 @@ test('two clients start an authoritative match and receive directed frames', asy
   const secondFramePromise = waitForFrame(second, () => true);
   const started = await first.emitWithAck('start-match');
   assert.deepEqual(started, { ok: true });
+  assert.deepEqual(await first.emitWithAck('set-assets-ready', true), { ok: true });
+  assert.deepEqual(await second.emitWithAck('set-assets-ready', true), { ok: true });
   const frames = await Promise.all([firstFramePromise, secondFramePromise]);
   const ghostFrame = frames.find((envelope) => envelope.frame.viewerRole === 'ghost');
   const childFrame = frames.find((envelope) => envelope.frame.viewerRole === 'child');
@@ -174,6 +224,9 @@ test('rooms start correctly with every supported two-to-five player roster', asy
 
       const framePromises = sockets.map((socket) => waitForFrame(socket, () => true));
       assert.deepEqual(await sockets[0].emitWithAck('start-match'), { ok: true });
+      for (const socket of sockets) {
+        assert.deepEqual(await socket.emitWithAck('set-assets-ready', true), { ok: true });
+      }
       const frames = await Promise.all(framePromises);
       assert.equal(frames.filter((frame) => frame.frame.viewerRole === 'ghost').length, 1);
       assert.equal(frames.filter((frame) => frame.frame.viewerRole === 'child').length, playerCount - 1);

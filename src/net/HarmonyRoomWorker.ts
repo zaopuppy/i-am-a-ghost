@@ -47,6 +47,7 @@ interface PrototypePlayer {
   connected: boolean;
   role: PlayerRole;
   ready: boolean;
+  assetsReady: boolean;
   lastAcceptedSeq: number;
   latestInput: ClientInputFrame | null;
   lastInputAtMs: number;
@@ -114,6 +115,9 @@ class HarmonyHostedRoomPrototype {
       case 'set-ready':
         this.handleRequest(peerId, message.requestId, () => this.setReady(peerId, message.ready));
         break;
+      case 'set-assets-ready':
+        this.handleRequest(peerId, message.requestId, () => this.setAssetsReady(peerId, message.ready));
+        break;
       case 'input-frame':
         this.acceptInput(peerId, message.frame);
         break;
@@ -153,6 +157,7 @@ class HarmonyHostedRoomPrototype {
       connected: true,
       role: null,
       ready: false,
+      assetsReady: false,
       lastAcceptedSeq: -1,
       latestInput: null,
       lastInputAtMs: 0,
@@ -181,7 +186,7 @@ class HarmonyHostedRoomPrototype {
       return this.error('NOT_ENOUGH_PLAYERS', '至少需要两名玩家。');
     }
     if (this.phase !== 'lobby') return this.error('ROOM_CLOSED', '当前不能开始新对局。');
-    this.beginMatch();
+    this.beginLoading();
     return { ok: true };
   }
 
@@ -192,11 +197,48 @@ class HarmonyHostedRoomPrototype {
     player.ready = ready;
     const connected = [...this.players.values()].filter((candidate) => candidate.connected);
     if (connected.length >= MIN_PLAYERS && connected.every((candidate) => candidate.ready)) {
-      this.beginMatch();
+      this.beginLoading();
     } else {
       this.broadcastRoomState();
     }
     return { ok: true };
+  }
+
+  private setAssetsReady(peerId: string, ready: boolean): BasicActionResponse {
+    const player = this.playerForPeer(peerId);
+    if (!player) return this.error('NOT_IN_ROOM', '尚未加入房间。');
+    if (this.phase !== 'loading') return this.error('ROOM_CLOSED', '当前不在加载阶段。');
+    player.assetsReady = ready;
+    if (!this.tryBeginLoadedMatch()) this.broadcastRoomState();
+    return { ok: true };
+  }
+
+  private beginLoading(): void {
+    this.engine = null;
+    this.matchId = null;
+    if (this.tickHandle) clearInterval(this.tickHandle);
+    this.tickHandle = null;
+    for (const player of this.players.values()) {
+      if (!player.connected) continue;
+      player.role = null;
+      player.ready = false;
+      player.assetsReady = false;
+      player.latestInput = null;
+    }
+    this.phase = 'loading';
+    this.notice = null;
+    this.broadcastRoomState();
+  }
+
+  private tryBeginLoadedMatch(): boolean {
+    const roster = this.connectedPlayers();
+    if (
+      this.phase !== 'loading'
+      || roster.length < MIN_PLAYERS
+      || !roster.every((player) => player.assetsReady)
+    ) return false;
+    this.beginMatch();
+    return true;
   }
 
   private beginMatch(): void {
@@ -338,6 +380,7 @@ class HarmonyHostedRoomPrototype {
         connected: player.connected,
         role: player.role,
         ready: player.ready,
+        assetsReady: player.assetsReady,
       })),
       minimumPlayers: MIN_PLAYERS,
       maximumPlayers: MAX_PLAYERS,
@@ -353,9 +396,10 @@ class HarmonyHostedRoomPrototype {
     const player = this.playerForPeer(peerId);
     if (!player) return;
     this.peerPlayers.delete(peerId);
-    if (this.phase === 'lobby') {
+    if (this.phase === 'lobby' || this.phase === 'loading') {
       this.players.delete(player.playerId);
       this.promoteHost();
+      this.reconcileLoadingAfterDeparture();
     } else if (this.phase === 'playing' && player.role === 'ghost') {
       this.abortMatchForGhostDisconnect(player.playerId);
     } else {
@@ -436,6 +480,7 @@ class HarmonyHostedRoomPrototype {
     for (const player of this.players.values()) {
       player.role = null;
       player.ready = false;
+      player.assetsReady = false;
       player.latestInput = null;
       player.lastInputAtMs = 0;
       player.lastInputMessageAtMs = 0;
@@ -451,6 +496,17 @@ class HarmonyHostedRoomPrototype {
     for (let index = this.responseOrder.length - 1; index >= 0; index -= 1) {
       if (this.responseOrder[index].startsWith(prefix)) this.responseOrder.splice(index, 1);
     }
+  }
+
+  private reconcileLoadingAfterDeparture(): void {
+    if (this.phase !== 'loading') return;
+    const connectedPlayers = this.connectedPlayers();
+    if (connectedPlayers.length < MIN_PLAYERS) {
+      this.phase = 'lobby';
+      for (const player of connectedPlayers) player.assetsReady = false;
+      return;
+    }
+    this.tryBeginLoadedMatch();
   }
 
   private close(): void {

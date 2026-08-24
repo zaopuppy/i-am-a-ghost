@@ -30,9 +30,15 @@ test('two browser pages join, start, and move through the authoritative input pa
     .toBe(5.25);
   await host.getByRole('button', { name: '房间移动（房主）' }).click();
   await host.getByTestId('start-match').click();
+  await expect(host.getByTestId('match-loading')).toBeVisible();
+  await expect(guest.getByTestId('match-loading')).toBeVisible();
+  await expect(host.getByTestId('match-timer')).toBeHidden();
+  await expect(host.getByTestId('debug-panel')).toBeHidden();
+  await expect(host.getByTestId('match-loading')).toBeHidden({ timeout: 20_000 });
+  await expect(guest.getByTestId('match-loading')).toBeHidden({ timeout: 20_000 });
 
   await expect
-    .poll(async () => Promise.all([readRole(host), readRole(guest)]))
+    .poll(async () => Promise.all([readRole(host), readRole(guest)]), { timeout: 10_000 })
     .toEqual(expect.arrayContaining(['ghost', 'child']));
   const hostRole = await readRole(host);
   const childPage = hostRole === 'child' ? host : guest;
@@ -106,7 +112,7 @@ test('two browser pages join, start, and move through the authoritative input pa
       () => host.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.audio.loaded ?? 0),
       { timeout: 15_000 },
     )
-    .toBe(8);
+    .toBe(9);
   expect(await host.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.audio.failed)).toBe(0);
   const childFrame = await childPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.viewerFrame);
   expect(childFrame?.viewerRole).toBe('child');

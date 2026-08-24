@@ -41,6 +41,7 @@ interface RoomPlayer {
   lastAcceptedSeq: number;
   latestInput: ClientInputFrame | null;
   ready: boolean;
+  assetsReady: boolean;
   lastInputAtMs: number;
   disconnectDeadlineMs: number | null;
 }
@@ -89,6 +90,7 @@ export class GameRoom {
       lastAcceptedSeq: -1,
       latestInput: null,
       ready: false,
+      assetsReady: false,
       lastInputAtMs: 0,
       disconnectDeadlineMs: null,
     };
@@ -118,7 +120,7 @@ export class GameRoom {
     }
     if (this.phase !== 'lobby') return this.error('ROOM_CLOSED', '当前不能开始新对局。');
 
-    this.beginMatch();
+    this.beginLoading();
     return { ok: true };
   }
 
@@ -129,10 +131,19 @@ export class GameRoom {
     player.ready = ready;
     const connectedPlayers = [...this.players.values()].filter((candidate) => candidate.connected);
     if (connectedPlayers.length >= MIN_PLAYERS && connectedPlayers.every((candidate) => candidate.ready)) {
-      this.beginMatch();
+      this.beginLoading();
     } else {
       this.broadcastRoomState();
     }
+    return { ok: true };
+  }
+
+  setAssetsReady(socketId: string, ready: boolean): BasicActionResponse {
+    const player = this.playerForSocket(socketId);
+    if (!player) return this.error('NOT_IN_ROOM', '尚未加入房间。');
+    if (this.phase !== 'loading') return this.error('ROOM_CLOSED', '当前不在加载阶段。');
+    player.assetsReady = ready;
+    if (!this.tryBeginLoadedMatch()) this.broadcastRoomState();
     return { ok: true };
   }
 
@@ -148,10 +159,37 @@ export class GameRoom {
     return { ok: true };
   }
 
-  private beginMatch(): void {
+  private beginLoading(): void {
     for (const [playerId, player] of this.players) {
       if (!player.connected) this.players.delete(playerId);
     }
+    this.engine = null;
+    this.matchId = null;
+    if (this.tickHandle) clearInterval(this.tickHandle);
+    this.tickHandle = null;
+    for (const player of this.players.values()) {
+      player.role = null;
+      player.ready = false;
+      player.assetsReady = false;
+      player.latestInput = null;
+    }
+    this.phase = 'loading';
+    this.notice = null;
+    this.broadcastRoomState();
+  }
+
+  private tryBeginLoadedMatch(): boolean {
+    const roster = [...this.players.values()].filter((player) => player.connected);
+    if (
+      this.phase !== 'loading'
+      || roster.length < MIN_PLAYERS
+      || !roster.every((player) => player.assetsReady)
+    ) return false;
+    this.beginMatch();
+    return true;
+  }
+
+  private beginMatch(): void {
     const roster = [...this.players.values()].filter((player) => player.connected);
     const ghostId = chooseNextGhost(
       roster.map((player) => player.playerId),
@@ -215,6 +253,7 @@ export class GameRoom {
     socket.data.playerId = undefined;
     void socket.leave(this.socketRoomName());
     this.promoteHost();
+    this.reconcileLoadingAfterDeparture();
     this.broadcastRoomState();
     return true;
   }
@@ -222,9 +261,10 @@ export class GameRoom {
   disconnect(socketId: string): void {
     const player = this.playerForSocket(socketId);
     if (!player) return;
-    if (this.phase === 'lobby') {
+    if (this.phase === 'lobby' || this.phase === 'loading') {
       this.players.delete(player.playerId);
       this.promoteHost();
+      this.reconcileLoadingAfterDeparture();
     } else if (this.phase === 'playing') {
       this.disconnectDuringMatch(player, true);
     } else {
@@ -284,6 +324,7 @@ export class GameRoom {
         connected: player.connected,
         role: player.role,
         ready: player.ready,
+        assetsReady: player.assetsReady,
       })),
       minimumPlayers: MIN_PLAYERS,
       maximumPlayers: MAX_PLAYERS,
@@ -431,6 +472,7 @@ export class GameRoom {
     for (const player of this.players.values()) {
       player.role = null;
       player.ready = false;
+      player.assetsReady = false;
       player.latestInput = null;
       player.lastInputAtMs = 0;
       player.disconnectDeadlineMs = null;
@@ -446,6 +488,17 @@ export class GameRoom {
     if ([...this.players.values()].some((player) => player.isHost)) return;
     const nextHost = this.players.values().next().value as RoomPlayer | undefined;
     if (nextHost) nextHost.isHost = true;
+  }
+
+  private reconcileLoadingAfterDeparture(): void {
+    if (this.phase !== 'loading') return;
+    const connectedPlayers = [...this.players.values()].filter((player) => player.connected);
+    if (connectedPlayers.length < MIN_PLAYERS) {
+      this.phase = 'lobby';
+      for (const player of connectedPlayers) player.assetsReady = false;
+      return;
+    }
+    this.tryBeginLoadedMatch();
   }
 
   private socketRoomName(): string {

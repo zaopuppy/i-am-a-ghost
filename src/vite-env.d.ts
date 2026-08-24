@@ -17,7 +17,7 @@ interface ImportedAssetDiagnostics {
 }
 
 interface GhostGameDiagnostics {
-  phase: 'lobby' | 'playing' | 'ended';
+  phase: 'lobby' | 'loading' | 'playing' | 'ended';
   matchPhase: ViewerFrame['phase'] | null;
   deterministicState: string | null;
   scenePlaytestRole: 'child' | 'ghost' | null;

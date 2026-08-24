@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GameAudio } from './audio/GameAudio';
+import { GAME_AUDIO_ASSETS, GameAudio } from './audio/GameAudio';
 import {
   CameraRig,
   createRecommendedCameraPresets,
@@ -51,6 +51,13 @@ const roomCodeInput = requireElement<HTMLInputElement>('#room-code-input');
 const roster = requireElement<HTMLUListElement>('#roster');
 const startButton = requireElement<HTMLButtonElement>('#start-match');
 const waitingMessage = requireElement<HTMLElement>('#waiting-message');
+const matchLoading = requireElement<HTMLElement>('#match-loading');
+const loadingStatus = requireElement<HTMLElement>('#loading-status');
+const loadingProgress = requireElement<HTMLElement>('#loading-progress');
+const loadingRenderingTask = requireElement<HTMLElement>('#loading-rendering-task');
+const loadingAudioTask = requireElement<HTMLElement>('#loading-audio-task');
+const loadingPlayerCount = requireElement<HTMLElement>('#loading-player-count');
+const loadingRetry = requireElement<HTMLButtonElement>('#loading-retry');
 const errorMessage = requireElement<HTMLElement>('#error-message');
 const gameHud = requireElement<HTMLElement>('#game-hud');
 const touchControls = requireElement<HTMLElement>('#touch-controls');
@@ -90,9 +97,7 @@ const stage = createRenderStage(canvas);
 const world = new GameWorld(scenePlaytestHouse ?? undefined, {
   lightningShadowMapSize: harmonyHost.active ? 512 : 1024,
 });
-const renderingReady = world.prewarmCharacterAssets(
-  (objects) => stage.prewarm(world.scene, objects),
-);
+let renderingReady: Promise<void> | null = null;
 const harmonyApi = getHarmonyHostApi();
 const client = harmonyHost.active && harmonyApi
   ? new HarmonyLanGameClient(harmonyApi)
@@ -122,7 +127,6 @@ let measuredFps = 0;
 let lastIngestedFrameKey = '';
 let lastAudioEvents: typeof client.latestEvents = null;
 let lastActionHeld = false;
-let lastGhostVisible = false;
 let lastGhostBurning = false;
 let lastDiagnosticsSampleAt = Number.NEGATIVE_INFINITY;
 let renderedCaptureCount = -1;
@@ -146,6 +150,12 @@ let deterministicState: DeterministicStateName | null = import.meta.env.DEV
 let deterministicSeed = 71;
 let screenshotPaused = Boolean(deterministicState);
 let reducedMotion = false;
+type LoadingTaskState = 'waiting' | 'loading' | 'ready' | 'failed';
+let renderingLoadingState: LoadingTaskState = 'waiting';
+let audioLoadingState: LoadingTaskState = 'waiting';
+let loadingWasActive = false;
+let matchPreparationInFlight = false;
+let matchPreparationError = '';
 
 const queryRoom = query.get('room');
 if (queryRoom) roomCodeInput.value = normalizeRoomCode(queryRoom);
@@ -160,6 +170,7 @@ roomCodeInput.addEventListener('keydown', (event) => {
   if (event.key === 'Enter') joinRoom();
 });
 startButton.addEventListener('click', () => void client.startMatch());
+loadingRetry.addEventListener('click', () => void prepareForMatch());
 readyButton.addEventListener('click', () => {
   if (scenePlaytest) {
     scenePlaytest.reset();
@@ -298,7 +309,7 @@ if (import.meta.env.DEV) {
   else if (scenePlaytestRole) installScenePlaytestUi();
   else if (!deterministicState && !scenePlaytestRole) void installDebugGui();
 }
-await renderingReady;
+if (deterministicState || sceneEditorRequested || scenePlaytestRole) await prepareRendering();
 loop.start();
 
 if (import.meta.hot) {
@@ -329,6 +340,86 @@ function joinRoom(): void {
   const code = normalizeRoomCode(roomCodeInput.value);
   roomCodeInput.value = code;
   if (code.length === 6) void client.joinRoom(code, nickname);
+}
+
+function prepareRendering(): Promise<void> {
+  renderingReady ??= world.prewarmCharacterAssets(
+    (objects) => stage.prewarm(world.scene, objects),
+  );
+  return renderingReady;
+}
+
+async function prepareForMatch(): Promise<void> {
+  if (matchPreparationInFlight || client.roomState?.phase !== 'loading') return;
+  matchPreparationInFlight = true;
+  matchPreparationError = '';
+  renderingLoadingState = 'loading';
+  audioLoadingState = 'loading';
+  renderLoadingState();
+
+  const renderingTask = prepareRendering().then(() => {
+    renderingLoadingState = 'ready';
+    renderLoadingState();
+  }).catch((error: unknown) => {
+    renderingLoadingState = 'failed';
+    throw error;
+  });
+  const audioTask = audio.unlock().then(() => {
+    const metrics = audio.metrics();
+    if (
+      !metrics.unlocked
+      || metrics.failed > 0
+      || metrics.loaded !== Object.keys(GAME_AUDIO_ASSETS).length
+    ) {
+      throw new Error(metrics.unlocked ? '音效文件没有全部解码。' : '手机尚未允许播放声音。');
+    }
+    audioLoadingState = 'ready';
+    renderLoadingState();
+  }).catch((error: unknown) => {
+    audioLoadingState = 'failed';
+    throw error;
+  });
+
+  try {
+    await Promise.all([renderingTask, audioTask]);
+    const room = client.roomState;
+    const session = client.session;
+    if (room?.phase !== 'loading' || !session) return;
+    const ownPlayer = room.players.find((player) => player.playerId === session.playerId);
+    if (!ownPlayer?.assetsReady) {
+      const response = await client.setAssetsReady(true);
+      if (!response.ok) throw new Error(response.error.message);
+    }
+  } catch (error) {
+    matchPreparationError = error instanceof Error ? error.message : '本机加载失败，请重试。';
+  } finally {
+    matchPreparationInFlight = false;
+    renderLoadingState();
+  }
+}
+
+function renderLoadingState(): void {
+  const room = client.roomState;
+  const session = client.session;
+  if (room?.phase !== 'loading' || !session) return;
+  const connectedPlayers = room.players.filter((player) => player.connected);
+  const readyPlayers = connectedPlayers.filter((player) => player.assetsReady).length;
+  const ownPlayer = connectedPlayers.find((player) => player.playerId === session.playerId);
+  setData(loadingRenderingTask, 'state', renderingLoadingState);
+  setData(loadingAudioTask, 'state', audioLoadingState);
+  setText(loadingPlayerCount, `${readyPlayers} / ${connectedPlayers.length} 台设备已就绪`);
+  const localReadyTasks = Number(renderingLoadingState === 'ready') + Number(audioLoadingState === 'ready');
+  const playerProgress = connectedPlayers.length > 0 ? readyPlayers / connectedPlayers.length : 0;
+  const progress = localReadyTasks / 2 * 0.72 + playerProgress * 0.28;
+  setTransform(loadingProgress, `scaleX(${progress})`);
+  if (matchPreparationError) {
+    setText(loadingStatus, matchPreparationError);
+  } else if (ownPlayer?.assetsReady) {
+    setText(loadingStatus, '本机已完成，正在等待其他设备…');
+  } else {
+    setText(loadingStatus, '装入角色、光影和声音…');
+  }
+  setHidden(loadingRetry, !matchPreparationError);
 }
 
 function renderClientState(): void {
@@ -362,7 +453,8 @@ function renderClientState(): void {
       ...room.players.map((player) => {
         const item = document.createElement('li');
         const role = player.role === 'ghost' ? '鬼' : player.role === 'child' ? '小孩' : '等待';
-        item.textContent = `${player.nickname}${player.isHost ? ' · 房主' : ''} · ${role}`;
+        const loaded = room.phase === 'loading' && player.assetsReady ? ' · 已加载' : '';
+        item.textContent = `${player.nickname}${player.isHost ? ' · 房主' : ''} · ${role}${loaded}`;
         item.dataset.playerId = player.playerId;
         return item;
       }),
@@ -388,10 +480,24 @@ function renderClientState(): void {
   } else {
     lastSyncedDebugGameplayTuning = null;
   }
+  const loading = room?.phase === 'loading';
   const playing = room?.phase === 'playing';
   const ended = room?.phase === 'ended';
+  if (loading && !loadingWasActive) {
+    matchPreparationError = '';
+    const audioMetrics = audio.metrics();
+    audioLoadingState = audioMetrics.unlocked
+      && audioMetrics.failed === 0
+      && audioMetrics.loaded === Object.keys(GAME_AUDIO_ASSETS).length
+      ? 'ready'
+      : 'waiting';
+    if (renderingLoadingState !== 'ready') renderingLoadingState = 'waiting';
+  }
+  loadingWasActive = Boolean(loading);
+  document.documentElement.dataset.matchLoading = String(loading);
   document.documentElement.dataset.harmonyPlaying = String(harmonyHost.active && playing);
-  lobbyPanel.hidden = Boolean(playing || ended);
+  lobbyPanel.hidden = Boolean(loading || playing || ended);
+  matchLoading.hidden = !loading;
   gameHud.hidden = !playing;
   touchControls.hidden = !(harmonyHost.active && playing);
   resultOverlay.hidden = !ended;
@@ -400,8 +506,13 @@ function renderClientState(): void {
     const qrPanel = document.querySelector<HTMLElement>('[data-harmony-qr-room]');
     const gateStatus = document.querySelector<HTMLElement>('[data-harmony-gate-a]');
     if (nearbyPanel) nearbyPanel.hidden = inRoom;
-    if (qrPanel) qrPanel.hidden = Boolean(playing || ended);
-    if (gateStatus) gateStatus.hidden = Boolean(playing || ended);
+    if (qrPanel) qrPanel.hidden = Boolean(loading || playing || ended);
+    if (gateStatus) gateStatus.hidden = Boolean(loading || playing || ended);
+  }
+  if (loading) {
+    renderLoadingState();
+    const ownPlayer = room?.players.find((player) => player.playerId === session?.playerId);
+    if (!ownPlayer?.assetsReady) void prepareForMatch();
   }
   if (client.latestFrame) {
     const frame = client.latestFrame.frame;
@@ -615,14 +726,9 @@ function updateGhostAudio(frame: ViewerFrame | null): void {
   const ghost = frame?.ghost;
   const visible = Boolean(ghost);
   const burning = Boolean(ghost?.burning);
-  if (visible && burning && !lastGhostVisible && frame?.viewerRole === 'child') {
-    audio.playIgnition();
+  if (visible && burning && !lastGhostBurning) {
+    audio.playBurnScream(frame?.viewerRole === 'ghost' ? 1 : 0.82);
   }
-  if (frame?.viewerRole === 'ghost' && burning && !lastGhostBurning) {
-    audio.playIgnition();
-  }
-  audio.setFireLoop(visible && burning, frame?.viewerRole === 'ghost' ? 0.26 : 0.16);
-  lastGhostVisible = visible;
   lastGhostBurning = burning;
 }
 

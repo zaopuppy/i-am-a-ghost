@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const audioRoot = path.join(projectRoot, 'public', 'assets', 'audio');
 const outputPath = path.join(audioRoot, 'kenney', 'sfx-pack.json');
-const audioDirectories = ['kenney', 'freesound'];
+const audioDirectories = ['kenney', 'freesound', 'opengameart'];
 const files = (await Promise.all(audioDirectories.map(async (directory) =>
   (await readdir(path.join(audioRoot, directory)))
     .filter((file) => file.endsWith('.mp3'))

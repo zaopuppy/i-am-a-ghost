@@ -3,14 +3,14 @@ import type { ViewerFrame } from '../game/ViewerFrame';
 
 export type { GameplayTuning } from '../game/MatchEngine';
 
-export const PROTOCOL_VERSION = 4;
-export const BUILD_VERSION = '0.7.0-art-pass';
+export const PROTOCOL_VERSION = 5;
+export const BUILD_VERSION = '0.8.0-loading-gate';
 export const MIN_PLAYERS = 2;
 export const MAX_PLAYERS = 5;
 export const INPUT_STALE_MS = 250;
 export const RECONNECT_GRACE_MS = 30_000;
 
-export type RoomPhase = 'lobby' | 'playing' | 'ended';
+export type RoomPhase = 'lobby' | 'loading' | 'playing' | 'ended';
 export type PlayerRole = 'ghost' | 'child' | null;
 
 export interface RoomPlayerSummary {
@@ -20,6 +20,7 @@ export interface RoomPlayerSummary {
   connected: boolean;
   role: PlayerRole;
   ready: boolean;
+  assetsReady: boolean;
 }
 
 export interface RoomState {
@@ -125,6 +126,11 @@ export type HarmonyClientMessage =
     ready: boolean;
   }
   | {
+    type: 'set-assets-ready';
+    requestId: string;
+    ready: boolean;
+  }
+  | {
     type: 'input-frame';
     frame: ClientInputFrame;
   };
@@ -191,6 +197,7 @@ export interface ClientToServerEvents {
   'join-room': (request: JoinRoomRequest, acknowledge: Acknowledge<RoomActionResponse>) => void;
   'start-match': (acknowledge: Acknowledge<BasicActionResponse>) => void;
   'set-ready': (ready: boolean, acknowledge: Acknowledge<BasicActionResponse>) => void;
+  'set-assets-ready': (ready: boolean, acknowledge: Acknowledge<BasicActionResponse>) => void;
   'leave-room': (acknowledge: Acknowledge<BasicActionResponse>) => void;
   'set-debug-tuning': (
     tuning: GameplayTuning,
@@ -269,6 +276,10 @@ export function parseHarmonyClientMessage(value: unknown): HarmonyClientMessage 
         ? { type: value.type, requestId: value.requestId }
         : null;
     case 'set-ready':
+      return isRequestId(value.requestId) && typeof value.ready === 'boolean'
+        ? { type: value.type, requestId: value.requestId, ready: value.ready }
+        : null;
+    case 'set-assets-ready':
       return isRequestId(value.requestId) && typeof value.ready === 'boolean'
         ? { type: value.type, requestId: value.requestId, ready: value.ready }
         : null;

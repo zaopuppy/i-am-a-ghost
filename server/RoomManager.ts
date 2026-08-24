@@ -58,6 +58,12 @@ export class RoomManager {
         room ? room.setReady(socket.id, ready) : this.error('NOT_IN_ROOM', '尚未加入房间。'),
       );
     });
+    socket.on('set-assets-ready', (ready, acknowledge) => {
+      const room = this.roomForSocket(socket);
+      acknowledge(
+        room ? room.setAssetsReady(socket.id, ready) : this.error('NOT_IN_ROOM', '尚未加入房间。'),
+      );
+    });
     socket.on('leave-room', (acknowledge) => {
       const room = this.roomForSocket(socket);
       acknowledge(room?.leave(socket) ? { ok: true } : this.error('NOT_IN_ROOM', '尚未加入房间。'));
