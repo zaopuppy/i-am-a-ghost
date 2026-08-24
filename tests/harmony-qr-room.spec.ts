@@ -304,19 +304,30 @@ test('Harmony host worker admits a peer and starts authoritative frames', async 
   await expect(page.locator('#touch-controls')).toBeVisible();
   await expect(page.locator('[data-harmony-qr-room]')).toBeHidden();
   await expect(page.locator('[data-harmony-nearby-rooms]')).toBeHidden();
-  const joystickBounds = await page.locator('#touch-joystick').boundingBox();
-  if (!joystickBounds) throw new Error('Touch joystick has no bounds.');
-  const joystickX = joystickBounds.x + joystickBounds.width / 2;
-  const joystickY = joystickBounds.y + joystickBounds.height / 2;
+  const moveArea = page.locator('#touch-move-area');
+  const moveAreaBounds = await moveArea.boundingBox();
+  if (!moveAreaBounds) throw new Error('Touch move area has no bounds.');
+  const joystickX = moveAreaBounds.x + moveAreaBounds.width * 0.42;
+  const joystickY = moveAreaBounds.y + moveAreaBounds.height * 0.54;
   const joystick = page.locator('#touch-joystick');
-  await joystick.dispatchEvent('pointerdown', {
+  const restingJoystickBounds = await joystick.boundingBox();
+  if (!restingJoystickBounds) throw new Error('Touch joystick has no bounds.');
+  expect(Math.abs(joystickX - (restingJoystickBounds.x + restingJoystickBounds.width / 2)))
+    .toBeGreaterThan(24);
+  await moveArea.dispatchEvent('pointerdown', {
     pointerId: 7,
     clientX: joystickX,
     clientY: joystickY,
   });
-  await joystick.dispatchEvent('pointermove', {
+  await expect.poll(() => page.evaluate(() => (
+    window.__THREE_GAME_DIAGNOSTICS__?.input.movement.x ?? 1
+  ))).toBe(0);
+  const activeJoystickBounds = await joystick.boundingBox();
+  expect(activeJoystickBounds?.x).toBeCloseTo(joystickX - restingJoystickBounds.width / 2, 0);
+  expect(activeJoystickBounds?.y).toBeCloseTo(joystickY - restingJoystickBounds.height / 2, 0);
+  await moveArea.dispatchEvent('pointermove', {
     pointerId: 7,
-    clientX: joystickX + joystickBounds.width * 0.3,
+    clientX: joystickX + restingJoystickBounds.width * 0.3,
     clientY: joystickY,
   });
   await expect(joystick).toHaveAttribute('data-active', 'true');
@@ -324,14 +335,36 @@ test('Harmony host worker admits a peer and starts authoritative frames', async 
   await expect.poll(() => page.evaluate(() => (
     window.__THREE_GAME_DIAGNOSTICS__?.input.movement.x ?? 0
   ))).toBeGreaterThan(0.5);
-  await joystick.dispatchEvent('pointerup', {
+  await moveArea.dispatchEvent('pointerup', {
     pointerId: 7,
-    clientX: joystickX + joystickBounds.width * 0.3,
+    clientX: joystickX + restingJoystickBounds.width * 0.3,
     clientY: joystickY,
   });
   await expect.poll(() => page.evaluate(() => (
     window.__THREE_GAME_DIAGNOSTICS__?.input.movement.x ?? 1
   ))).toBe(0);
+  await moveArea.dispatchEvent('pointerdown', {
+    pointerId: 8,
+    clientX: joystickX,
+    clientY: joystickY,
+  });
+  await moveArea.dispatchEvent('pointermove', {
+    pointerId: 8,
+    clientX: joystickX,
+    clientY: joystickY - restingJoystickBounds.height * 0.3,
+  });
+  await expect.poll(() => page.evaluate(() => (
+    window.__THREE_GAME_DIAGNOSTICS__?.input.movement.z ?? 0
+  ))).toBeLessThan(-0.5);
+  await moveArea.dispatchEvent('pointercancel', {
+    pointerId: 8,
+    clientX: joystickX,
+    clientY: joystickY - restingJoystickBounds.height * 0.3,
+  });
+  await expect.poll(() => page.evaluate(() => (
+    window.__THREE_GAME_DIAGNOSTICS__?.input.movement.z ?? 1
+  ))).toBe(0);
+  await expect(joystick).toHaveAttribute('data-active', 'false');
   await expect.poll(() => page.evaluate(() => {
     const messages = (window as Window & { __HARMONY_PEER_MESSAGES__?: string[] })
       .__HARMONY_PEER_MESSAGES__ ?? [];

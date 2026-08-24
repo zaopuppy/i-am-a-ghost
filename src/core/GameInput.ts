@@ -4,11 +4,13 @@ const MOVE_LEFT = new Set(['KeyA', 'ArrowLeft']);
 const MOVE_RIGHT = new Set(['KeyD', 'ArrowRight']);
 const MOVE_UP = new Set(['KeyW', 'ArrowUp']);
 const MOVE_DOWN = new Set(['KeyS', 'ArrowDown']);
+const JOYSTICK_DEAD_ZONE = 0.12;
 
 export class GameInput {
   private readonly pressed = new Set<string>();
   private touchMovement: Vec2 = { x: 0, z: 0 };
   private joystickPointerId: number | null = null;
+  private joystickOrigin: { x: number; y: number } | null = null;
   private actionPointerId: number | null = null;
 
   constructor() {
@@ -20,6 +22,7 @@ export class GameInput {
     document.addEventListener('pointermove', this.onTouchPointerMove);
     document.addEventListener('pointerup', this.onTouchPointerEnd);
     document.addEventListener('pointercancel', this.onTouchPointerEnd);
+    document.addEventListener('lostpointercapture', this.onTouchPointerEnd);
   }
 
   movement(): Vec2 {
@@ -42,6 +45,7 @@ export class GameInput {
     document.removeEventListener('pointermove', this.onTouchPointerMove);
     document.removeEventListener('pointerup', this.onTouchPointerEnd);
     document.removeEventListener('pointercancel', this.onTouchPointerEnd);
+    document.removeEventListener('lostpointercapture', this.onTouchPointerEnd);
   }
 
   private readonly onKeyDown = (event: KeyboardEvent): void => {
@@ -68,7 +72,7 @@ export class GameInput {
 
   private readonly onTouchPointerDown = (event: PointerEvent): void => {
     const target = event.target instanceof Element ? event.target : null;
-    if (target?.closest('#touch-joystick')) {
+    if (target?.closest('#touch-move-area')) {
       this.onJoystickPointerDown(event);
     } else if (target?.closest('#touch-action')) {
       this.onActionPointerDown(event);
@@ -85,16 +89,27 @@ export class GameInput {
   };
 
   private readonly onJoystickPointerDown = (event: PointerEvent): void => {
-    if (this.joystickPointerId !== null || this.joystick === null) return;
+    const surface = this.joystickSurface;
+    const joystick = this.joystick;
+    if (this.joystickPointerId !== null || surface === null || joystick === null) return;
     event.preventDefault();
     this.joystickPointerId = event.pointerId;
-    this.joystick.dataset.active = 'true';
+    this.joystickOrigin = { x: event.clientX, y: event.clientY };
+    this.touchMovement = { x: 0, z: 0 };
+    const surfaceBounds = surface.getBoundingClientRect();
+    joystick.style.left = `${event.clientX - surfaceBounds.left}px`;
+    joystick.style.top = `${event.clientY - surfaceBounds.top}px`;
+    joystick.style.bottom = 'auto';
+    joystick.style.transform = 'translate(-50%, -50%)';
+    joystick.dataset.active = 'true';
+    if (this.joystickKnob !== null) {
+      this.joystickKnob.style.transform = 'translate(-50%, -50%)';
+    }
     try {
-      this.joystick.setPointerCapture(event.pointerId);
+      surface.setPointerCapture(event.pointerId);
     } catch {
       // Pointer capture may already be owned by ArkWeb.
     }
-    this.updateJoystick(event);
   };
 
   private readonly onJoystickPointerMove = (event: PointerEvent): void => {
@@ -128,29 +143,29 @@ export class GameInput {
   };
 
   private updateJoystick(event: PointerEvent): void {
-    if (this.joystick === null) return;
+    if (this.joystick === null || this.joystickOrigin === null) return;
     const bounds = this.joystick.getBoundingClientRect();
     const radius = Math.min(bounds.width, bounds.height) * 0.32;
-    const rawX = event.clientX - (bounds.left + bounds.width / 2);
-    const rawZ = event.clientY - (bounds.top + bounds.height / 2);
-    const magnitude = Math.hypot(rawX, rawZ);
-    const scale = magnitude > radius ? radius / magnitude : 1;
-    const normalizedX = (rawX * scale) / radius;
-    const normalizedZ = (rawZ * scale) / radius;
-    const deadZone = 0.12;
-    this.touchMovement = Math.hypot(normalizedX, normalizedZ) < deadZone
-      ? { x: 0, z: 0 }
-      : { x: normalizedX, z: normalizedZ };
+    const rawX = event.clientX - this.joystickOrigin.x;
+    const rawZ = event.clientY - this.joystickOrigin.y;
+    this.touchMovement = joystickVectorFromDelta(rawX, rawZ, radius);
     if (this.joystickKnob !== null) {
       this.joystickKnob.style.transform =
-        `translate(calc(-50% + ${normalizedX * radius}px), calc(-50% + ${normalizedZ * radius}px))`;
+        `translate(calc(-50% + ${this.touchMovement.x * radius}px), calc(-50% + ${this.touchMovement.z * radius}px))`;
     }
   }
 
   private releaseJoystick(): void {
     this.joystickPointerId = null;
+    this.joystickOrigin = null;
     this.touchMovement = { x: 0, z: 0 };
-    if (this.joystick !== null) this.joystick.dataset.active = 'false';
+    if (this.joystick !== null) {
+      this.joystick.dataset.active = 'false';
+      this.joystick.style.removeProperty('left');
+      this.joystick.style.removeProperty('top');
+      this.joystick.style.removeProperty('bottom');
+      this.joystick.style.removeProperty('transform');
+    }
     if (this.joystickKnob !== null) this.joystickKnob.style.transform = 'translate(-50%, -50%)';
   }
 
@@ -161,6 +176,10 @@ export class GameInput {
 
   private get joystick(): HTMLElement | null {
     return document.querySelector<HTMLElement>('#touch-joystick');
+  }
+
+  private get joystickSurface(): HTMLElement | null {
+    return document.querySelector<HTMLElement>('#touch-move-area');
   }
 
   private get joystickKnob(): HTMLElement | null {
@@ -176,6 +195,21 @@ export function movementFromPressed(pressed: ReadonlySet<string>): Vec2 {
   return {
     x: Number(hasAny(pressed, MOVE_RIGHT)) - Number(hasAny(pressed, MOVE_LEFT)),
     z: Number(hasAny(pressed, MOVE_DOWN)) - Number(hasAny(pressed, MOVE_UP)),
+  };
+}
+
+export function joystickVectorFromDelta(
+  deltaX: number,
+  deltaY: number,
+  radius: number,
+): Vec2 {
+  if (!Number.isFinite(radius) || radius <= 0) return { x: 0, z: 0 };
+  const magnitude = Math.hypot(deltaX, deltaY);
+  if (magnitude / radius < JOYSTICK_DEAD_ZONE) return { x: 0, z: 0 };
+  const scale = magnitude > radius ? radius / magnitude : 1;
+  return {
+    x: (deltaX * scale) / radius,
+    z: (deltaY * scale) / radius,
   };
 }
 
