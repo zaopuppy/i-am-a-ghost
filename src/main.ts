@@ -186,8 +186,8 @@ audioButton.addEventListener('click', () => {
 const unlockAudio = (): void => {
   void audio.unlock();
 };
-window.addEventListener('pointerdown', unlockAudio, { once: true });
-window.addEventListener('keydown', unlockAudio, { once: true });
+window.addEventListener('click', unlockAudio);
+window.addEventListener('keydown', unlockAudio);
 const unsubscribeClient = client.subscribe(renderClientState);
 
 const loop = new Loop(

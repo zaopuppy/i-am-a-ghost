@@ -2,6 +2,25 @@ import { expect, test } from '@playwright/test';
 
 const EXPECTED_AUDIO_ASSET_COUNT = 9;
 
+test('waits for a complete click before unlocking mobile audio', async ({ page }) => {
+  await page.goto('/');
+  await page.mouse.move(1_200, 600);
+  await page.mouse.down();
+  await page.waitForTimeout(350);
+
+  expect(await page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.audio)).toMatchObject({
+    unlocked: false,
+    loaded: 0,
+    failed: 0,
+  });
+
+  await page.mouse.up();
+  await expect.poll(async () => page.evaluate(() => (
+    window.__THREE_GAME_DIAGNOSTICS__?.audio.loaded ?? 0
+  )), { timeout: 15_000 }).toBe(EXPECTED_AUDIO_ASSET_COUNT);
+  expect(await page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.audio.unlocked)).toBe(true);
+});
+
 test('first interaction loads one IDM-safe audio pack without media requests', async ({ page }) => {
   const audioRequests: Array<{ type: string; url: string }> = [];
   page.on('request', (request) => {
