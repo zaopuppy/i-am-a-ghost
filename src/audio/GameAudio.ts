@@ -33,6 +33,8 @@ export class GameAudio {
   private readonly buffers = new Map<SoundId, AudioBuffer>();
   private loadPromise: Promise<void> | null = null;
   private muted = false;
+  private paused = false;
+  private readonly activeSources = new Set<AudioScheduledSourceNode>();
   private failedAssets = 0;
   private thunderPlays = 0;
   private lastThunder: ThunderPlaybackSnapshot | null = null;
@@ -47,7 +49,7 @@ export class GameAudio {
       this.master.gain.value = this.muted ? 0 : 0.72;
       this.master.connect(this.context.destination);
     }
-    if (this.context.state !== 'running') {
+    if (!this.paused && this.context.state !== 'running') {
       await this.context.resume().catch(() => undefined);
     }
     if (this.failedAssets > 0) {
@@ -68,6 +70,7 @@ export class GameAudio {
     gain.gain.value = volume;
     source.buffer = buffer;
     source.connect(gain).connect(this.master);
+    this.trackSource(source);
     source.start();
   }
 
@@ -96,6 +99,7 @@ export class GameAudio {
     panner.pan.value = clamp(pan, -0.65, 0.65);
     gain.gain.value = 0.95 + (0.55 - 0.95) * distanceRatio;
     source.connect(filter).connect(panner).connect(gain).connect(this.master);
+    this.trackSource(source);
     source.start();
     this.thunderPlays += 1;
     this.lastThunder = {
@@ -117,6 +121,7 @@ export class GameAudio {
     source.buffer = buffer;
     gain.gain.value = volume;
     source.connect(gain).connect(this.master);
+    this.trackSource(source);
     source.start(now);
     this.burnScreamPlays += 1;
   }
@@ -135,6 +140,25 @@ export class GameAudio {
     this.muted = !this.muted;
     if (this.master) this.master.gain.value = this.muted ? 0 : 0.72;
     return this.muted;
+  }
+
+  setPaused(paused: boolean): void {
+    this.paused = paused;
+    if (!this.context) return;
+    if (paused) void this.context.suspend().catch(() => undefined);
+    else void this.context.resume().catch(() => undefined);
+  }
+
+  stopAll(): void {
+    for (const source of this.activeSources) source.stop();
+    this.activeSources.clear();
+    this.lastCaptureScareAt = Number.NEGATIVE_INFINITY;
+    this.lastBurnScreamAt = Number.NEGATIVE_INFINITY;
+  }
+
+  private trackSource(source: AudioScheduledSourceNode): void {
+    this.activeSources.add(source);
+    source.onended = () => this.activeSources.delete(source);
   }
 
   metrics(): {
@@ -158,6 +182,7 @@ export class GameAudio {
   }
 
   dispose(): void {
+    this.stopAll();
     void this.context?.close();
     this.context = null;
     this.master = null;
@@ -186,6 +211,7 @@ export class GameAudio {
     dropGain.gain.exponentialRampToValueAtTime(0.52, now + 0.025);
     dropGain.gain.exponentialRampToValueAtTime(0.0001, now + 1.05);
     drop.connect(dropGain).connect(mix);
+    this.trackSource(drop);
     drop.start(now);
     drop.stop(now + 1.08);
 
@@ -197,6 +223,7 @@ export class GameAudio {
     shriekGain.gain.setValueAtTime(0.24, now);
     shriekGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.46);
     shriek.connect(shriekGain).connect(mix);
+    this.trackSource(shriek);
     shriek.start(now);
     shriek.stop(now + 0.48);
 
@@ -218,6 +245,7 @@ export class GameAudio {
     scrapeGain.gain.setValueAtTime(0.32, now);
     scrapeGain.gain.exponentialRampToValueAtTime(0.0001, now + durationSeconds);
     scrape.connect(filter).connect(scrapeGain).connect(mix);
+    this.trackSource(scrape);
     scrape.start(now);
     scrape.stop(now + durationSeconds);
   }

@@ -13,6 +13,7 @@ for (const viewport of [
       window.__THREE_GAME_TEST_HOOKS__?.hideDebugUi(true);
     })));
     await host.getByTestId('create-room').click();
+    await expect(host.getByTestId('room-code')).toHaveText(/^[A-Z0-9]{6}$/);
     const roomCode = (await host.getByTestId('room-code').textContent())?.trim() ?? '';
     await guest.getByTestId('room-code-input').fill(roomCode);
     await guest.getByTestId('join-room').click();

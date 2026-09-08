@@ -11,13 +11,14 @@
     <main id="app" aria-label="不要被抓到 · I am a Ghost">
       <canvas id="game-canvas" aria-label="Three.js game canvas" tabindex="0"></canvas>
       <section class="lobby-panel" data-testid="lobby-panel">
-        <p class="eyebrow">局域网捉迷藏</p>
+        <p class="eyebrow">单人 / 局域网捉迷藏</p>
         <h1>I AM A GHOST</h1>
         <p class="connection" data-connected="false">
           <span class="connection-dot" aria-hidden="true"></span>
           <span id="network-status" data-testid="network-status">连接房间服务…</span>
         </p>
         <div class="lobby-actions" id="lobby-actions">
+          <button id="solo-game" type="button">单人游戏</button>
           <label class="lan-consent" id="harmony-lan-consent-row" hidden>
             <input id="harmony-lan-consent" data-testid="harmony-lan-consent" type="checkbox" />
             <span>我同意本次运行使用局域网 IP、端口、附近设备服务、临时昵称和对局数据，
@@ -133,6 +134,7 @@
       </section>
       <p class="event-banner" id="event-banner" data-testid="event-banner" hidden></p>
       <button class="audio-toggle" id="audio-toggle" type="button" aria-label="切换声音">声音：开</button>
+      <button class="solo-pause" id="solo-pause" type="button" hidden>暂停 <span>Esc</span></button>
       <section class="result-overlay" id="result-overlay" data-testid="result-overlay" hidden>
         <div class="result-card">
           <p class="eyebrow">本局结束</p>

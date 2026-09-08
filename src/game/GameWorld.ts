@@ -171,6 +171,7 @@ export class GameWorld {
   private readonly preparedActors = new Map<string, ActorVisual>();
   private readonly claimedPreparedActors = new Set<string>();
   private characterPrewarmPromise: Promise<void> | null = null;
+  private environmentReady: Promise<void> = Promise.resolve();
   private flashlightLength = DEFAULT_GAMEPLAY_TUNING.flashlightLength;
   private flashlightConeDegrees = DEFAULT_GAMEPLAY_TUNING.flashlightConeDegrees;
   private pendingAssetUpgrades = 0;
@@ -237,6 +238,7 @@ export class GameWorld {
       builds.set(key, promise);
     }
     const ready = Promise.all(builds.values()).then(async (visuals) => {
+      await this.environmentReady;
       if (this.disposed) return;
       const children = visuals.filter((visual) => visual.kind === 'child');
       const ghost = visuals.find((visual) => visual.kind === 'ghost');
@@ -500,7 +502,7 @@ export class GameWorld {
     this.windowGlows = stage.windowGlows;
     this.scene.add(stage.root);
     this.pendingAssetUpgrades += 1;
-    void stage.ready.catch(() => undefined).finally(() => {
+    this.environmentReady = stage.ready.catch(() => undefined).finally(() => {
       this.pendingAssetUpgrades -= 1;
     });
 

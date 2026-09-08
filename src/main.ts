@@ -22,7 +22,7 @@ import { GameWorld } from './game/GameWorld';
 import { compileHouseScene, type CompiledHouseScene } from './game/HouseScene';
 import { loadHouseSceneDraft } from './game/HouseSceneDraft';
 import { lightningSourceVector, type LightningPresentationFrame } from './game/LightningPresentation';
-import { MATCH_RULES, type GameplayTuning } from './game/MatchEngine';
+import { DEFAULT_GAMEPLAY_TUNING, MATCH_RULES, type GameplayTuning } from './game/MatchEngine';
 import { createRuntimeTuning } from './game/RuntimeTuning';
 import {
   parseScenePlaytestRole,
@@ -31,6 +31,9 @@ import {
   type ScenePlaytestRole,
 } from './game/ScenePlaytest';
 import type { ViewerFrame } from './game/ViewerFrame';
+import { DEFAULT_HOUSE_MAP } from './game/defaultHouse';
+import { SoloMatch, type SoloOptions } from './game/SoloMatch';
+import { SoloMenu } from './game/SoloMenu';
 import { GameClient } from './net/GameClient';
 import { FramePresenter } from './net/FramePresenter';
 import { HarmonyLanGameClient } from './net/HarmonyLanGameClient';
@@ -169,6 +172,27 @@ let matchPreparationError = '';
 let roleSelectionInFlight = false;
 type SelectableRole = Exclude<PlayerRole, null>;
 
+let soloMatch: SoloMatch | null = null;
+let soloActive = false;
+let soloPreparationVersion = 0;
+let soloPresentationSeconds = 0;
+const soloButton = requireElement<HTMLButtonElement>('#solo-game');
+const soloPauseButton = requireElement<HTMLButtonElement>('#solo-pause');
+const soloMenu = new SoloMenu({
+  start: startSoloMatch,
+  resume: () => setSoloPaused(false),
+  restart: () => {
+    if (soloMatch) startSoloMatch({ ...soloMatch.options, seed: crypto.getRandomValues(new Uint32Array(1))[0] });
+  },
+  home: leaveSolo,
+  setup: () => void openSoloSetup(),
+});
+soloButton.addEventListener('click', () => void openSoloSetup());
+soloPauseButton.addEventListener('click', () => setSoloPaused(true));
+window.addEventListener('keydown', handleSoloKey);
+window.addEventListener('blur', handleSoloBlur);
+document.addEventListener('visibilitychange', handleSoloVisibility);
+
 const queryRoom = query.get('room');
 if (queryRoom) roomCodeInput.value = normalizeRoomCode(queryRoom);
 createButton.addEventListener('click', () => {
@@ -214,7 +238,7 @@ const loop = new Loop(
     renderFrame += 1;
     measuredFps = fps;
     updateFpsLabel();
-    const envelope = client.latestFrame;
+    const envelope = soloActive ? null : client.latestFrame;
     if (envelope) {
       const key = `${envelope.matchId}:${envelope.frame.tick}`;
       if (key !== lastIngestedFrameKey) {
@@ -223,10 +247,10 @@ const loop = new Loop(
       }
     }
     const cameraPose = cameraRig.snapshot();
-    const movement = deterministicState
+    const movement = deterministicState || soloMatch?.paused
       ? { x: 0, z: 0 }
       : orientMovementToCamera(input.movement(), cameraPose.position, cameraPose.target);
-    const actionHeld = !cameraPose.pointerMode && !sceneEditorRequested && input.actionHeld();
+    const actionHeld = !soloMatch?.paused && !cameraPose.pointerMode && !sceneEditorRequested && input.actionHeld();
     let facingRadians = lastFacingRadians;
     const resolveChildFacing = (aimFrame: ViewerFrame): number => {
       const ownChild = aimFrame.children.find((child) => child.playerId === aimFrame.viewerPlayerId);
@@ -237,7 +261,7 @@ const loop = new Loop(
       }
       if (ownChild && (aimFrame.phase === 'playing' || aimFrame.phase === 'protection')) {
         const mouse = input.mousePosition();
-        const direction = harmonyHost.active
+        const direction = harmonyHost.active || (soloActive && matchMedia('(pointer: coarse)').matches)
           ? orientMovementToCamera(input.aimDirection(), cameraPose.position, cameraPose.target)
           : mouse && !cameraPose.pointerMode && !sceneEditorRequested
             ? childAim.mouseDirection(mouse, canvas.getBoundingClientRect(), stage.camera, ownChild.position)
@@ -250,39 +274,49 @@ const loop = new Loop(
     };
     let frame = deterministicState
       ? createDeterministicViewerFrame(deterministicState, deterministicSeed)
-      : scenePlaytest
-        ? scenePlaytest.frame()
-        : presenter.present(deltaSeconds, movement, runtimeTuning, resolveChildFacing);
+      : soloActive
+        ? soloMatch?.frame() ?? null
+        : scenePlaytest
+          ? scenePlaytest.frame()
+          : presenter.present(deltaSeconds, movement, runtimeTuning, resolveChildFacing);
     if (!deterministicState && frame) {
       if (frame.viewerRole === 'ghost') {
         facingRadians = calculateFacing(movement);
         childAimKey = '';
-      } else if (scenePlaytest) {
+      } else if (scenePlaytest || (soloMatch && !soloMatch.paused)) {
         facingRadians = resolveChildFacing(frame);
       }
       if (scenePlaytest) frame = scenePlaytest.update(deltaSeconds, movement, facingRadians, actionHeld);
+      if (soloMatch) {
+        soloMatch.update(deltaSeconds, movement, facingRadians, actionHeld);
+        frame = soloMatch.presentationFrame();
+        audio.handleEvents(soloMatch.drainEvents(), soloMatch.viewerPlayerId);
+        if (!soloMatch.paused && frame.phase !== 'ended') soloPresentationSeconds += deltaSeconds;
+      }
     } else if (!frame) {
       childAimKey = '';
       input.clear();
     }
-    if (!deterministicState && !scenePlaytest && client.latestEvents && client.latestEvents !== lastAudioEvents) {
+    if (!soloActive && !deterministicState && !scenePlaytest && client.latestEvents && client.latestEvents !== lastAudioEvents) {
       lastAudioEvents = client.latestEvents;
       audio.handleEvents(client.latestEvents.events, frame?.viewerPlayerId);
     }
     if (actionHeld && !lastActionHeld && frame?.viewerRole === 'child') audio.play('flashlight', 0.52);
     lastActionHeld = actionHeld;
     updateGhostAudio(frame);
-    const presentationSeconds = deterministicState && (screenshotPaused || reducedMotion)
+    const presentationSeconds = soloMatch ? soloPresentationSeconds : deterministicState && (screenshotPaused || reducedMotion)
       ? 2.75
       : elapsedSeconds;
-  world.setFlashlightTuning(runtimeTuning.flashlightLength, runtimeTuning.flashlightConeDegrees);
+    const presentationTuning = soloActive ? DEFAULT_GAMEPLAY_TUNING : runtimeTuning;
+    world.setFlashlightTuning(presentationTuning.flashlightLength, presentationTuning.flashlightConeDegrees);
     const lightningFrame = world.sync(frame, presentationSeconds);
-    updateCamera(frame, deltaSeconds, Boolean(deterministicState));
+    if (!soloMatch?.paused) updateCamera(frame, deltaSeconds, Boolean(deterministicState));
     playThunder(lightningFrame);
     updateHud(frame);
     if (deterministicState && frame) renderDeterministicState(frame);
     if (scenePlaytest && frame) renderScenePlaytestState(frame);
-    if (!deterministicState && !scenePlaytest && frame && client.roomState?.phase === 'playing' && elapsedSeconds - lastInputSentAt >= 1 / 30) {
+    if (soloMatch && frame) renderSoloState(frame);
+    if (!soloActive && !deterministicState && !scenePlaytest && frame && client.roomState?.phase === 'playing' && elapsedSeconds - lastInputSentAt >= 1 / 30) {
       lastInputSentAt = elapsedSeconds;
       client.sendInput({
         moveX: movement.x,
@@ -363,6 +397,11 @@ if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     loop.stop();
     input.dispose();
+    soloPreparationVersion += 1;
+    soloMenu.dispose();
+    window.removeEventListener('keydown', handleSoloKey);
+    window.removeEventListener('blur', handleSoloBlur);
+    document.removeEventListener('visibilitychange', handleSoloVisibility);
     audio.dispose();
     if (debugTuningTimer) clearTimeout(debugTuningTimer);
     debugGui?.destroy();
@@ -381,6 +420,119 @@ if (import.meta.hot) {
     delete window.__THREE_GAME_DIAGNOSTICS__;
     delete window.__THREE_GAME_TEST_HOOKS__;
   });
+}
+
+async function openSoloSetup(): Promise<void> {
+  soloActive = true;
+  soloMatch = null;
+  soloPresentationSeconds = 0;
+  const version = ++soloPreparationVersion;
+  document.documentElement.dataset.soloActive = 'true';
+  document.documentElement.dataset.soloPaused = 'false';
+  document.documentElement.dataset.harmonyPlaying = 'false';
+  if (client instanceof GameClient) client.socket.disconnect();
+  input.clear();
+  audio.stopAll();
+  audio.setPaused(false);
+  world.sync(null, 0);
+  lobbyPanel.hidden = true;
+  gameHud.hidden = true;
+  touchControls.hidden = true;
+  resultOverlay.hidden = true;
+  soloPauseButton.hidden = true;
+  eventBanner.hidden = true;
+  soloMenu.showSetup();
+  try {
+    await Promise.all([prepareRendering(), audio.unlock()]);
+    const metrics = audio.metrics();
+    if (metrics.failed || metrics.loaded !== Object.keys(GAME_AUDIO_ASSETS).length) {
+      throw new Error('声音资源加载失败，请连接网络后返回首页重试。');
+    }
+    if (version === soloPreparationVersion) soloMenu.setReady(true);
+  } catch (error) {
+    if (version === soloPreparationVersion) {
+      soloMenu.setReady(false, error instanceof Error ? error.message : '资源加载失败，请返回首页重试。');
+    }
+  }
+}
+
+function startSoloMatch(options: SoloOptions): void {
+  soloMatch = new SoloMatch(DEFAULT_HOUSE_MAP, options);
+  soloPresentationSeconds = 0;
+  childAimKey = '';
+  lastActionHeld = false;
+  lastGhostBurning = false;
+  cameraSnapRequested = true;
+  world.sync(null, 0);
+  audio.stopAll();
+  audio.setPaused(false);
+  input.clear();
+  soloMenu.close();
+  document.documentElement.dataset.soloPaused = 'false';
+  renderSoloState(soloMatch.frame());
+  canvas.focus();
+  if (document.hidden) setSoloPaused(true);
+}
+
+function setSoloPaused(paused: boolean): void {
+  if (!soloMatch || soloMatch.frame().phase === 'ended') return;
+  soloMatch.setPaused(paused);
+  input.clear();
+  audio.setPaused(paused);
+  document.documentElement.dataset.soloPaused = String(paused);
+  if (paused) soloMenu.showPaused();
+  else {
+    soloMenu.close();
+    canvas.focus();
+  }
+  renderSoloState(soloMatch.frame());
+}
+
+function handleSoloKey(event: KeyboardEvent): void {
+  // The modal's cancel event owns Escape while it is open.
+  if (event.key === 'Escape' && !event.repeat && soloMatch && !soloMatch.paused
+    && soloMatch.frame().phase !== 'ended') {
+    event.preventDefault();
+    setSoloPaused(true);
+  }
+}
+
+function handleSoloBlur(): void { setSoloPaused(true); }
+function handleSoloVisibility(): void { if (document.hidden) setSoloPaused(true); }
+
+function leaveSolo(): void {
+  soloPreparationVersion += 1;
+  soloMatch = null;
+  soloActive = false;
+  soloMenu.close();
+  input.clear();
+  audio.stopAll();
+  audio.setPaused(false);
+  world.sync(null, 0);
+  childAimKey = '';
+  document.documentElement.dataset.soloActive = 'false';
+  document.documentElement.dataset.soloPaused = 'false';
+  soloPauseButton.hidden = true;
+  eventBanner.hidden = true;
+  if (client instanceof GameClient) client.socket.connect();
+  renderClientState();
+  soloButton.focus();
+}
+
+function renderSoloState(frame: ViewerFrame): void {
+  const ended = frame.phase === 'ended';
+  setHidden(gameHud, ended);
+  setHidden(soloPauseButton, ended || Boolean(soloMatch?.paused));
+  setHidden(touchControls, ended || Boolean(soloMatch?.paused)
+    || !(harmonyHost.active || matchMedia('(pointer: coarse)').matches));
+  setData(document.documentElement, 'harmonyPlaying', String(harmonyHost.active && !ended));
+  setText(roleLabel, frame.viewerRole === 'ghost' ? '单人 · 你是鬼' : '单人 · 你是小孩');
+  setText(objectiveLabel, frame.viewerRole === 'ghost' ? '累计抓捕三次' : '照亮鬼或撑到天亮');
+  updateControlHint(frame);
+  if (ended) {
+    input.clear();
+    soloMenu.showResult(frame);
+  }
 }
 
 function joinRoom(): void {
@@ -573,7 +725,7 @@ function describeRoleSelection(
 }
 
 function renderClientState(): void {
-  if (deterministicState || sceneEditorRequested || scenePlaytestRole) return;
+  if (soloActive || deterministicState || sceneEditorRequested || scenePlaytestRole) return;
   const nativeLanReady = harmonyHost.active && harmonyHost.lan?.listening === true;
   connectionRow.dataset.connected = String(nativeLanReady || client.connected);
   if (harmonyHost.active) {
@@ -916,7 +1068,7 @@ function isCaptureCinematicViewer(frame: ViewerFrame): boolean {
 }
 
 function updateControlHint(frame: ViewerFrame): void {
-  if (harmonyHost.active) {
+  if (harmonyHost.active || (soloActive && matchMedia('(pointer: coarse)').matches)) {
     controlHint.textContent = frame.viewerRole === 'ghost'
       ? '左侧摇杆移动 · 持续接触孩子完成抓捕'
       : '左摇杆移动 · 右摇杆照明转向 · 松手转身跑';
@@ -1238,7 +1390,7 @@ function updateDiagnostics(frame: ViewerFrame | null, elapsedSeconds: number): v
   const diagnostics: NonNullable<typeof window.__THREE_GAME_DIAGNOSTICS__> & {
     camera: ReturnType<CameraRig['snapshot']>;
   } = {
-    phase: deterministicState || scenePlaytest
+    phase: deterministicState || scenePlaytest || soloMatch
       ? (frame?.phase === 'ended' ? 'ended' : 'playing')
       : client.roomState?.phase ?? 'lobby',
     matchPhase: frame?.phase ?? null,
@@ -1257,7 +1409,7 @@ function updateDiagnostics(frame: ViewerFrame | null, elapsedSeconds: number): v
     cameraViewHeight: camera.viewHeight,
     camera,
     capturedChildPlayerId: frame?.capture?.childPlayerId ?? null,
-    tuning: { ...runtimeTuning },
+    tuning: { ...runtimeTuning, ...(soloActive ? DEFAULT_GAMEPLAY_TUNING : {}) },
     world: world.metrics(),
     input: { actionHeld: input.actionHeld(), movement: input.movement() },
     network: {
