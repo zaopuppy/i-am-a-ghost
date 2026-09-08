@@ -19,6 +19,7 @@ export const DETERMINISTIC_STATE_NAMES = [
   'flashlight-profile-off',
   'flashlight-profile-on',
   'flashlight-profile-hit',
+  'flashlight-lightning-hit',
   'ghost-playing',
   'low-battery',
   'capture-contact',
@@ -128,7 +129,7 @@ export function createDeterministicViewerFrame(
             }
           : { ...visibleChild, headlamp: 'off' as const, flashlightOn: false };
       }
-      if (state.startsWith('flashlight-profile-')) {
+      if (state.startsWith('flashlight-profile-') || state === 'flashlight-lightning-hit') {
         return visibleChild.playerId === 'child-1'
           ? {
               ...visibleChild,
@@ -151,7 +152,7 @@ export function createDeterministicViewerFrame(
       ]
     : [];
 
-  const ghost = state === 'flashlight-profile-hit'
+  const ghost = state === 'flashlight-profile-hit' || state === 'flashlight-lightning-hit'
     ? {
         ...GHOST,
         position: { x: -3.2, z: -5.62 },
@@ -189,6 +190,7 @@ export function createDeterministicViewerFrame(
 
 function lightningDirectionForState(state: DeterministicStateName): LightningDirection | null {
   switch (state) {
+    case 'flashlight-lightning-hit': return 'north';
     case 'lightning-north-main': return 'north';
     case 'lightning-east-main': return 'east';
     case 'lightning-south-main': return 'south';

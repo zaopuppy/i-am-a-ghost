@@ -4,7 +4,8 @@ import { PNG } from 'pngjs';
 const MAX_TRANSITION_FRAME_MS = 50;
 const MAX_NON_BEAM_MEAN_LUMA_DELTA = 2;
 
-test('first flashlight and first ghost reveal do not produce a long frame', async ({ page }) => {
+test('render prewarming covers first flashlight, ghost reveal, burn, and lightning', async ({ page }) => {
+  test.setTimeout(120_000);
   const errors: string[] = [];
   collectErrors(page, errors);
   await openProfileState(page, 'flashlight-profile-off');
@@ -13,16 +14,31 @@ test('first flashlight and first ghost reveal do not produce a long frame', asyn
   );
 
   const firstFlashlight = await measureTransition(page, 'flashlight-profile-on');
-  await settleFrames(page, 14);
   await page.evaluate(() => window.__THREE_GAME_TEST_HOOKS__?.setState('flashlight-profile-off'));
-  await settleFrames(page, 14);
-  const warmFlashlight = await measureTransition(page, 'flashlight-profile-on');
-  await settleFrames(page, 14);
+  await settleFrames(page, 8);
   const firstGhostReveal = await measureTransition(page, 'flashlight-profile-hit');
+  await page.evaluate(() => window.__THREE_GAME_TEST_HOOKS__?.setState('flashlight-profile-off'));
+  await settleFrames(page, 8);
+  const firstLightning = await measureTransition(page, 'lightning-north-main');
+  await page.evaluate(() => window.__THREE_GAME_TEST_HOOKS__?.setState('flashlight-profile-off'));
+  await settleFrames(page, 8);
+  const simultaneousHit = await measureTransition(page, 'flashlight-lightning-hit');
 
-  console.log(JSON.stringify({ baselinePrograms, firstFlashlight, warmFlashlight, firstGhostReveal }));
+  console.log(JSON.stringify({
+    baselinePrograms,
+    firstFlashlight,
+    firstGhostReveal,
+    firstLightning,
+    simultaneousHit,
+  }));
   expect(firstFlashlight.maximumMs).toBeLessThan(MAX_TRANSITION_FRAME_MS);
   expect(firstGhostReveal.maximumMs).toBeLessThan(MAX_TRANSITION_FRAME_MS);
+  expect(firstLightning.maximumMs).toBeLessThan(MAX_TRANSITION_FRAME_MS);
+  expect(simultaneousHit.maximumMs).toBeLessThan(MAX_TRANSITION_FRAME_MS);
+  expect(firstFlashlight.programs).toBe(baselinePrograms);
+  expect(firstGhostReveal.programs).toBe(baselinePrograms);
+  expect(firstLightning.programs).toBe(baselinePrograms);
+  expect(simultaneousHit.programs).toBe(baselinePrograms);
   expect(errors).toEqual([]);
 });
 
@@ -111,7 +127,7 @@ async function measureTransition(page: Page, state: string): Promise<{
       previous = now;
       frames += 1;
       if (frames === 2) window.__THREE_GAME_TEST_HOOKS__?.setState(nextState);
-      if (frames < 18) {
+      if (frames < 32) {
         requestAnimationFrame(sample);
         return;
       }

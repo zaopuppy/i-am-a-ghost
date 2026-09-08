@@ -401,8 +401,6 @@ export function createRenderStage(canvas: HTMLCanvasElement): RenderStage {
     const previousTarget = renderer.getRenderTarget();
     const previousAutoClear = renderer.autoClear;
     const previousPostMaterial = postQuad.material;
-    const warmupTarget = new THREE.WebGLRenderTarget(1, 1);
-    warmupTarget.texture.colorSpace = THREE.SRGBColorSpace;
     try {
       for (let activeCount = 0; activeCount <= flashlights.length; activeCount += 1) {
         for (let index = 0; index < flashlights.length; index += 1) {
@@ -413,7 +411,12 @@ export function createRenderStage(canvas: HTMLCanvasElement): RenderStage {
           if (flashlightParent) flashlightParent.visible = active;
           if (active) flashlight.shadow.needsUpdate = true;
         }
-        render(scene, flashlights.slice(0, activeCount), warmupCamera, warmupTarget);
+        renderer.setRenderTarget(activeCount === 0 ? null : sceneTarget);
+        await renderer.compileAsync(scene, warmupCamera);
+        render(scene, flashlights.slice(0, activeCount), warmupCamera);
+        renderer.setRenderTarget(null);
+        renderer.autoClear = true;
+        renderer.clear();
       }
 
       renderer.setRenderTarget(null);
@@ -425,7 +428,6 @@ export function createRenderStage(canvas: HTMLCanvasElement): RenderStage {
       renderer.setRenderTarget(previousTarget);
       renderer.autoClear = previousAutoClear;
       postQuad.material = previousPostMaterial;
-      warmupTarget.dispose();
       scene.remove(warmupGroup);
       for (const root of objects) warmupGroup.remove(root);
       for (const [light, mask] of lightLayers) light.layers.mask = mask;

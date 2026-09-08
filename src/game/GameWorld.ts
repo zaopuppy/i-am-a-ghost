@@ -240,16 +240,24 @@ export class GameWorld {
       const children = visuals.filter((visual) => visual.kind === 'child');
       const ghost = visuals.find((visual) => visual.kind === 'ghost');
       const childRoots = children.map((visual) => visual.root);
-      await prewarm(childRoots);
       if (ghost?.ghostRig) {
-        const revealRoots = [...childRoots, ghost.root];
-        await prewarm(revealRoots);
-        ghost.ghostRig.fireGroup.visible = true;
-        try {
+        // Ghost materials become transparent on their first reveal. Establish that
+        // final runtime material state before compiling any reveal variants.
+        setGhostOpacity(ghost, 1);
+      }
+      // Keep the lightning shadow in the renderer's permanent light signature and
+      // allocate its map during loading. Runtime strikes only change intensity,
+      // direction, and request a static shadow refresh.
+      this.positionLightning('north');
+      this.lightningLight.shadow.needsUpdate = true;
+      try {
+        await prewarm(childRoots);
+        if (ghost?.ghostRig) {
+          const revealRoots = [...childRoots, ghost.root];
           await prewarm(revealRoots);
-        } finally {
-          ghost.ghostRig.fireGroup.visible = false;
         }
+      } finally {
+        this.lightningLight.shadow.needsUpdate = false;
       }
       for (const [index, { kind, slot }] of specs.entries()) {
         this.preparedActors.set(preparedActorKey(kind, slot), visuals[index]);
@@ -265,7 +273,7 @@ export class GameWorld {
         }),
       );
     }
-    this.characterPrewarmPromise = ready.then(() => undefined).catch(() => undefined).finally(() => {
+    this.characterPrewarmPromise = ready.then(() => undefined).finally(() => {
       this.pendingAssetUpgrades -= 1;
     });
     return this.characterPrewarmPromise;
@@ -527,7 +535,7 @@ export class GameWorld {
     const size = Math.max(1, Math.round(requestedSize));
     const shadow = this.lightningLight.shadow;
     this.lightningLight.name = 'lightning-directional-light';
-    this.lightningLight.castShadow = false;
+    this.lightningLight.castShadow = true;
     this.lightningLight.target.name = 'lightning-directional-target';
     shadow.mapSize.set(size, size);
     shadow.camera.near = 1;
@@ -1259,6 +1267,7 @@ function createGhost(materials: HouseMaterialKit): { root: THREE.Group; rig: Gho
     captureVeil,
     captureLight,
     fire.group,
+    fire.light,
   );
   return {
     root: ghost,
@@ -1487,7 +1496,6 @@ function createGhostFire(): {
   }
   const light = new THREE.PointLight(0xff8a32, 0, 4.6, 2);
   light.position.y = 0.82;
-  group.add(light);
   return { group, flames, light };
 }
 

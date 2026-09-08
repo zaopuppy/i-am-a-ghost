@@ -55,3 +55,16 @@ test('lightning test states freeze each direction at the main-flash peak', () =>
     assert.deepEqual(frame.ghost?.position, fixture.position);
   }
 });
+
+test('combined performance state keeps flashlight hit, burn, and lightning active together', () => {
+  const frame = createDeterministicViewerFrame('flashlight-lightning-hit', 71);
+  assert.equal(frame.viewerRole, 'child');
+  if (frame.viewerRole !== 'child') throw new Error('Expected child frame.');
+  assert.equal(frame.children.find((child) => child.playerId === 'child-1')?.flashlightOn, true);
+  assert.equal(frame.ghost?.burning, true);
+  assert.equal(frame.lightning?.direction, 'north');
+  const mainPulse = frame.lightning?.pulses.find((pulse) => pulse.kind === 'main');
+  assert.ok(mainPulse);
+  assert.ok(frame.tick >= mainPulse.startTick);
+  assert.ok(frame.tick < mainPulse.startTick + mainPulse.durationTicks);
+});

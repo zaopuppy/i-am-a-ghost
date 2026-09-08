@@ -88,6 +88,14 @@ The maximum case is intentionally expensive: four wall-only shadow passes, one s
 - Spotlight shadow maps are disposed with their `GameWorld` beam owners.
 - Resize updates the orthographic projection, renderer drawing buffer, and offscreen target together.
 
+## Prewarming contract
+
+- Apply final runtime material flags, including ghost transparency, before compiling presentation variants.
+- Keep light and shadow participation structurally stable; runtime effects should change intensity and transforms instead of changing the renderer's light signature.
+- Compile zero through four flashlight variants against the same color targets used during play, then submit and clear the default framebuffer before reporting rendering ready.
+- Rendering readiness must reject on preload or compilation failure. It must not convert a failed prewarm into a successful loading state.
+- The deterministic cold-transition test must cover flashlight activation, ghost reveal with burn, lightning, and flashlight hit plus lightning in the same frame. None may add a renderer program after loading.
+
 ## Acceptance criteria
 
 - A doorway produces a split beam: wall-side samples stop while opening-side samples continue.
@@ -96,5 +104,5 @@ The maximum case is intentionally expensive: four wall-only shadow passes, one s
 - Child-hidden frames contain no ghost object, depth, or flashlight shadow-caster contribution.
 - Zero active flashlights use the direct render path.
 - One to four active flashlights compile and render without console errors.
+- First flashlight, ghost reveal with burn, lightning, and their simultaneous transition stay below the 50 ms frame budget after loading and do not increase `renderer.info.programs`.
 - Production build, rule tests, browser interaction tests, and deterministic visual snapshots pass.
-
