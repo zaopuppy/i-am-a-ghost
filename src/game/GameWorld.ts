@@ -296,7 +296,18 @@ export class GameWorld {
       actor.root.visible = false;
       actor.captureProgress = null;
     }
-    if (!frame) return lightningFrame;
+    if (!frame) {
+      // A cleared world ends the previous presentation timeline, including hidden echoes.
+      this.ghostEcho = null;
+      for (const actor of this.actors.values()) {
+        actor.lastPosition = null;
+        actor.lastUpdateSeconds = 0;
+        actor.facing.initialized = false;
+        actor.flashlightPresentation = createFlashlightPresentationState();
+      }
+      for (const battery of this.batteries) battery.root.visible = false;
+      return lightningFrame;
+    }
 
     for (const child of frame.children) {
       const actor = this.actor(`child:${child.playerId}`, 'child', child.slot);
