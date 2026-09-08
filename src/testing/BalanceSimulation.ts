@@ -1,4 +1,5 @@
 import { DEFAULT_HOUSE_MAP, HOUSE_ROOMS } from '../game/defaultHouse';
+import { advanceChildFacing } from '../game/ChildMovement';
 import { mapPositionIsOpen, mapSegmentIsOpen } from '../game/MapCollision';
 import {
   MATCH_RULES,
@@ -257,7 +258,14 @@ function createBotCommands(
       : Math.atan2(move.z, move.x);
     const patrolScan = !seesDanger && (checkpoint.tick + (childPlayer.slot ?? 0) * 37) % 180 < 36;
     const flashlight = battery > 0 && ((seesDanger && lineToGhost) || patrolScan);
-    commands.push(command(childPlayer, move, Number.isFinite(facing) ? facing : 0, flashlight));
+    const direction = flashlight
+      ? { x: Math.cos(facing), z: Math.sin(facing) }
+      : move;
+    commands.push(command(childPlayer, move, advanceChildFacing(
+      childPlayer.facingRadians,
+      direction,
+      1 / MATCH_RULES.tickRate,
+    ), flashlight));
   }
   return commands;
 }

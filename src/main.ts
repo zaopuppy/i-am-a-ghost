@@ -226,38 +226,39 @@ const loop = new Loop(
     const movement = deterministicState
       ? { x: 0, z: 0 }
       : orientMovementToCamera(input.movement(), cameraPose.position, cameraPose.target);
-    const actionHeld = input.actionHeld();
+    const actionHeld = !cameraPose.pointerMode && !sceneEditorRequested && input.actionHeld();
+    let facingRadians = lastFacingRadians;
+    const resolveChildFacing = (aimFrame: ViewerFrame): number => {
+      const ownChild = aimFrame.children.find((child) => child.playerId === aimFrame.viewerPlayerId);
+      const aimKey = `${envelope?.matchId ?? 'scene'}:${aimFrame.viewerPlayerId}:${aimFrame.captureCount}:${aimFrame.phase}`;
+      if (ownChild && aimKey !== childAimKey) {
+        childAim.reset(ownChild.facingRadians);
+        childAimKey = aimKey;
+      }
+      if (ownChild && (aimFrame.phase === 'playing' || aimFrame.phase === 'protection')) {
+        const mouse = input.mousePosition();
+        const direction = harmonyHost.active
+          ? orientMovementToCamera(input.aimDirection(), cameraPose.position, cameraPose.target)
+          : mouse && !cameraPose.pointerMode && !sceneEditorRequested
+            ? childAim.mouseDirection(mouse, canvas.getBoundingClientRect(), stage.camera, ownChild.position)
+            : null;
+        facingRadians = childAim.update(movement, direction, actionHeld, deltaSeconds);
+      } else {
+        facingRadians = childAim.radians;
+      }
+      return facingRadians;
+    };
     let frame = deterministicState
       ? createDeterministicViewerFrame(deterministicState, deterministicSeed)
       : scenePlaytest
         ? scenePlaytest.frame()
-        : presenter.present(deltaSeconds, movement, runtimeTuning);
-    let facingRadians = lastFacingRadians;
+        : presenter.present(deltaSeconds, movement, runtimeTuning, resolveChildFacing);
     if (!deterministicState && frame) {
-      if (frame.viewerRole === 'child') {
-        const viewerPlayerId = frame.viewerPlayerId;
-        const ownChild = frame.children.find((child) => child.playerId === viewerPlayerId);
-        const aimKey = `${envelope?.matchId ?? 'scene'}:${frame.viewerPlayerId}:${frame.captureCount}:${frame.phase}`;
-        if (ownChild && aimKey !== childAimKey) {
-          childAim.reset(ownChild.facingRadians);
-          childAimKey = aimKey;
-        }
-        if (ownChild && (frame.phase === 'playing' || frame.phase === 'protection')) {
-          const mouse = input.mousePosition();
-          const direction = harmonyHost.active
-            ? orientMovementToCamera(input.aimDirection(), cameraPose.position, cameraPose.target)
-            : mouse && !cameraPose.pointerMode && !sceneEditorRequested
-              ? childAim.mouseDirection(mouse, canvas.getBoundingClientRect(), stage.camera, ownChild.position)
-              : null;
-          facingRadians = childAim.advance(direction, deltaSeconds);
-          // Predict only our own facing, on the presenter's copy, never on authority snapshots.
-          ownChild.facingRadians = facingRadians;
-        } else {
-          facingRadians = childAim.radians;
-        }
-      } else {
+      if (frame.viewerRole === 'ghost') {
         facingRadians = calculateFacing(movement);
         childAimKey = '';
+      } else if (scenePlaytest) {
+        facingRadians = resolveChildFacing(frame);
       }
       if (scenePlaytest) frame = scenePlaytest.update(deltaSeconds, movement, facingRadians, actionHeld);
     } else if (!frame) {
@@ -918,14 +919,14 @@ function updateControlHint(frame: ViewerFrame): void {
   if (harmonyHost.active) {
     controlHint.textContent = frame.viewerRole === 'ghost'
       ? '左侧摇杆移动 · 持续接触孩子完成抓捕'
-      : '左摇杆移动 · 右摇杆按住照明、拖动转向';
+      : '左摇杆移动 · 右摇杆照明转向 · 松手转身跑';
     return;
   }
   controlHint.textContent = frame.viewerRole === 'ghost'
     ? frame.ghost.burning
       ? '灼烧中 · 无法抓取 · WASD 或方向键逃离光束'
       : 'WASD 或方向键移动 · 持续接触孩子完成抓捕'
-    : 'WASD 或方向键移动 · 鼠标转向 · 按住空格照明';
+    : 'WASD 或方向键移动 · 鼠标转向 · 按住鼠标左键照明，松手转身跑';
 }
 
 async function installDebugGui(): Promise<void> {

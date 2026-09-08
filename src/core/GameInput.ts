@@ -80,11 +80,14 @@ export class GameInput {
   private readonly moveStick = new FloatingJoystick('touch-move-area', 'touch-joystick');
   private readonly aimStick = new FloatingJoystick('touch-aim-area', 'touch-action');
   private pointer: { x: number; y: number } | null = null;
+  private mouseActionHeld = false;
 
   constructor() {
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
     window.addEventListener('blur', this.clear);
+    document.addEventListener('mousedown', this.onMouseDown);
+    window.addEventListener('mouseup', this.onMouseUp);
     document.addEventListener('visibilitychange', this.onVisibilityChange);
     document.addEventListener('pointerdown', this.onPointerDown);
     document.addEventListener('pointermove', this.onPointerMove);
@@ -100,13 +103,15 @@ export class GameInput {
 
   aimDirection(): Vec2 { return { ...this.aimStick.vector }; }
   mousePosition(): { x: number; y: number } | null { return this.pointer ? { ...this.pointer } : null; }
-  actionHeld(): boolean { return this.pressed.has('Space') || this.aimStick.pointerId !== null; }
+  actionHeld(): boolean { return this.mouseActionHeld || this.aimStick.pointerId !== null; }
 
   dispose(): void {
     this.clear();
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);
     window.removeEventListener('blur', this.clear);
+    document.removeEventListener('mousedown', this.onMouseDown);
+    window.removeEventListener('mouseup', this.onMouseUp);
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
     document.removeEventListener('pointerdown', this.onPointerDown);
     document.removeEventListener('pointermove', this.onPointerMove);
@@ -119,6 +124,7 @@ export class GameInput {
   readonly clear = (): void => {
     this.pressed.clear();
     this.pointer = null;
+    this.mouseActionHeld = false;
     this.moveStick.release();
     this.aimStick.release();
   };
@@ -138,6 +144,16 @@ export class GameInput {
     if (document.visibilityState !== 'visible') this.clear();
   };
 
+  private readonly onMouseDown = (event: MouseEvent): void => {
+    if (event.button !== 0 || !(event.target instanceof Element) || !event.target.closest('#game-canvas')) return;
+    this.mouseActionHeld = true;
+    this.pointer = { x: event.clientX, y: event.clientY };
+  };
+
+  private readonly onMouseUp = (event: MouseEvent): void => {
+    if (event.button === 0) this.mouseActionHeld = false;
+  };
+
   private readonly onPointerDown = (event: PointerEvent): void => {
     const target = event.target instanceof Element ? event.target : null;
     if (target?.closest('#touch-move-area')) this.moveStick.start(event);
@@ -148,6 +164,7 @@ export class GameInput {
     this.moveStick.move(event);
     this.aimStick.move(event);
     if (event.pointerType === 'mouse') {
+      if ((event.buttons & 1) === 0) this.mouseActionHeld = false;
       this.pointer = event.target instanceof Element && event.target.closest('#game-canvas')
         ? { x: event.clientX, y: event.clientY } : null;
     }
@@ -160,6 +177,7 @@ export class GameInput {
   };
 
   private readonly onPointerEnd = (event: PointerEvent): void => {
+    if (event.pointerType === 'mouse') this.mouseActionHeld = false;
     this.moveStick.end(event);
     this.aimStick.end(event);
   };
@@ -186,7 +204,7 @@ function hasAny(pressed: ReadonlySet<string>, codes: ReadonlySet<string>): boole
 }
 
 function isGameKey(code: string): boolean {
-  return MOVE_LEFT.has(code) || MOVE_RIGHT.has(code) || MOVE_UP.has(code) || MOVE_DOWN.has(code) || code === 'Space';
+  return MOVE_LEFT.has(code) || MOVE_RIGHT.has(code) || MOVE_UP.has(code) || MOVE_DOWN.has(code);
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {

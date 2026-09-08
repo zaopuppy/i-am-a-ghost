@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { Vec2 } from '../game/MatchEngine';
-import { dampAngle } from '../game/VisualFacing';
+import { advanceChildFacing } from '../game/ChildMovement';
 
 /** Converts a cursor on the rendered canvas to a direction on the world floor. */
 export class ChildAim {
@@ -30,10 +30,14 @@ export class ChildAim {
   }
 
   advance(direction: Vec2 | null, deltaSeconds: number): number {
-    if (direction && Math.hypot(direction.x, direction.z) > 0.001) {
-      // About 95% of a turn in 100ms; smooth once, before sending the same heading to authority.
-      this.radians = dampAngle(this.radians, Math.atan2(direction.z, direction.x), 30, deltaSeconds);
-    }
+    // About 95% of a turn in 100ms, before sending the same heading to authority.
+    this.radians = advanceChildFacing(this.radians, direction, deltaSeconds);
     return this.radians;
+  }
+
+  update(movement: Vec2, aimDirection: Vec2 | null, actionHeld: boolean, deltaSeconds: number): number {
+    // Held input defines aiming even with an empty battery. A centered stick
+    // preserves the current heading instead of restoring an old aim.
+    return this.advance(actionHeld ? aimDirection : movement, deltaSeconds);
   }
 }

@@ -1,4 +1,5 @@
 import { mapPositionIsOpen } from './MapCollision';
+import { childMovementMultiplier } from './ChildMovement';
 
 export interface Vec2 {
   x: number;
@@ -464,7 +465,7 @@ export class MatchEngine {
       const speed = player.role === 'ghost'
         ? this.gameplayTuning.ghostMoveSpeed
           * (burningGhost ? MATCH_RULES.illuminatedGhostSpeedMultiplier : 1)
-        : this.gameplayTuning.childMoveSpeed;
+        : this.gameplayTuning.childMoveSpeed * childMovementMultiplier(command.move, player.facingRadians);
       const distance = speed * secondsPerTick;
       const xCandidate = {
         x: player.position.x + (command.move.x / magnitude) * distance,

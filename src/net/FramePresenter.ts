@@ -1,4 +1,5 @@
 import { DEFAULT_HOUSE_MAP } from '../game/defaultHouse';
+import { childMovementMultiplier } from '../game/ChildMovement';
 import { mapPositionIsOpen } from '../game/MapCollision';
 import {
   DEFAULT_GAMEPLAY_TUNING,
@@ -215,9 +216,15 @@ export class FramePresenter {
     deltaSeconds: number,
     movement: Vec2,
     movementTuning: Pick<GameplayTuning, 'childMoveSpeed' | 'ghostMoveSpeed'> = DEFAULT_GAMEPLAY_TUNING,
+    resolveChildFacing?: (frame: ChildViewerFrame) => number,
   ): ViewerFrame | null {
     if (!this.current) return null;
     const frame = this.presentBufferedFrame(Math.max(0, deltaSeconds));
+    if (this.predictedPosition) setOwnPosition(frame, this.predictedPosition);
+    const ownChild = frame.children.find((child) => child.playerId === frame.viewerPlayerId);
+    if (frame.viewerRole === 'child' && ownChild && resolveChildFacing) {
+      ownChild.facingRadians = resolveChildFacing(frame);
+    }
 
     if (this.predictedPosition) {
       if (viewerCanPredictMovement(frame)) {
@@ -226,7 +233,7 @@ export class FramePresenter {
           const speed = frame.viewerRole === 'ghost'
             ? movementTuning.ghostMoveSpeed
               * (frame.ghost.burning ? MATCH_RULES.illuminatedGhostSpeedMultiplier : 1)
-            : movementTuning.childMoveSpeed;
+            : movementTuning.childMoveSpeed * childMovementMultiplier(movement, ownChild?.facingRadians ?? 0);
           this.predictedPosition = movePredictedPosition(
             this.predictedPosition,
             { x: movement.x / magnitude, z: movement.z / magnitude },

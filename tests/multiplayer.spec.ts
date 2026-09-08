@@ -131,15 +131,17 @@ test('two browser pages join, start, and move through the authoritative input pa
   if (childFrame?.viewerRole === 'child') expect(childFrame.ghost).toBeUndefined();
 
   await childPage.mouse.move(100, 360);
+  await childPage.mouse.down({ button: 'left' });
   await expect.poll(async () => Math.cos((await readOwnChildFacing(childPage)) ?? 0)).toBeLessThan(-0.5);
   await childPage.mouse.move(880, 360);
   await expect.poll(async () => Math.cos((await readOwnChildFacing(childPage)) ?? 0)).toBeGreaterThan(0.5);
+  await childPage.mouse.up({ button: 'left' });
   await childPage.mouse.move(-10, -10);
-  const facingBeforeMovement = await readOwnChildFacing(childPage);
   await childPage.keyboard.down('w');
-  await childPage.waitForTimeout(200);
+  await expect.poll(() => readOwnChildFacing(childPage)).toBeCloseTo(-Math.PI / 2, 2);
   await childPage.keyboard.up('w');
-  expect(await readOwnChildFacing(childPage)).toBeCloseTo(facingBeforeMovement ?? 0, 5);
+  await childPage.mouse.move(880, 360);
+  expect(await readOwnChildFacing(childPage)).toBeCloseTo(-Math.PI / 2, 2);
 
   const initialX = await childPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.ownPosition?.x ?? null);
   expect(initialX).not.toBeNull();
@@ -164,7 +166,8 @@ test('two browser pages join, start, and move through the authoritative input pa
     const frame = window.__THREE_GAME_DIAGNOSTICS__?.viewerFrame;
     return frame?.viewerRole === 'child' ? frame.ownBattery : null;
   });
-  await childPage.keyboard.down(' ');
+  await childPage.mouse.move(880, 360);
+  await childPage.mouse.down({ button: 'left' });
   await expect
     .poll(() => childPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.world.beams ?? 0))
     .toBe(1);
@@ -209,7 +212,7 @@ test('two browser pages join, start, and move through the authoritative input pa
     litConePixelRatio - unlitConePixelRatio,
     `moving flashlight cone-pixel delta: ${litConePixelRatio - unlitConePixelRatio}`,
   ).toBeGreaterThan(0.01);
-  await childPage.keyboard.up(' ');
+  await childPage.mouse.up({ button: 'left' });
   const batteryAfter = await childPage.evaluate(() => {
     const frame = window.__THREE_GAME_DIAGNOSTICS__?.viewerFrame;
     return frame?.viewerRole === 'child' ? frame.ownBattery : null;

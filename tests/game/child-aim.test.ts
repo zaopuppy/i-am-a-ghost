@@ -3,6 +3,26 @@ import test from 'node:test';
 import * as THREE from 'three';
 import { ChildAim } from '../../src/core/ChildAim';
 import { shortestAngleDelta } from '../../src/game/VisualFacing';
+import { childMovementMultiplier } from '../../src/game/ChildMovement';
+
+test('release turns into movement and smoothly restores speed; an idle release holds facing', () => {
+  const aim = new ChildAim();
+  aim.reset(Math.PI);
+  const movement = { x: 1, z: 0 };
+  let speed = 0.9;
+  for (let tick = 0; tick < 6; tick += 1) {
+    const facing = aim.update(movement, { x: -1, z: 0 }, false, 1 / 60);
+    const next = childMovementMultiplier(movement, facing);
+    assert.ok(next >= speed);
+    speed = next;
+  }
+  assert.ok(speed > 0.999);
+  const last = aim.radians;
+  assert.equal(aim.update({ x: 0, z: 0 }, { x: -1, z: 0 }, false, 1), last);
+  assert.equal(aim.update(movement, { x: 0, z: 0 }, true, 1), last);
+  aim.update(movement, { x: -1, z: 0 }, true, 0.1);
+  assert.ok(Math.abs(shortestAngleDelta(aim.radians, Math.PI)) < 0.16);
+});
 
 test('cursor projection aims at the world floor under a rotated perspective camera', () => {
   const aim = new ChildAim();

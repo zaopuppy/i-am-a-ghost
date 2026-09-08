@@ -4,6 +4,17 @@ import { MATCH_RULES } from '../../src/game/MatchEngine';
 import { FramePresenter, movePredictedPosition } from '../../src/net/FramePresenter';
 import type { ChildViewerFrame } from '../../src/game/ViewerFrame';
 
+test('prediction uses this render frame aim before applying directional movement speed', () => {
+  for (const [facing, expected] of [[0, 1], [Math.PI / 2, 0.95], [Math.PI, 0.9]]) {
+    const presenter = new FramePresenter();
+    presenter.ingest('match', childFrame(0, 0, 10));
+    const frame = presenter.present(1 / 60, { x: 1, z: 0 }, undefined, () => facing)!;
+    const own = frame.children.find((child) => child.playerId === 'own')!;
+    assert.ok(Math.abs(own.position.x - 3.6 / 60 * expected) < 1e-9);
+    assert.equal(own.facingRadians, facing);
+  }
+});
+
 test('presentation predicts only the local actor and interpolates a remote actor', () => {
   const presenter = new FramePresenter();
   presenter.ingest('match', childFrame(0, 0, 10));

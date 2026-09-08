@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { ChildStrafeAnimation } from './ChildStrafeAnimation';
 import { furnitureAssetMetrics } from '../assets/EnvironmentAssets';
 import {
   createGhostAssetInstance,
@@ -93,6 +94,7 @@ interface ActorVisual {
   flashlightPresentation: FlashlightPresentationState;
   headlamp: HeadlampBand;
   imported: CharacterAssetInstance | null;
+  strafeAnimation: ChildStrafeAnimation | null;
   currentAnimation: string;
   captureProgress: number | null;
   lastPosition: Vec2 | null;
@@ -692,6 +694,7 @@ export class GameWorld {
         : await createKidAssetInstance(slot, kind === 'doll');
       if (this.disposed) return;
       actor.imported = imported;
+      if (kind === 'child') actor.strafeAnimation = new ChildStrafeAnimation(imported);
       actor.currentAnimation = 'Idle_A';
       if (kind === 'ghost' && actor.ghostRig) {
         actor.ghostRig.fallbackVisual.visible = false;
@@ -906,6 +909,7 @@ function createActor(
     flashlightPresentation: createFlashlightPresentationState(),
     headlamp: 'off',
     imported: null,
+    strafeAnimation: null,
     currentAnimation: 'Idle_A',
     captureProgress: null,
     lastPosition: null,
@@ -952,6 +956,7 @@ function syncActor(
   actor.bodyPivot.rotation.x = 0;
   actor.bodyPivot.rotation.z = 0;
   if (actor.imported) {
+    actor.strafeAnimation?.restoreBasePose();
     resetImportedJointRotations(actor.imported, captured);
     const distance = actor.lastPosition
       ? Math.hypot(position.x - actor.lastPosition.x, position.z - actor.lastPosition.z)
@@ -960,17 +965,25 @@ function syncActor(
       ? 'Idle_A'
       : captured
         ? 'Hit_A'
-        : distance > 0.012
+        : elapsed > 0 && distance / elapsed > 0.1
           ? 'Running_A'
           : 'Idle_A';
     playActorAnimation(actor, nextAnimation);
-    // Reuse the running cycle in reverse for backpedalling; sideways movement
-    // retains the running cycle while the body continues facing the light.
+    // Backpedal with the reversed running cycle; lateral footwork is layered below.
     actor.imported.actions.get('Running_A')?.setEffectiveTimeScale(
-      actor.facing.locomotion === 'backward' ? -1 : 1,
+      (actor.facing.locomotion === 'backward' ? -1 : 1)
+        * (elapsed > 0 ? THREE.MathUtils.clamp(distance / elapsed / DEFAULT_GAMEPLAY_TUNING.childMoveSpeed, 0, 2) : 0),
     );
     // Capture uses the stable base pose below plus authoritative procedural limb motion.
     if (!captured) actor.imported.mixer.update(doll ? 0 : elapsed);
+    actor.strafeAnimation?.update(
+      actor.lastPosition
+        ? { x: position.x - actor.lastPosition.x, z: position.z - actor.lastPosition.z }
+        : { x: 0, z: 0 },
+      facingRadians,
+      elapsed,
+      !doll && !captured && phase !== 'capture-animation',
+    );
     if (!doll && nextAnimation !== 'Hit_A') {
       applyLookPose(actor.imported, actor.facing.bodyRadians, actor.facing.bodyRadians);
     }

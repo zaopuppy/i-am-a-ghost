@@ -10,6 +10,49 @@ async function readInput(page: Page) {
   }).__sampleControls());
 }
 
+test('desktop flashlight uses held left click only and releases outside the canvas or on blur', async ({ page }) => {
+  await page.goto('/?testState=child-playing');
+  await expect(page.getByTestId('role-label')).toContainText('小孩', { timeout: 20_000 });
+  await page.evaluate(async () => {
+    const path = '/src/core/GameInput.ts';
+    const { GameInput } = await import(path);
+    const input = new GameInput();
+    Object.assign(window, {
+      __sampleControls: () => ({
+        move: input.movement(), aim: input.aimDirection(), action: input.actionHeld(),
+      }),
+    });
+  });
+  await expect(page.locator('#control-hint')).toContainText('按住鼠标左键照明');
+  await page.keyboard.down('Space');
+  expect((await readInput(page)).action).toBe(false);
+  await page.keyboard.up('Space');
+  await page.mouse.move(800, 400);
+  await page.mouse.down({ button: 'right' });
+  expect((await readInput(page)).action).toBe(false);
+  await page.mouse.up({ button: 'right' });
+  await page.keyboard.press('Escape');
+  await page.mouse.down({ button: 'left' });
+  expect((await readInput(page)).action).toBe(true);
+  await page.mouse.move(750, 350);
+  expect((await readInput(page)).action).toBe(true);
+  const button = page.locator('#audio-toggle');
+  const bounds = await button.boundingBox();
+  if (!bounds) throw new Error('Audio control is missing.');
+  await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+  await page.mouse.up({ button: 'left' });
+  expect((await readInput(page)).action).toBe(false);
+  await page.mouse.down({ button: 'left' });
+  expect((await readInput(page)).action).toBe(false);
+  await page.mouse.up({ button: 'left' });
+  await page.mouse.move(800, 400);
+  await page.mouse.down({ button: 'left' });
+  expect((await readInput(page)).action).toBe(true);
+  await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+  expect((await readInput(page)).action).toBe(false);
+  await page.mouse.up({ button: 'left' });
+});
+
 test('both floating sticks capture separate fingers and release independently', async ({ page, context }) => {
   await page.goto('/?testState=child-playing');
   await expect(page.getByTestId('role-label')).toContainText('小孩', { timeout: 20_000 });
