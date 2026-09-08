@@ -526,7 +526,7 @@ test('additional flashlights add diminishing damage', () => {
   assertApproximately(engine.checkpoint().ghostHealth, MATCH_RULES.ghostMaxHealth - expectedDamage);
 });
 
-test('an illuminated ghost moves twenty percent slower', () => {
+test('an illuminated ghost moves forty percent faster', () => {
   const engine = new MatchEngine({
     seed: 7,
     map: {
@@ -552,8 +552,47 @@ test('an illuminated ghost moves twenty percent slower', () => {
   assert.ok(ghost);
   assertApproximately(
     ghost.position.z,
-    (MATCH_RULES.ghostMoveSpeed * MATCH_RULES.illuminatedGhostSpeedMultiplier) / MATCH_RULES.tickRate,
+    (MATCH_RULES.ghostMoveSpeed * 1.4) / MATCH_RULES.tickRate,
   );
+});
+
+test('a burning ghost can outpace a pursuing flashlight and recovers normal speed afterward', () => {
+  const engine = new MatchEngine({
+    seed: 7,
+    map: {
+      ...OPEN_MAP,
+      bounds: { minX: -100, maxX: 100, minZ: -100, maxZ: 100 },
+      ghostSpawn: { x: 1.5, z: 0 },
+    },
+    ghostPlayerId: 'ghost',
+    childPlayerIds: ['child'],
+  });
+  const commands = [
+    { playerId: 'ghost', move: { x: 1, z: 0 }, facingRadians: 0, action: false },
+    { playerId: 'child', move: { x: 1, z: 0 }, facingRadians: 0, action: true },
+  ];
+  let escaped = false;
+  for (let tick = 0; tick < 240; tick += 1) {
+    const frame = engine.advance(commands).checkpoint;
+    const ghost = frame.players.find((player) => player.id === 'ghost')!;
+    const child = frame.players.find((player) => player.id === 'child')!;
+    assert.ok(frame.ghostHealth > 0, 'ghost died before escaping a single pursuing beam');
+    if (ghost.position.x - child.position.x > MATCH_RULES.flashlightLength + MATCH_RULES.playerRadius) {
+      escaped = true;
+      break;
+    }
+  }
+  assert.ok(escaped, 'ghost could not pull clear of the flashlight');
+  commands[1].action = false;
+  const before = engine.checkpoint().players[0].position.x;
+  const burning = engine.advance(commands).checkpoint;
+  assertApproximately(burning.players[0].position.x - before, MATCH_RULES.ghostMoveSpeed * 1.4 / MATCH_RULES.tickRate);
+  engine.advance(commands, MATCH_RULES.ghostBurnDurationTicks);
+  const recovered = engine.checkpoint();
+  assert.equal(recovered.ghostBurnTicksRemaining, 0);
+  const normal = engine.advance(commands).checkpoint;
+  assertApproximately(normal.players[0].position.x - recovered.players[0].position.x,
+    MATCH_RULES.ghostMoveSpeed / MATCH_RULES.tickRate);
 });
 
 test('a burning ghost can flee but cannot capture until the burn lock expires', () => {

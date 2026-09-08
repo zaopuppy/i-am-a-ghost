@@ -149,7 +149,7 @@ export const MATCH_RULES = Object.freeze({
   flashlightDamagePerSecond: 12.5,
   beamDamageMultipliers: [1, 0.65, 0.45, 0.3] as const,
   ghostMaxHealth: 50,
-  illuminatedGhostSpeedMultiplier: 0.8,
+  illuminatedGhostSpeedMultiplier: 1.4,
   ghostBurnDurationTicks: 90,
   matchDurationTicks: 18_000,
   captureAnimationTicks: 210,
