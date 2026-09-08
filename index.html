@@ -34,8 +34,23 @@
           <p class="room-label">房间码</p>
           <p class="room-code" id="room-code" data-testid="room-code">——</p>
           <ul class="roster" id="roster" data-testid="roster"></ul>
+          <fieldset class="role-picker" id="lobby-role-picker" data-testid="lobby-role-picker">
+            <legend>选择本局阵营</legend>
+            <p class="role-picker__hint">每局只有一个鬼席位，先选先得。</p>
+            <div class="role-picker__choices">
+              <button class="role-choice role-choice--ghost" type="button" data-role-choice="ghost" aria-pressed="false">
+                <span class="role-choice__mark" aria-hidden="true">鬼</span>
+                <span class="role-choice__copy"><strong>成为鬼</strong><small>追逐并抓住三个孩子</small></span>
+              </button>
+              <button class="role-choice role-choice--child" type="button" data-role-choice="child" aria-pressed="false">
+                <span class="role-choice__mark" aria-hidden="true">孩</span>
+                <span class="role-choice__copy"><strong>成为小孩</strong><small>用手电撑到天亮</small></span>
+              </button>
+            </div>
+          </fieldset>
           <button id="start-match" data-testid="start-match" hidden>开始游戏</button>
-          <p class="waiting" id="waiting-message">等待房主开始…</p>
+          <p class="waiting" id="waiting-message" aria-live="polite">等待房主开始…</p>
+          <p class="start-requirements" id="start-requirements" data-testid="start-requirements" aria-live="polite"></p>
         </div>
         <p class="error-message" id="error-message" role="alert"></p>
       </section>
@@ -120,8 +135,24 @@
           <p class="eyebrow">本局结束</p>
           <h2 id="result-title">孩子获胜</h2>
           <p id="result-detail">黑暗暂时退去了。</p>
+          <fieldset class="role-picker role-picker--result" id="result-role-picker" data-testid="result-role-picker">
+            <legend>选择下一局阵营</legend>
+            <p class="role-picker__hint">选择阵营后，再确认准备。</p>
+            <div class="role-picker__choices">
+              <button class="role-choice role-choice--ghost" type="button" data-role-choice="ghost" aria-pressed="false">
+                <span class="role-choice__mark" aria-hidden="true">鬼</span>
+                <span class="role-choice__copy"><strong>成为鬼</strong><small>唯一席位 · 先选先得</small></span>
+              </button>
+              <button class="role-choice role-choice--child" type="button" data-role-choice="child" aria-pressed="false">
+                <span class="role-choice__mark" aria-hidden="true">孩</span>
+                <span class="role-choice__copy"><strong>成为小孩</strong><small>和同伴一起逃生</small></span>
+              </button>
+            </div>
+          </fieldset>
+          <ul class="roster roster--result" id="result-roster" data-testid="result-roster" aria-label="下一局阵营选择"></ul>
           <button id="ready-next" data-testid="ready-next">准备下一局</button>
           <p class="ready-count" id="ready-count">0 / 0 已准备</p>
+          <p class="error-message result-error" id="result-error" role="alert"></p>
         </div>
       </section>
       <p class="milestone" id="milestone">M6 · 局域网试玩版</p>

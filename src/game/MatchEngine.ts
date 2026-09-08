@@ -103,6 +103,8 @@ export interface MatchCheckpoint {
   captureCount: number;
   phaseTicksRemaining: number;
   capturedChildPlayerId: string | null;
+  captureContactChildPlayerId: string | null;
+  captureContactTicks: number;
   ghostHealth: number;
   ghostRevealed: boolean;
   ghostBurnTicksRemaining: number;
@@ -142,18 +144,19 @@ export const MATCH_RULES = Object.freeze({
   mapCollisionRadius: 0.35,
   flashlightSecondsAtFullCharge: 8,
   flashlightLength: 7.5,
-  flashlightConeDegrees: 36,
+  flashlightConeDegrees: 44,
   flashlightDamagePerSecond: 12.5,
   beamDamageMultipliers: [1, 0.65, 0.45, 0.3] as const,
-  ghostMaxHealth: 100,
+  ghostMaxHealth: 50,
   illuminatedGhostSpeedMultiplier: 0.8,
   ghostBurnDurationTicks: 90,
   matchDurationTicks: 18_000,
   captureAnimationTicks: 210,
   protectionTicks: 120,
   captureContactRange: 0.98,
+  captureContactTicks: 18,
   capturesToWin: 3,
-  headlampDetectionRange: 6,
+  headlampDetectionRange: 7.5,
   batterySpawnThreshold: 0.7,
   batteryDoubleSpawnThreshold: 0.5,
   batteryPickupRadius: 0.75,
@@ -201,6 +204,8 @@ export class MatchEngine {
   private captureCount = 0;
   private phaseTicksRemaining = 0;
   private capturedChildPlayerId: string | null = null;
+  private captureContactChildPlayerId: string | null = null;
+  private captureContactTicks = 0;
   private nextEventId = 1;
   private events: MatchEvent[] = [];
   private randomState: number;
@@ -280,6 +285,7 @@ export class MatchEngine {
     if (player.role !== 'child') throw new Error('Only a child can become a sensing doll.');
     player.active = active;
     if (!active) this.commands.delete(playerId);
+    if (!active && this.captureContactChildPlayerId === playerId) this.clearCaptureContact();
   }
 
   setGameplayTuning(tuning: Partial<GameplayTuning>): void {
@@ -300,6 +306,8 @@ export class MatchEngine {
       captureCount: this.captureCount,
       phaseTicksRemaining: this.phaseTicksRemaining,
       capturedChildPlayerId: this.capturedChildPlayerId,
+      captureContactChildPlayerId: this.captureContactChildPlayerId,
+      captureContactTicks: this.captureContactTicks,
       ghostHealth: this.ghostHealth,
       ghostRevealed: this.ghostRevealed,
       ghostBurnTicksRemaining: this.ghostBurnTicksRemaining,
@@ -326,8 +334,13 @@ export class MatchEngine {
 
   private step(): void {
     if (this.phase === 'ended') return;
-    if (this.phase !== 'playing') {
+    if (this.phase === 'capture-animation') {
       this.updatePausedPhase();
+      this.tick += 1;
+      return;
+    }
+    if (this.phase === 'protection') {
+      this.updateProtectionPhase();
       this.tick += 1;
       return;
     }
@@ -337,36 +350,7 @@ export class MatchEngine {
     if (this.lightningPlayingTick >= this.nextLightningPlayingTick) this.startLightning();
     const illuminatedAtStart = this.findFlashlightHitters().length > 0;
     const burningAtStart = illuminatedAtStart || this.ghostBurnTicksRemaining > 0;
-    const secondsPerTick = 1 / MATCH_RULES.tickRate;
-    for (const player of this.players) {
-      if (!player.active) continue;
-      const command = this.commands.get(player.id);
-      if (!command) continue;
-      const magnitude = Math.hypot(command.move.x, command.move.z);
-      if (player.role === 'child') {
-        player.facingRadians = command.facingRadians;
-      } else if (magnitude > 0) {
-        player.facingRadians = Math.atan2(command.move.z, command.move.x);
-      }
-      if (magnitude === 0) continue;
-      const speed =
-        player.role === 'ghost'
-          ? this.gameplayTuning.ghostMoveSpeed *
-            (burningAtStart ? MATCH_RULES.illuminatedGhostSpeedMultiplier : 1)
-          : this.gameplayTuning.childMoveSpeed;
-      const distance = speed * secondsPerTick;
-      const xCandidate = {
-        x: player.position.x + (command.move.x / magnitude) * distance,
-        z: player.position.z,
-      };
-      if (this.isPositionOpen(player.id, xCandidate)) player.position.x = xCandidate.x;
-
-      const zCandidate = {
-        x: player.position.x,
-        z: player.position.z + (command.move.z / magnitude) * distance,
-      };
-      if (this.isPositionOpen(player.id, zCandidate)) player.position.z = zCandidate.z;
-    }
+    this.movePlayers(true, burningAtStart);
     this.updateFlashlights();
     this.updateLightningReveal();
     this.updateBattery();
@@ -376,10 +360,7 @@ export class MatchEngine {
       this.tick += 1;
       return;
     }
-    if (this.ghostBurnTicksRemaining === 0) {
-      const contactTarget = this.findCaptureTarget();
-      if (contactTarget) this.completeCapture(contactTarget);
-    }
+    this.updateCaptureContact();
     this.tick += 1;
   }
 
@@ -390,24 +371,31 @@ export class MatchEngine {
     this.phaseTicksRemaining = Math.max(0, this.phaseTicksRemaining - 1);
     if (this.phaseTicksRemaining > 0) return;
 
-    if (this.phase === 'capture-animation') {
-      if (this.captureCount >= MATCH_RULES.capturesToWin) {
-        this.finishMatch('ghost');
-        return;
-      }
-      this.resetPlayerPositions();
-      this.capturedChildPlayerId = null;
-      this.phase = 'protection';
-      this.phaseTicksRemaining = MATCH_RULES.protectionTicks;
-      this.emit({ type: 'round-reset' });
+    if (this.captureCount >= MATCH_RULES.capturesToWin) {
+      this.finishMatch('ghost');
       return;
     }
 
+    this.resetPlayerPositions();
+    this.capturedChildPlayerId = null;
+    this.phase = 'protection';
+    this.phaseTicksRemaining = MATCH_RULES.protectionTicks;
+    this.emit({ type: 'round-reset' });
+  }
+
+  private updateProtectionPhase(): void {
+    this.ghostRevealed = false;
+    this.lightningReveal = null;
+    this.updateLightningTimeline();
+    this.movePlayers(false, false);
+    this.phaseTicksRemaining = Math.max(0, this.phaseTicksRemaining - 1);
+    if (this.phaseTicksRemaining > 0) return;
     this.phase = 'playing';
     this.emit({ type: 'protection-ended' });
   }
 
   private completeCapture(target: PlayerCheckpoint): void {
+    this.clearCaptureContact();
     this.captureCount += 1;
     this.capturedChildPlayerId = target.id;
     this.emit({ type: 'child-captured', childPlayerId: target.id, captureCount: this.captureCount });
@@ -436,6 +424,62 @@ export class MatchEngine {
       })[0];
   }
 
+  private updateCaptureContact(): void {
+    if (this.ghostBurnTicksRemaining > 0) {
+      this.clearCaptureContact();
+      return;
+    }
+
+    const target = this.findCaptureTarget();
+    if (!target) {
+      this.clearCaptureContact();
+      return;
+    }
+    if (this.captureContactChildPlayerId !== target.id) {
+      this.captureContactChildPlayerId = target.id;
+      this.captureContactTicks = 0;
+    }
+    this.captureContactTicks += 1;
+    if (this.captureContactTicks >= MATCH_RULES.captureContactTicks) this.completeCapture(target);
+  }
+
+  private clearCaptureContact(): void {
+    this.captureContactChildPlayerId = null;
+    this.captureContactTicks = 0;
+  }
+
+  private movePlayers(includeGhost: boolean, burningGhost: boolean): void {
+    const secondsPerTick = 1 / MATCH_RULES.tickRate;
+    for (const player of this.players) {
+      if (!player.active || (!includeGhost && player.role === 'ghost')) continue;
+      const command = this.commands.get(player.id);
+      if (!command) continue;
+      const magnitude = Math.hypot(command.move.x, command.move.z);
+      if (player.role === 'child') {
+        player.facingRadians = command.facingRadians;
+      } else if (magnitude > 0) {
+        player.facingRadians = Math.atan2(command.move.z, command.move.x);
+      }
+      if (magnitude === 0) continue;
+      const speed = player.role === 'ghost'
+        ? this.gameplayTuning.ghostMoveSpeed
+          * (burningGhost ? MATCH_RULES.illuminatedGhostSpeedMultiplier : 1)
+        : this.gameplayTuning.childMoveSpeed;
+      const distance = speed * secondsPerTick;
+      const xCandidate = {
+        x: player.position.x + (command.move.x / magnitude) * distance,
+        z: player.position.z,
+      };
+      if (this.isPositionOpen(player.id, xCandidate)) player.position.x = xCandidate.x;
+
+      const zCandidate = {
+        x: player.position.x,
+        z: player.position.z + (command.move.z / magnitude) * distance,
+      };
+      if (this.isPositionOpen(player.id, zCandidate)) player.position.z = zCandidate.z;
+    }
+  }
+
   private resetPlayerPositions(): void {
     for (const player of this.players) {
       const spawn =
@@ -447,6 +491,7 @@ export class MatchEngine {
   }
 
   private finishMatch(winner: 'children' | 'ghost'): void {
+    this.clearCaptureContact();
     this.winner = winner;
     this.phase = 'ended';
     this.phaseTicksRemaining = 0;

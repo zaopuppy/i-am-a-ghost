@@ -3,8 +3,8 @@ import type { ViewerFrame } from '../game/ViewerFrame';
 
 export type { GameplayTuning } from '../game/MatchEngine';
 
-export const PROTOCOL_VERSION = 5;
-export const BUILD_VERSION = '0.8.0-loading-gate';
+export const PROTOCOL_VERSION = 8;
+export const BUILD_VERSION = '0.10.0-role-selection';
 export const MIN_PLAYERS = 2;
 export const MAX_PLAYERS = 5;
 export const INPUT_STALE_MS = 250;
@@ -18,6 +18,7 @@ export interface RoomPlayerSummary {
   nickname: string;
   isHost: boolean;
   connected: boolean;
+  selectedRole: PlayerRole;
   role: PlayerRole;
   ready: boolean;
   assetsReady: boolean;
@@ -31,7 +32,7 @@ export interface RoomState {
   players: RoomPlayerSummary[];
   minimumPlayers: typeof MIN_PLAYERS;
   maximumPlayers: typeof MAX_PLAYERS;
-  notice: 'ghost-disconnected' | null;
+  notice: null;
   debugGameplayTuning: GameplayTuning | null;
 }
 
@@ -87,7 +88,9 @@ export type RoomErrorCode =
   | 'ROOM_CLOSED'
   | 'NOT_HOST'
   | 'NOT_IN_ROOM'
-  | 'NOT_ENOUGH_PLAYERS';
+  | 'NOT_ENOUGH_PLAYERS'
+  | 'GHOST_TAKEN'
+  | 'ROLE_SELECTION_REQUIRED';
 
 export interface RoomError {
   code: RoomErrorCode;
@@ -115,10 +118,17 @@ export type HarmonyClientMessage =
     buildVersion: string;
     roomCode: string;
     nickname: string;
+    playerId?: string;
+    rejoinToken?: string;
   }
   | {
     type: 'start-match';
     requestId: string;
+  }
+  | {
+    type: 'select-role';
+    requestId: string;
+    role: Exclude<PlayerRole, null>;
   }
   | {
     type: 'set-ready';
@@ -196,6 +206,10 @@ export interface ClientToServerEvents {
   'create-room': (request: CreateRoomRequest, acknowledge: Acknowledge<RoomActionResponse>) => void;
   'join-room': (request: JoinRoomRequest, acknowledge: Acknowledge<RoomActionResponse>) => void;
   'start-match': (acknowledge: Acknowledge<BasicActionResponse>) => void;
+  'select-role': (
+    role: Exclude<PlayerRole, null>,
+    acknowledge: Acknowledge<BasicActionResponse>,
+  ) => void;
   'set-ready': (ready: boolean, acknowledge: Acknowledge<BasicActionResponse>) => void;
   'set-assets-ready': (ready: boolean, acknowledge: Acknowledge<BasicActionResponse>) => void;
   'leave-room': (acknowledge: Acknowledge<BasicActionResponse>) => void;
@@ -262,6 +276,7 @@ export function parseHarmonyClientMessage(value: unknown): HarmonyClientMessage 
         || typeof value.roomCode !== 'string'
         || !/^[A-Z0-9]{6}$/.test(value.roomCode)
         || !isNickname(value.nickname)
+        || !isOptionalRejoinIdentity(value.playerId, value.rejoinToken)
       ) return null;
       return {
         type: value.type,
@@ -270,10 +285,16 @@ export function parseHarmonyClientMessage(value: unknown): HarmonyClientMessage 
         buildVersion: value.buildVersion,
         roomCode: value.roomCode,
         nickname: value.nickname,
+        ...(typeof value.playerId === 'string' ? { playerId: value.playerId } : {}),
+        ...(typeof value.rejoinToken === 'string' ? { rejoinToken: value.rejoinToken } : {}),
       };
     case 'start-match':
       return isRequestId(value.requestId)
         ? { type: value.type, requestId: value.requestId }
+        : null;
+    case 'select-role':
+      return isRequestId(value.requestId) && (value.role === 'ghost' || value.role === 'child')
+        ? { type: value.type, requestId: value.requestId, role: value.role }
         : null;
     case 'set-ready':
       return isRequestId(value.requestId) && typeof value.ready === 'boolean'
@@ -335,4 +356,14 @@ function isRequestId(value: unknown): value is string {
 
 function isNickname(value: unknown): value is string {
   return typeof value === 'string' && value.length <= 64;
+}
+
+function isOptionalRejoinIdentity(playerId: unknown, rejoinToken: unknown): boolean {
+  if (playerId === undefined && rejoinToken === undefined) return true;
+  return typeof playerId === 'string'
+    && playerId.length > 0
+    && playerId.length <= 128
+    && typeof rejoinToken === 'string'
+    && rejoinToken.length > 0
+    && rejoinToken.length <= 128;
 }

@@ -142,6 +142,15 @@ test('capture presentation reveals the ghost only to the captured child', () => 
     ghostPlayerId: 'ghost',
     childPlayerIds: ['captured-child', 'other-child'],
   });
+  engine.advance([], MATCH_RULES.captureContactTicks - 1);
+
+  const contactFrame = projectViewerFrame(engine.checkpoint(), 'captured-child');
+  assert.equal(contactFrame.captureContact?.childPlayerId, 'captured-child');
+  assert.equal(contactFrame.captureContact?.ticks, MATCH_RULES.captureContactTicks - 1);
+  assert.equal(contactFrame.ghost, undefined, 'capture dwell must not reveal hidden ghost coordinates');
+  const uninvolvedFrame = projectViewerFrame(engine.checkpoint(), 'other-child');
+  assert.equal(uninvolvedFrame.captureContact, null);
+
   engine.advance();
 
   const capturedFrame = projectViewerFrame(engine.checkpoint(), 'captured-child');

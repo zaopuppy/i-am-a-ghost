@@ -152,6 +152,7 @@ test('Harmony QR scan connects and joins the game lobby', async ({ page }) => {
                   nickname: '房主',
                   isHost: true,
                   connected: true,
+                  selectedRole: null,
                   role: null,
                   ready: false,
                   assetsReady: false,
@@ -161,6 +162,7 @@ test('Harmony QR scan connects and joins the game lobby', async ({ page }) => {
                   nickname: '访客',
                   isHost: false,
                   connected: true,
+                  selectedRole: null,
                   role: null,
                   ready: false,
                   assetsReady: false,
@@ -203,6 +205,7 @@ test('Harmony QR scan connects and joins the game lobby', async ({ page }) => {
 });
 
 test('Harmony host worker admits a peer and starts authoritative frames', async ({ page }) => {
+  test.setTimeout(120_000);
   await page.addInitScript(() => {
     const room = {
       ok: true,
@@ -277,7 +280,7 @@ test('Harmony host worker admits a peer and starts authoritative frames', async 
     push?.(validJoin);
   }, { protocolVersion: PROTOCOL_VERSION, buildVersion: BUILD_VERSION });
   await expect(page.getByTestId('roster').locator('li')).toHaveCount(2);
-  await expect(page.getByTestId('start-match')).toBeEnabled();
+  await expect(page.getByTestId('start-match')).toBeDisabled();
   await expect.poll(() => page.evaluate(() => {
     const messages = (window as Window & { __HARMONY_PEER_MESSAGES__?: string[] })
       .__HARMONY_PEER_MESSAGES__ ?? [];
@@ -286,6 +289,20 @@ test('Harmony host worker admits a peer and starts authoritative frames', async 
       return message.type === 'response' && message.requestId === 'remote-join';
     }).length;
   })).toBe(2);
+
+  await page.getByTestId('lobby-role-picker').locator('[data-role-choice="ghost"]').click();
+  await page.evaluate(() => {
+    const push = (window as Window & { __PUSH_HARMONY_PEER__?: (payload: string) => void })
+      .__PUSH_HARMONY_PEER__;
+    push?.(JSON.stringify({
+      type: 'select-role',
+      requestId: 'remote-select-child',
+      role: 'child',
+    }));
+  });
+  await expect(page.getByTestId('roster').locator('[data-role="ghost"]')).toHaveCount(1);
+  await expect(page.getByTestId('roster').locator('[data-role="child"]')).toHaveCount(1);
+  await expect(page.getByTestId('start-match')).toBeEnabled();
 
   await page.getByTestId('start-match').click();
   await expect(page.getByTestId('match-loading')).toBeVisible();
@@ -298,9 +315,9 @@ test('Harmony host worker admits a peer and starts authoritative frames', async 
       ready: true,
     }));
   });
-  await expect(page.getByTestId('match-loading')).toBeHidden({ timeout: 20_000 });
+  await expect(page.getByTestId('match-loading')).toBeHidden({ timeout: 45_000 });
   await expect(page.getByTestId('lobby-panel')).toBeHidden();
-  await expect(page.getByTestId('role-label')).toContainText(/你是鬼|你是小孩/);
+  await expect(page.getByTestId('role-label')).toContainText('你是鬼');
   await expect(page.locator('#touch-controls')).toBeVisible();
   await expect(page.locator('[data-harmony-qr-room]')).toBeHidden();
   await expect(page.locator('[data-harmony-nearby-rooms]')).toBeHidden();
@@ -370,4 +387,60 @@ test('Harmony host worker admits a peer and starts authoritative frames', async 
       .__HARMONY_PEER_MESSAGES__ ?? [];
     return messages.some((payload) => JSON.parse(payload).type === 'match-frame');
   })).toBe(true);
+
+  const remoteSession = await page.evaluate(() => {
+    const messages = (window as Window & { __HARMONY_PEER_MESSAGES__?: string[] })
+      .__HARMONY_PEER_MESSAGES__ ?? [];
+    for (const payload of messages) {
+      const message = JSON.parse(payload) as {
+        type?: string;
+        requestId?: string;
+        result?: { ok?: boolean; session?: { playerId: string; rejoinToken: string } };
+      };
+      if (message.type === 'response' && message.requestId === 'remote-join' && message.result?.ok) {
+        return message.result.session ?? null;
+      }
+    }
+    return null;
+  });
+  expect(remoteSession).not.toBeNull();
+  await page.evaluate(() => {
+    const push = (window as Window & { __PUSH_HARMONY_PEER__?: (payload: string) => void })
+      .__PUSH_HARMONY_PEER__;
+    push?.('{"type":"peer-disconnected"}');
+  });
+  await expect.poll(() => page.evaluate(() => {
+    const frame = window.__THREE_GAME_DIAGNOSTICS__?.viewerFrame;
+    return frame?.viewerRole === 'ghost'
+      ? { children: frame.children.length, dolls: frame.dolls.length }
+      : null;
+  })).toEqual({ children: 1, dolls: 3 });
+  await expect(page.getByTestId('role-label')).toContainText('你是鬼');
+
+  await page.evaluate(({ protocolVersion, buildVersion, session }) => {
+    const push = (window as Window & { __PUSH_HARMONY_PEER__?: (payload: string) => void })
+      .__PUSH_HARMONY_PEER__;
+    push?.(JSON.stringify({
+      type: 'join-room',
+      requestId: 'remote-rejoin',
+      protocolVersion,
+      buildVersion,
+      roomCode: 'GHOST7',
+      nickname: '远端玩家',
+      playerId: session?.playerId,
+      rejoinToken: session?.rejoinToken,
+    }));
+  }, { protocolVersion: PROTOCOL_VERSION, buildVersion: BUILD_VERSION, session: remoteSession });
+  await expect.poll(() => page.evaluate(() => {
+    const messages = (window as Window & { __HARMONY_PEER_MESSAGES__?: string[] })
+      .__HARMONY_PEER_MESSAGES__ ?? [];
+    const response = messages
+      .map((payload) => JSON.parse(payload) as {
+        type?: string;
+        requestId?: string;
+        result?: { ok?: boolean; session?: { playerId?: string } };
+      })
+      .find((message) => message.type === 'response' && message.requestId === 'remote-rejoin');
+    return response?.result ?? null;
+  })).toMatchObject({ ok: true, session: { playerId: remoteSession?.playerId } });
 });

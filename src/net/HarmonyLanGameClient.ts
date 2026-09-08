@@ -101,7 +101,9 @@ export class HarmonyLanGameClient {
   }
 
   async joinEndpoint(endpoint: HarmonyRoomEndpoint, nickname: string): Promise<RoomActionResponse> {
+    const resumeSession = this.session?.roomCode === endpoint.roomCode ? this.session : null;
     this.resetSession();
+    this.session = resumeSession;
     this.hostMode = false;
     const accepted = JSON.parse(this.host.connectGameRoom(
       endpoint.host,
@@ -121,12 +123,21 @@ export class HarmonyLanGameClient {
       buildVersion: BUILD_VERSION,
       roomCode: endpoint.roomCode,
       nickname,
+      ...(resumeSession ? {
+        playerId: resumeSession.playerId,
+        rejoinToken: resumeSession.rejoinToken,
+      } : {}),
     });
     return this.acceptRoomAction(result);
   }
 
   async startMatch(): Promise<BasicActionResponse> {
     const result = await this.request({ type: 'start-match', requestId: requestId() });
+    return this.acceptBasicAction(result);
+  }
+
+  async selectRole(role: 'ghost' | 'child'): Promise<BasicActionResponse> {
+    const result = await this.request({ type: 'select-role', requestId: requestId(), role });
     return this.acceptBasicAction(result);
   }
 
@@ -328,7 +339,7 @@ export class HarmonyLanGameClient {
 
   private acceptBasicAction(result: HarmonyActionResult): BasicActionResponse {
     const response = result as BasicActionResponse;
-    if (!response.ok) this.errorMessage = response.error.message;
+    this.errorMessage = response.ok ? '' : response.error.message;
     this.notify();
     return response;
   }

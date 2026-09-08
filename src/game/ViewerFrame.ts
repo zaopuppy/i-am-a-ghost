@@ -13,6 +13,11 @@ export interface SharedMatchFrame {
     ticksRemaining: number;
     durationTicks: number;
   } | null;
+  captureContact?: {
+    childPlayerId: string;
+    ticks: number;
+    durationTicks: number;
+  } | null;
 }
 
 export interface VisibleChild {

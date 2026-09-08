@@ -52,6 +52,16 @@ export class RoomManager {
       const room = this.roomForSocket(socket);
       acknowledge(room ? room.start(socket.id) : this.error('NOT_IN_ROOM', '尚未加入房间。'));
     });
+    socket.on('select-role', (role, acknowledge) => {
+      const room = this.roomForSocket(socket);
+      if (role !== 'ghost' && role !== 'child') {
+        acknowledge(this.error('BAD_REQUEST', '阵营选择无效。'));
+      } else {
+        acknowledge(
+          room ? room.selectRole(socket.id, role) : this.error('NOT_IN_ROOM', '尚未加入房间。'),
+        );
+      }
+    });
     socket.on('set-ready', (ready, acknowledge) => {
       const room = this.roomForSocket(socket);
       acknowledge(

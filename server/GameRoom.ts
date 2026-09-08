@@ -5,7 +5,6 @@ import {
   type GameplayTuning,
   type MatchEvent,
 } from '../src/game/MatchEngine';
-import { chooseNextGhost } from '../src/game/RoleRotation';
 import { DEFAULT_HOUSE_MAP } from '../src/game/defaultHouse';
 import {
   activeFlashlightPlayerIds,
@@ -37,6 +36,7 @@ interface RoomPlayer {
   socketId: string;
   isHost: boolean;
   connected: boolean;
+  selectedRole: PlayerRole;
   role: PlayerRole;
   lastAcceptedSeq: number;
   latestInput: ClientInputFrame | null;
@@ -54,7 +54,6 @@ export class GameRoom {
   private engine: MatchEngine | null = null;
   private tickHandle: ReturnType<typeof setInterval> | null = null;
   private lastOccupiedAt = Date.now();
-  private lastGhostPlayerId: string | null = null;
   private notice: RoomState['notice'] = null;
   private lastLoopAtMs = 0;
   private accumulatedMs = 0;
@@ -86,6 +85,7 @@ export class GameRoom {
       socketId: socket.id,
       isHost: this.players.size === 0,
       connected: true,
+      selectedRole: null,
       role: null,
       lastAcceptedSeq: -1,
       latestInput: null,
@@ -115,12 +115,38 @@ export class GameRoom {
     const requester = this.playerForSocket(socketId);
     if (!requester) return this.error('NOT_IN_ROOM', '尚未加入房间。');
     if (!requester.isHost) return this.error('NOT_HOST', '只有房主可以开始。');
-    if (this.players.size < MIN_PLAYERS) {
-      return this.error('NOT_ENOUGH_PLAYERS', '至少需要两名玩家。');
-    }
     if (this.phase !== 'lobby') return this.error('ROOM_CLOSED', '当前不能开始新对局。');
+    const selectionError = this.validateConnectedSelection();
+    if (selectionError) return selectionError;
 
     this.beginLoading();
+    return { ok: true };
+  }
+
+  selectRole(socketId: string, role: unknown): BasicActionResponse {
+    const player = this.playerForSocket(socketId);
+    if (!player) return this.error('NOT_IN_ROOM', '尚未加入房间。');
+    if (role !== 'ghost' && role !== 'child') {
+      return this.error('BAD_REQUEST', '阵营选择无效。');
+    }
+    if (this.phase !== 'lobby' && this.phase !== 'ended') {
+      return this.error('ROOM_CLOSED', '只能在大厅或结算后选择阵营。');
+    }
+    if (
+      role === 'ghost'
+      && [...this.players.values()].some((candidate) => (
+        candidate.connected
+        && candidate.playerId !== player.playerId
+        && candidate.selectedRole === 'ghost'
+      ))
+    ) {
+      return this.error('GHOST_TAKEN', '鬼阵营已经被其他玩家选择。');
+    }
+    if (player.selectedRole !== role) {
+      player.selectedRole = role;
+      player.ready = false;
+    }
+    this.broadcastRoomState();
     return { ok: true };
   }
 
@@ -128,9 +154,17 @@ export class GameRoom {
     const player = this.playerForSocket(socketId);
     if (!player) return this.error('NOT_IN_ROOM', '尚未加入房间。');
     if (this.phase !== 'ended') return this.error('ROOM_CLOSED', '只能在结算后准备下一局。');
+    if (ready && player.selectedRole === null) {
+      return this.error('ROLE_SELECTION_REQUIRED', '请先选择鬼或小孩阵营。');
+    }
     player.ready = ready;
     const connectedPlayers = [...this.players.values()].filter((candidate) => candidate.connected);
     if (connectedPlayers.length >= MIN_PLAYERS && connectedPlayers.every((candidate) => candidate.ready)) {
+      const selectionError = this.validateConnectedSelection();
+      if (selectionError) {
+        this.broadcastRoomState();
+        return selectionError;
+      }
       this.beginLoading();
     } else {
       this.broadcastRoomState();
@@ -163,12 +197,13 @@ export class GameRoom {
     for (const [playerId, player] of this.players) {
       if (!player.connected) this.players.delete(playerId);
     }
+    this.promoteHost();
     this.engine = null;
     this.matchId = null;
     if (this.tickHandle) clearInterval(this.tickHandle);
     this.tickHandle = null;
     for (const player of this.players.values()) {
-      player.role = null;
+      player.role = player.selectedRole;
       player.ready = false;
       player.assetsReady = false;
       player.latestInput = null;
@@ -179,29 +214,22 @@ export class GameRoom {
   }
 
   private tryBeginLoadedMatch(): boolean {
-    const roster = [...this.players.values()].filter((player) => player.connected);
+    const roster = [...this.players.values()].filter((player) => player.role !== null);
+    const connectedRoster = roster.filter((player) => player.connected);
     if (
       this.phase !== 'loading'
       || roster.length < MIN_PLAYERS
-      || !roster.every((player) => player.assetsReady)
+      || roster.filter((player) => player.role === 'ghost').length !== 1
+      || !connectedRoster.every((player) => player.assetsReady)
     ) return false;
-    this.beginMatch();
+    this.beginMatch(roster);
     return true;
   }
 
-  private beginMatch(): void {
-    const roster = [...this.players.values()].filter((player) => player.connected);
-    const ghostId = chooseNextGhost(
-      roster.map((player) => player.playerId),
-      this.lastGhostPlayerId,
-      randomInt(roster.length),
-    );
-    const ghost = roster.find((player) => player.playerId === ghostId);
-    if (!ghost) throw new Error('Ghost rotation selected a player outside the room.');
-    const children = roster.filter((player) => player.playerId !== ghostId);
-    ghost.role = 'ghost';
-    for (const child of children) child.role = 'child';
-    this.lastGhostPlayerId = ghost.playerId;
+  private beginMatch(roster: RoomPlayer[]): void {
+    const ghost = roster.find((player) => player.role === 'ghost');
+    if (!ghost) throw new Error('Locked room roster must contain exactly one ghost.');
+    const children = roster.filter((player) => player.role === 'child');
 
     this.round += 1;
     this.matchId = randomUUID();
@@ -231,7 +259,7 @@ export class GameRoom {
 
   acceptInput(socketId: string, frame: ClientInputFrame): boolean {
     const player = this.playerForSocket(socketId);
-    if (!player || !this.matchId || frame.matchId !== this.matchId || this.phase !== 'playing') {
+    if (!player?.connected || !this.matchId || frame.matchId !== this.matchId || this.phase !== 'playing') {
       return false;
     }
     if (frame.seq <= player.lastAcceptedSeq) return false;
@@ -244,8 +272,8 @@ export class GameRoom {
   leave(socket: GameSocket): boolean {
     const player = this.playerForSocket(socket.id);
     if (!player) return false;
-    if (this.phase === 'playing') {
-      this.disconnectDuringMatch(player, false);
+    if (this.phase === 'loading' || this.phase === 'playing') {
+      this.disconnectDuringLockedRound(player, false);
     } else {
       this.players.delete(player.playerId);
     }
@@ -261,14 +289,17 @@ export class GameRoom {
   disconnect(socketId: string): void {
     const player = this.playerForSocket(socketId);
     if (!player) return;
-    if (this.phase === 'lobby' || this.phase === 'loading') {
+    if (this.phase === 'lobby') {
       this.players.delete(player.playerId);
       this.promoteHost();
+    } else if (this.phase === 'loading' || this.phase === 'playing') {
+      this.disconnectDuringLockedRound(player, true);
       this.reconcileLoadingAfterDeparture();
-    } else if (this.phase === 'playing') {
-      this.disconnectDuringMatch(player, true);
     } else {
       player.connected = false;
+      player.selectedRole = null;
+      player.ready = false;
+      player.assetsReady = false;
       player.latestInput = null;
       player.lastInputAtMs = 0;
       player.disconnectDeadlineMs = Date.now() + RECONNECT_GRACE_MS;
@@ -298,6 +329,7 @@ export class GameRoom {
   }
 
   isEmptyFor(milliseconds: number): boolean {
+    if (this.phase === 'loading' || this.phase === 'playing') return false;
     if (this.connectedPlayerCount() > 0) {
       this.lastOccupiedAt = Date.now();
       return false;
@@ -322,6 +354,7 @@ export class GameRoom {
         nickname: player.nickname,
         isHost: player.isHost,
         connected: player.connected,
+        selectedRole: player.selectedRole,
         role: player.role,
         ready: player.ready,
         assetsReady: player.assetsReady,
@@ -359,7 +392,15 @@ export class GameRoom {
     }
     if (result.checkpoint.phase === 'ended') {
       this.phase = 'ended';
-      for (const player of this.players.values()) player.ready = false;
+      const endedAtMs = Date.now();
+      for (const player of this.players.values()) {
+        player.selectedRole = null;
+        player.ready = false;
+        player.assetsReady = false;
+        if (!player.connected) player.disconnectDeadlineMs = endedAtMs + RECONNECT_GRACE_MS;
+      }
+      if (this.connectedPlayerCount() === 0) this.lastOccupiedAt = endedAtMs;
+      this.promoteHost();
       if (this.tickHandle) clearInterval(this.tickHandle);
       this.tickHandle = null;
       this.broadcastRoomState();
@@ -417,22 +458,17 @@ export class GameRoom {
       player.connected ||
       !player.rejoinToken ||
       player.rejoinToken !== rejoinToken ||
-      player.disconnectDeadlineMs === null ||
-      player.disconnectDeadlineMs < Date.now()
+      !this.canRestore(player)
     ) {
       return null;
     }
     player.socketId = socket.id;
     player.connected = true;
     player.disconnectDeadlineMs = null;
-    player.latestInput = null;
     player.lastInputAtMs = 0;
     socket.data.roomCode = this.code;
     socket.data.playerId = player.playerId;
     void socket.join(this.socketRoomName());
-    if (this.phase === 'playing' && player.role === 'child') {
-      this.engine?.setPlayerActive(player.playerId, true);
-    }
     this.lastOccupiedAt = Date.now();
     this.broadcastRoomState();
     this.broadcastFrame();
@@ -447,37 +483,13 @@ export class GameRoom {
     };
   }
 
-  private disconnectDuringMatch(player: RoomPlayer, allowRejoin: boolean): void {
-    if (player.role === 'ghost') {
-      this.abortMatchForGhostDisconnect(player.playerId);
-      return;
-    }
+  private disconnectDuringLockedRound(player: RoomPlayer, allowRejoin: boolean): void {
     player.connected = false;
-    player.latestInput = null;
     player.lastInputAtMs = 0;
-    player.disconnectDeadlineMs = allowRejoin ? Date.now() + RECONNECT_GRACE_MS : null;
+    player.assetsReady = false;
+    player.disconnectDeadlineMs = null;
     if (!allowRejoin) player.rejoinToken = '';
-    this.engine?.setPlayerActive(player.playerId, false);
     this.broadcastFrame();
-  }
-
-  private abortMatchForGhostDisconnect(ghostPlayerId: string): void {
-    if (this.tickHandle) clearInterval(this.tickHandle);
-    this.tickHandle = null;
-    this.engine = null;
-    this.matchId = null;
-    this.phase = 'lobby';
-    this.notice = 'ghost-disconnected';
-    this.players.delete(ghostPlayerId);
-    for (const player of this.players.values()) {
-      player.role = null;
-      player.ready = false;
-      player.assetsReady = false;
-      player.latestInput = null;
-      player.lastInputAtMs = 0;
-      player.disconnectDeadlineMs = null;
-    }
-    this.promoteHost();
   }
 
   private playerForSocket(socketId: string): RoomPlayer | undefined {
@@ -485,20 +497,36 @@ export class GameRoom {
   }
 
   private promoteHost(): void {
-    if ([...this.players.values()].some((player) => player.isHost)) return;
-    const nextHost = this.players.values().next().value as RoomPlayer | undefined;
+    if ([...this.players.values()].some((player) => player.connected && player.isHost)) return;
+    for (const player of this.players.values()) player.isHost = false;
+    const nextHost = [...this.players.values()].find((player) => player.connected);
     if (nextHost) nextHost.isHost = true;
   }
 
   private reconcileLoadingAfterDeparture(): void {
     if (this.phase !== 'loading') return;
+    this.tryBeginLoadedMatch();
+  }
+
+  private validateConnectedSelection(): { ok: false; error: { code: RoomErrorCode; message: string } } | null {
     const connectedPlayers = [...this.players.values()].filter((player) => player.connected);
     if (connectedPlayers.length < MIN_PLAYERS) {
-      this.phase = 'lobby';
-      for (const player of connectedPlayers) player.assetsReady = false;
-      return;
+      return this.error('NOT_ENOUGH_PLAYERS', '至少需要两名玩家。');
     }
-    this.tryBeginLoadedMatch();
+    if (
+      connectedPlayers.some((player) => player.selectedRole === null)
+      || connectedPlayers.filter((player) => player.selectedRole === 'ghost').length !== 1
+    ) {
+      return this.error('ROLE_SELECTION_REQUIRED', '所有玩家必须选择阵营，且必须恰好有一名鬼。');
+    }
+    return null;
+  }
+
+  private canRestore(player: RoomPlayer): boolean {
+    if (this.phase === 'loading' || this.phase === 'playing') return true;
+    return this.phase === 'ended'
+      && player.disconnectDeadlineMs !== null
+      && player.disconnectDeadlineMs >= Date.now();
   }
 
   private socketRoomName(): string {

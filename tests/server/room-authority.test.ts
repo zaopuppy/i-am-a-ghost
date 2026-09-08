@@ -23,6 +23,17 @@ test('shared authority drops stale movement and action input', () => {
   }]);
 });
 
+test('disconnected actors receive a neutral command that preserves their last facing', () => {
+  const disconnected = playerInput(995, true);
+  disconnected.connected = false;
+  assert.deepEqual(buildAuthorityCommands([disconnected], NOW_MS), [{
+    playerId: 'child',
+    move: { x: 0, z: 0 },
+    facingRadians: 0.75,
+    action: false,
+  }]);
+});
+
 test('shared authority projects a flashlight only for fresh input with energy', () => {
   const players = [playerInput(995, true)];
   const emptyBattery = checkpoint(0);
@@ -72,7 +83,9 @@ function checkpoint(battery: number): MatchCheckpoint {
     captureCount: 0,
     phaseTicksRemaining: 0,
     capturedChildPlayerId: null,
-    ghostHealth: 100,
+    captureContactChildPlayerId: null,
+    captureContactTicks: 0,
+    ghostHealth: MATCH_RULES.ghostMaxHealth,
     ghostRevealed: false,
     ghostBurnTicksRemaining: 0,
     randomState: 1,

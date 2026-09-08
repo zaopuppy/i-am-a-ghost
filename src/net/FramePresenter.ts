@@ -41,6 +41,7 @@ type Primitive = string | number | boolean | bigint | symbol | null | undefined;
 type CloneMode<Value> = Exclude<Value, null | undefined> extends Primitive ? 'value' : 'clone';
 type ClonePolicy<Shape> = { [Key in keyof Shape]-?: CloneMode<Shape[Key]> };
 type CaptureFrame = NonNullable<SharedMatchFrame['capture']>;
+type CaptureContactFrame = NonNullable<SharedMatchFrame['captureContact']>;
 
 // Compile-time only: `satisfies` turns every ViewerFrame schema change into a clone decision.
 void ({
@@ -53,6 +54,7 @@ void ({
     ghostHealth: 'value',
     lightning: 'clone',
     capture: 'clone',
+    captureContact: 'clone',
     viewerRole: 'value',
     viewerPlayerId: 'value',
     ownBattery: 'value',
@@ -71,6 +73,7 @@ void ({
     ghostHealth: 'value',
     lightning: 'clone',
     capture: 'clone',
+    captureContact: 'clone',
     viewerRole: 'value',
     viewerPlayerId: 'value',
     ghost: 'clone',
@@ -109,6 +112,11 @@ void ({
     ticksRemaining: 'value',
     durationTicks: 'value',
   },
+  captureContact: {
+    childPlayerId: 'value',
+    ticks: 'value',
+    durationTicks: 'value',
+  },
   lightning: {
     id: 'value',
     startTick: 'value',
@@ -134,6 +142,7 @@ void ({
   ghost: ClonePolicy<VisibleGhost>;
   battery: ClonePolicy<VisibleBattery>;
   capture: ClonePolicy<CaptureFrame>;
+  captureContact: ClonePolicy<CaptureContactFrame>;
   lightning: ClonePolicy<LightningStrike>;
   lightningPulse: ClonePolicy<LightningPulse>;
   position: ClonePolicy<Vec2>;
@@ -173,7 +182,7 @@ export class FramePresenter {
 
     const serverPosition = ownPosition(frame);
     if (serverPosition) {
-      if (!this.predictedPosition || frame.phase !== 'playing') {
+      if (!this.predictedPosition || !viewerCanPredictMovement(frame)) {
         this.predictedPosition = { ...serverPosition };
       } else {
         const errorX = serverPosition.x - this.predictedPosition.x;
@@ -211,7 +220,7 @@ export class FramePresenter {
     const frame = this.presentBufferedFrame(Math.max(0, deltaSeconds));
 
     if (this.predictedPosition) {
-      if (frame.phase === 'playing') {
+      if (viewerCanPredictMovement(frame)) {
         const magnitude = Math.hypot(movement.x, movement.z);
         if (magnitude > 0) {
           const speed = frame.viewerRole === 'ghost'
@@ -388,6 +397,7 @@ function cloneFrame<T extends ViewerFrame>(frame: T): T {
   const shared = {
     ...frame,
     capture: frame.capture ? { ...frame.capture } : null,
+    captureContact: frame.captureContact ? { ...frame.captureContact } : null,
     lightning: frame.lightning
       ? { ...frame.lightning, pulses: frame.lightning.pulses.map((pulse) => ({ ...pulse })) }
       : null,
@@ -415,6 +425,10 @@ function cloneFrame<T extends ViewerFrame>(frame: T): T {
       ? { battery: cloneSelectedBattery(frame.battery, frame.batteries, batteries) }
       : {}),
   } as T;
+}
+
+function viewerCanPredictMovement(frame: ViewerFrame): boolean {
+  return frame.phase === 'playing' || (frame.phase === 'protection' && frame.viewerRole === 'child');
 }
 
 function cloneAuthorityFrame<T extends ViewerFrame>(frame: T): T {

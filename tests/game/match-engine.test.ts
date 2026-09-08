@@ -27,6 +27,18 @@ function assertApproximately(actual: number, expected: number, epsilon = 1e-9): 
   assert.ok(Math.abs(actual - expected) <= epsilon, `expected ${actual} to be approximately ${expected}`);
 }
 
+test('ghost starts with the reduced 50 health balance value', () => {
+  const engine = new MatchEngine({
+    seed: 7,
+    map: OPEN_MAP,
+    ghostPlayerId: 'ghost',
+    childPlayerIds: ['child'],
+  });
+
+  assert.equal(MATCH_RULES.ghostMaxHealth, 50);
+  assert.equal(engine.checkpoint().ghostHealth, 50);
+});
+
 test('lightning schedules independently after 10 to 20 seconds of playing time', () => {
   const engine = new MatchEngine({
     seed: 101,
@@ -118,15 +130,15 @@ test('lightning cooldown pauses throughout capture animation and protection', ()
     ghostPlayerId: 'ghost',
     childPlayerIds: ['child'],
   });
-  engine.advance();
+  engine.advance([], MATCH_RULES.captureContactTicks);
   const captured = engine.checkpoint();
   assert.equal(captured.phase, 'capture-animation');
-  assert.equal(captured.lightningPlayingTick, 1);
+  assert.equal(captured.lightningPlayingTick, MATCH_RULES.captureContactTicks);
 
   engine.advance([], MATCH_RULES.captureAnimationTicks + MATCH_RULES.protectionTicks);
   const resumed = engine.checkpoint();
   assert.equal(resumed.phase, 'playing');
-  assert.equal(resumed.lightningPlayingTick, 1);
+  assert.equal(resumed.lightningPlayingTick, captured.lightningPlayingTick);
   assert.equal(resumed.nextLightningPlayingTick, captured.nextLightningPlayingTick);
 });
 
@@ -216,7 +228,7 @@ test('lightning exposure does not prevent contact capture', () => {
   assert.ok(engine.checkpoint().lightningReveal);
 
   engine.setPlayerActive('child', true);
-  const captured = engine.advance().checkpoint;
+  const captured = engine.advance([], MATCH_RULES.captureContactTicks).checkpoint;
   assert.equal(captured.phase, 'capture-animation');
   assert.equal(captured.captureCount, 1);
   assert.equal(captured.ghostBurnTicksRemaining, 0);
@@ -236,7 +248,9 @@ test('a strike remains resumable in the final frame while ended rules clear its 
     facingRadians: 0,
     action: true,
   } as const;
-  engine.advance([flashlightOn], 479);
+  const lethalFlashlightTicks =
+    (MATCH_RULES.ghostMaxHealth / MATCH_RULES.flashlightDamagePerSecond) * MATCH_RULES.tickRate;
+  engine.advance([flashlightOn], lethalFlashlightTicks - 1);
   engine.advance([{ ...flashlightOn, action: false }]);
   let checkpoint = engine.checkpoint();
   engine.advance([], checkpoint.nextLightningPlayingTick - checkpoint.lightningPlayingTick);
@@ -415,7 +429,10 @@ test('a held flashlight consumes battery and damages and reveals an unobstructed
   const child = checkpoint.players.find((player) => player.id === 'child');
   assert.ok(child);
   assertApproximately(child.battery, 0.875);
-  assertApproximately(checkpoint.ghostHealth, 87.5);
+  assertApproximately(
+    checkpoint.ghostHealth,
+    MATCH_RULES.ghostMaxHealth - MATCH_RULES.flashlightDamagePerSecond,
+  );
   assert.equal(checkpoint.ghostRevealed, true);
 });
 
@@ -578,7 +595,11 @@ test('a burning ghost can flee but cannot capture until the burn lock expires', 
 
   const recovered = engine.advance();
   assert.equal(recovered.checkpoint.ghostBurnTicksRemaining, 0);
-  assert.equal(recovered.checkpoint.captureCount, 1);
+  assert.equal(recovered.checkpoint.captureCount, 0);
+  assert.equal(recovered.checkpoint.captureContactTicks, 1);
+
+  const captured = engine.advance([], MATCH_RULES.captureContactTicks - 1);
+  assert.equal(captured.checkpoint.captureCount, 1);
 });
 
 test('gameplay tuning controls headlamp range and flashlight cone reach', () => {
@@ -646,7 +667,7 @@ function finishResetAndProtection(engine: MatchEngine): void {
   engine.advance([], MATCH_RULES.captureAnimationTicks + MATCH_RULES.protectionTicks);
 }
 
-test('contact automatically captures without an action or facing requirement', () => {
+test('sustained contact captures without an action or facing requirement', () => {
   const engine = createCaptureEngine();
 
   const result = approachCapture(engine, Math.PI, false);
@@ -654,6 +675,36 @@ test('contact automatically captures without an action or facing requirement', (
   assert.equal(result.checkpoint.phase, 'capture-animation');
   assert.equal(result.checkpoint.capturedChildPlayerId, 'child');
   assert.ok(result.events.some((event) => event.type === 'child-captured' && event.childPlayerId === 'child'));
+});
+
+test('capture contact must persist for the full dwell and resets after separation', () => {
+  const engine = new MatchEngine({
+    seed: 12,
+    map: {
+      ...OPEN_MAP,
+      ghostSpawn: { x: 0, z: 0 },
+      childSpawns: [
+        { x: 0.95, z: 0 },
+        OPEN_MAP.childSpawns[1],
+        OPEN_MAP.childSpawns[2],
+        OPEN_MAP.childSpawns[3],
+      ],
+    },
+    ghostPlayerId: 'ghost',
+    childPlayerIds: ['child'],
+  });
+
+  engine.advance([], MATCH_RULES.captureContactTicks - 1);
+  assert.equal(engine.checkpoint().captureCount, 0);
+  assert.equal(engine.checkpoint().captureContactChildPlayerId, 'child');
+  assert.equal(engine.checkpoint().captureContactTicks, MATCH_RULES.captureContactTicks - 1);
+
+  engine.advance([
+    { playerId: 'child', move: { x: 1, z: 0 }, facingRadians: 0, action: false },
+  ]);
+  assert.equal(engine.checkpoint().captureContactChildPlayerId, null);
+  assert.equal(engine.checkpoint().captureContactTicks, 0);
+  assert.equal(engine.checkpoint().captureCount, 0);
 });
 
 test('the former capture range does not count until bodies make contact', () => {
@@ -713,6 +764,32 @@ test('a capture pauses the clock, resets positions, and preserves progress throu
   assert.equal(reset.capturedChildPlayerId, null);
 });
 
+test('protection lets children create distance while the ghost remains frozen', () => {
+  const engine = createCaptureEngine();
+  approachCapture(engine);
+  engine.advance([], MATCH_RULES.captureAnimationTicks);
+  assert.equal(engine.checkpoint().phase, 'protection');
+
+  const before = engine.checkpoint();
+  const ghostBefore = before.players.find((player) => player.id === 'ghost');
+  const childBefore = before.players.find((player) => player.id === 'child');
+  assert.ok(ghostBefore && childBefore);
+  engine.advance([
+    { playerId: 'ghost', move: { x: 1, z: 0 }, facingRadians: 0, action: false },
+    { playerId: 'child', move: { x: 1, z: 0 }, facingRadians: 0, action: true },
+  ], MATCH_RULES.tickRate / 2);
+
+  const protectedFrame = engine.checkpoint();
+  const ghostAfter = protectedFrame.players.find((player) => player.id === 'ghost');
+  const childAfter = protectedFrame.players.find((player) => player.id === 'child');
+  assert.ok(ghostAfter && childAfter);
+  assert.deepEqual(ghostAfter.position, ghostBefore.position);
+  assert.ok(childAfter.position.x > childBefore.position.x);
+  assert.equal(childAfter.battery, childBefore.battery, 'flashlights stay inactive during protection');
+  assert.equal(protectedFrame.remainingTicks, before.remainingTicks);
+  assert.equal(protectedFrame.phase, 'protection');
+});
+
 test('the third capture plays its full cinematic before ghost victory', () => {
   const engine = createCaptureEngine();
 
@@ -752,7 +829,7 @@ test('headlamps report ghost distance without wall occlusion', () => {
   const checkpoint = engine.checkpoint();
   const child = checkpoint.players.find((player) => player.id === 'child');
   assert.ok(child);
-  assert.equal(child.headlamp, 'slow');
+  assert.equal(child.headlamp, 'fast');
   assert.deepEqual(
     checkpoint.dolls.map((doll) => doll.headlamp),
     ['fast', 'solid', 'off'],

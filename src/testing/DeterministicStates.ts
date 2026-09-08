@@ -21,6 +21,7 @@ export const DETERMINISTIC_STATE_NAMES = [
   'flashlight-profile-hit',
   'ghost-playing',
   'low-battery',
+  'capture-contact',
   'capture',
   'protection',
   'child-win',
@@ -67,10 +68,13 @@ export function createDeterministicViewerFrame(
     tick,
     remainingTicks: 13_800,
     captureCount: 1,
-    ghostHealth: 62,
+    ghostHealth: MATCH_RULES.ghostMaxHealth * 0.62,
     lightning: lightningDirection ? lightningAtMainPeak(lightningDirection, tick) : null,
     winner: null,
     capture: null,
+    captureContact: state === 'capture-contact'
+      ? { childPlayerId: 'child-1', ticks: 9, durationTicks: MATCH_RULES.captureContactTicks }
+      : null,
   } as const;
 
   if (state === 'ghost-playing' || state === 'ghost-win') {
@@ -99,6 +103,7 @@ export function createDeterministicViewerFrame(
     || state === 'flashlight-wall'
     || state === 'flashlight-profile-off'
     || state === 'flashlight-profile-on'
+    || state === 'capture-contact'
     || state === 'protection';
   const phase = state === 'capture'
     ? 'capture-animation'

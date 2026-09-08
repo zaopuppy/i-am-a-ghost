@@ -29,6 +29,10 @@ try {
   await guest.getByTestId('room-code-input').fill(roomCode);
   await guest.getByTestId('join-room').click();
   await host.getByTestId('roster').locator('li').nth(1).waitFor();
+  await host.getByTestId('lobby-role-picker').locator('[data-role-choice="ghost"]').click();
+  await guest.getByTestId('lobby-role-picker').locator('[data-role-choice="child"]').click();
+  await host.getByTestId('start-match').waitFor({ state: 'visible' });
+  await host.getByTestId('start-match').waitFor({ state: 'attached' });
   await host.getByTestId('start-match').click();
   await Promise.all([host, guest].map((candidate) => candidate.waitForFunction(
     () => {

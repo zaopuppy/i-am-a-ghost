@@ -7,7 +7,6 @@ import {
   type GameplayTuning,
   type MatchEvent,
 } from '../game/MatchEngine';
-import { chooseNextGhost } from '../game/RoleRotation';
 import { projectViewerFrame } from '../game/ViewerProjection';
 import {
   activeFlashlightPlayerIds,
@@ -18,6 +17,7 @@ import {
   MAX_PLAYERS,
   MIN_PLAYERS,
   PROTOCOL_VERSION,
+  RECONNECT_GRACE_MS,
   parseClientInputFrame,
   parseHarmonyClientMessage,
   type BasicActionResponse,
@@ -41,10 +41,12 @@ const MAX_CACHED_RESPONSES = 512;
 
 interface PrototypePlayer {
   playerId: string;
+  rejoinToken: string;
   nickname: string;
   peerId: string;
   isHost: boolean;
   connected: boolean;
+  selectedRole: PlayerRole;
   role: PlayerRole;
   ready: boolean;
   assetsReady: boolean;
@@ -52,6 +54,7 @@ interface PrototypePlayer {
   latestInput: ClientInputFrame | null;
   lastInputAtMs: number;
   lastInputMessageAtMs: number;
+  disconnectDeadlineMs: number | null;
 }
 
 class HarmonyHostedRoomPrototype {
@@ -66,7 +69,7 @@ class HarmonyHostedRoomPrototype {
   private tickHandle: ReturnType<typeof setInterval> | null = null;
   private lastLoopAtMs = 0;
   private accumulatedMs = 0;
-  private lastGhostPlayerId: string | null = null;
+  private expirationHandle: ReturnType<typeof setTimeout> | null = null;
   private readonly gameplayTuning: GameplayTuning = { ...DEFAULT_GAMEPLAY_TUNING };
   private readonly responseCache = new Map<string, Extract<HarmonyServerMessage, { type: 'response' }>>();
   private readonly responseOrder: string[] = [];
@@ -112,6 +115,9 @@ class HarmonyHostedRoomPrototype {
       case 'start-match':
         this.handleRequest(peerId, message.requestId, () => this.startMatch(peerId));
         break;
+      case 'select-role':
+        this.handleRequest(peerId, message.requestId, () => this.selectRole(peerId, message.role));
+        break;
       case 'set-ready':
         this.handleRequest(peerId, message.requestId, () => this.setReady(peerId, message.ready));
         break;
@@ -139,6 +145,10 @@ class HarmonyHostedRoomPrototype {
       return this.error('VERSION_MISMATCH', '客户端版本不匹配。');
     }
     if (message.roomCode !== this.roomCode) return this.error('ROOM_NOT_FOUND', '没有找到这个房间。');
+    if (message.playerId && message.rejoinToken) {
+      const restored = this.restore(peerId, message.playerId, message.rejoinToken);
+      if (restored) return restored;
+    }
     if (this.phase !== 'lobby') return this.error('ROOM_CLOSED', '对局已经开始。');
     if (this.players.size >= MAX_PLAYERS) return this.error('ROOM_FULL', '房间已经满员。');
     if (this.peerPlayers.has(peerId)) return this.error('BAD_REQUEST', '这个连接已经加入房间。');
@@ -149,12 +159,15 @@ class HarmonyHostedRoomPrototype {
     const normalizedNickname = nickname.trim().replace(/\s+/g, ' ').slice(0, 18);
     if (normalizedNickname.length < 1) return this.error('BAD_REQUEST', '临时昵称无效。');
     const playerId = randomId('player');
+    const rejoinToken = randomId('rejoin');
     const player: PrototypePlayer = {
       playerId,
+      rejoinToken,
       nickname: normalizedNickname,
       peerId,
       isHost,
       connected: true,
+      selectedRole: null,
       role: null,
       ready: false,
       assetsReady: false,
@@ -162,6 +175,7 @@ class HarmonyHostedRoomPrototype {
       latestInput: null,
       lastInputAtMs: 0,
       lastInputMessageAtMs: 0,
+      disconnectDeadlineMs: null,
     };
     this.players.set(playerId, player);
     this.peerPlayers.set(peerId, playerId);
@@ -172,7 +186,7 @@ class HarmonyHostedRoomPrototype {
       session: {
         roomCode: this.roomCode,
         playerId,
-        rejoinToken: randomId('rejoin'),
+        rejoinToken,
         isHost,
       },
     };
@@ -182,11 +196,34 @@ class HarmonyHostedRoomPrototype {
     const requester = this.playerForPeer(peerId);
     if (!requester) return this.error('NOT_IN_ROOM', '尚未加入房间。');
     if (!requester.isHost) return this.error('NOT_HOST', '只有房主可以开始。');
-    if (this.connectedPlayers().length < MIN_PLAYERS) {
-      return this.error('NOT_ENOUGH_PLAYERS', '至少需要两名玩家。');
-    }
     if (this.phase !== 'lobby') return this.error('ROOM_CLOSED', '当前不能开始新对局。');
+    const selectionError = this.validateConnectedSelection();
+    if (selectionError) return selectionError;
     this.beginLoading();
+    return { ok: true };
+  }
+
+  private selectRole(peerId: string, role: Exclude<PlayerRole, null>): BasicActionResponse {
+    const player = this.playerForPeer(peerId);
+    if (!player) return this.error('NOT_IN_ROOM', '尚未加入房间。');
+    if (this.phase !== 'lobby' && this.phase !== 'ended') {
+      return this.error('ROOM_CLOSED', '只能在大厅或结算后选择阵营。');
+    }
+    if (
+      role === 'ghost'
+      && [...this.players.values()].some((candidate) => (
+        candidate.connected
+        && candidate.playerId !== player.playerId
+        && candidate.selectedRole === 'ghost'
+      ))
+    ) {
+      return this.error('GHOST_TAKEN', '鬼阵营已经被其他玩家选择。');
+    }
+    if (player.selectedRole !== role) {
+      player.selectedRole = role;
+      player.ready = false;
+    }
+    this.broadcastRoomState();
     return { ok: true };
   }
 
@@ -194,9 +231,17 @@ class HarmonyHostedRoomPrototype {
     const player = this.playerForPeer(peerId);
     if (!player) return this.error('NOT_IN_ROOM', '尚未加入房间。');
     if (this.phase !== 'ended') return this.error('ROOM_CLOSED', '只能在结算后准备下一局。');
+    if (ready && player.selectedRole === null) {
+      return this.error('ROLE_SELECTION_REQUIRED', '请先选择鬼或小孩阵营。');
+    }
     player.ready = ready;
     const connected = [...this.players.values()].filter((candidate) => candidate.connected);
     if (connected.length >= MIN_PLAYERS && connected.every((candidate) => candidate.ready)) {
+      const selectionError = this.validateConnectedSelection();
+      if (selectionError) {
+        this.broadcastRoomState();
+        return selectionError;
+      }
       this.beginLoading();
     } else {
       this.broadcastRoomState();
@@ -214,13 +259,16 @@ class HarmonyHostedRoomPrototype {
   }
 
   private beginLoading(): void {
+    for (const [playerId, player] of this.players) {
+      if (!player.connected) this.players.delete(playerId);
+    }
+    this.promoteHost();
     this.engine = null;
     this.matchId = null;
     if (this.tickHandle) clearInterval(this.tickHandle);
     this.tickHandle = null;
     for (const player of this.players.values()) {
-      if (!player.connected) continue;
-      player.role = null;
+      player.role = player.selectedRole;
       player.ready = false;
       player.assetsReady = false;
       player.latestInput = null;
@@ -231,29 +279,22 @@ class HarmonyHostedRoomPrototype {
   }
 
   private tryBeginLoadedMatch(): boolean {
-    const roster = this.connectedPlayers();
+    const roster = [...this.players.values()].filter((player) => player.role !== null);
+    const connectedRoster = roster.filter((player) => player.connected);
     if (
       this.phase !== 'loading'
       || roster.length < MIN_PLAYERS
-      || !roster.every((player) => player.assetsReady)
+      || roster.filter((player) => player.role === 'ghost').length !== 1
+      || !connectedRoster.every((player) => player.assetsReady)
     ) return false;
-    this.beginMatch();
+    this.beginMatch(roster);
     return true;
   }
 
-  private beginMatch(): void {
-    const roster = [...this.players.values()].filter((player) => player.connected);
-    const ghostId = chooseNextGhost(
-      roster.map((player) => player.playerId),
-      this.lastGhostPlayerId,
-      Math.floor(Math.random() * roster.length),
-    );
-    const ghost = roster.find((player) => player.playerId === ghostId);
-    if (!ghost) throw new Error('Ghost rotation selected a player outside the room.');
-    const children = roster.filter((player) => player.playerId !== ghostId);
-    ghost.role = 'ghost';
-    for (const child of children) child.role = 'child';
-    this.lastGhostPlayerId = ghost.playerId;
+  private beginMatch(roster: PrototypePlayer[]): void {
+    const ghost = roster.find((player) => player.role === 'ghost');
+    if (!ghost) throw new Error('Locked room roster must contain exactly one ghost.');
+    const children = roster.filter((player) => player.role === 'child');
     this.round += 1;
     this.matchId = randomId('match');
     this.engine = new MatchEngine({
@@ -283,7 +324,7 @@ class HarmonyHostedRoomPrototype {
   private acceptInput(peerId: string, rawFrame: ClientInputFrame): void {
     const player = this.playerForPeer(peerId);
     const frame = parseClientInputFrame(rawFrame);
-    if (!player || !frame || !this.matchId || frame.matchId !== this.matchId || this.phase !== 'playing') return;
+    if (!player?.connected || !frame || !this.matchId || frame.matchId !== this.matchId || this.phase !== 'playing') return;
     const now = Date.now();
     if (now - player.lastInputMessageAtMs < MIN_INPUT_INTERVAL_MS) return;
     if (frame.seq <= player.lastAcceptedSeq) return;
@@ -318,7 +359,15 @@ class HarmonyHostedRoomPrototype {
     }
     if (result.checkpoint.phase === 'ended') {
       this.phase = 'ended';
-      for (const player of this.players.values()) player.ready = false;
+      const endedAtMs = Date.now();
+      for (const player of this.players.values()) {
+        player.selectedRole = null;
+        player.ready = false;
+        player.assetsReady = false;
+        if (!player.connected) player.disconnectDeadlineMs = endedAtMs + RECONNECT_GRACE_MS;
+      }
+      this.promoteHost();
+      this.scheduleExpirationSweep();
       if (this.tickHandle) clearInterval(this.tickHandle);
       this.tickHandle = null;
       this.broadcastRoomState();
@@ -378,6 +427,7 @@ class HarmonyHostedRoomPrototype {
         nickname: player.nickname,
         isHost: player.isHost,
         connected: player.connected,
+        selectedRole: player.selectedRole,
         role: player.role,
         ready: player.ready,
         assetsReady: player.assetsReady,
@@ -396,17 +446,22 @@ class HarmonyHostedRoomPrototype {
     const player = this.playerForPeer(peerId);
     if (!player) return;
     this.peerPlayers.delete(peerId);
-    if (this.phase === 'lobby' || this.phase === 'loading') {
+    if (this.phase === 'lobby') {
       this.players.delete(player.playerId);
       this.promoteHost();
+    } else if (this.phase === 'loading' || this.phase === 'playing') {
+      this.disconnectDuringLockedRound(player);
       this.reconcileLoadingAfterDeparture();
-    } else if (this.phase === 'playing' && player.role === 'ghost') {
-      this.abortMatchForGhostDisconnect(player.playerId);
     } else {
       player.connected = false;
+      player.selectedRole = null;
+      player.ready = false;
+      player.assetsReady = false;
       player.latestInput = null;
       player.lastInputAtMs = 0;
-      if (player.role === 'child') this.engine?.setPlayerActive(player.playerId, false);
+      player.disconnectDeadlineMs = Date.now() + RECONNECT_GRACE_MS;
+      this.promoteHost();
+      this.scheduleExpirationSweep();
     }
     this.removeCachedResponses(peerId);
     this.postPlayerCount();
@@ -465,27 +520,18 @@ class HarmonyHostedRoomPrototype {
 
   private promoteHost(): void {
     if ([...this.players.values()].some((player) => player.connected && player.isHost)) return;
+    for (const player of this.players.values()) player.isHost = false;
     const nextHost = this.connectedPlayers()[0];
     if (nextHost) nextHost.isHost = true;
   }
 
-  private abortMatchForGhostDisconnect(ghostPlayerId: string): void {
-    if (this.tickHandle) clearInterval(this.tickHandle);
-    this.tickHandle = null;
-    this.engine = null;
-    this.matchId = null;
-    this.phase = 'lobby';
-    this.notice = 'ghost-disconnected';
-    this.players.delete(ghostPlayerId);
-    for (const player of this.players.values()) {
-      player.role = null;
-      player.ready = false;
-      player.assetsReady = false;
-      player.latestInput = null;
-      player.lastInputAtMs = 0;
-      player.lastInputMessageAtMs = 0;
-    }
-    this.promoteHost();
+  private disconnectDuringLockedRound(player: PrototypePlayer): void {
+    player.connected = false;
+    player.lastInputAtMs = 0;
+    player.lastInputMessageAtMs = 0;
+    player.assetsReady = false;
+    player.disconnectDeadlineMs = null;
+    this.broadcastFrame();
   }
 
   private removeCachedResponses(peerId: string): void {
@@ -500,18 +546,97 @@ class HarmonyHostedRoomPrototype {
 
   private reconcileLoadingAfterDeparture(): void {
     if (this.phase !== 'loading') return;
+    this.tryBeginLoadedMatch();
+  }
+
+  private restore(peerId: string, playerId: string, rejoinToken: string): RoomActionResponse | null {
+    const player = this.players.get(playerId);
+    if (
+      !player
+      || player.connected
+      || !player.rejoinToken
+      || player.rejoinToken !== rejoinToken
+      || this.peerPlayers.has(peerId)
+      || !this.canRestore(player)
+    ) return null;
+    player.peerId = peerId;
+    player.connected = true;
+    player.disconnectDeadlineMs = null;
+    player.lastInputAtMs = 0;
+    player.lastInputMessageAtMs = 0;
+    this.peerPlayers.set(peerId, player.playerId);
+    this.broadcastRoomState();
+    this.broadcastFrame();
+    this.postPlayerCount();
+    this.scheduleExpirationSweep();
+    return {
+      ok: true,
+      session: {
+        roomCode: this.roomCode,
+        playerId: player.playerId,
+        rejoinToken: player.rejoinToken,
+        isHost: player.isHost,
+      },
+    };
+  }
+
+  private validateConnectedSelection(): { ok: false; error: { code: RoomErrorCode; message: string } } | null {
     const connectedPlayers = this.connectedPlayers();
     if (connectedPlayers.length < MIN_PLAYERS) {
-      this.phase = 'lobby';
-      for (const player of connectedPlayers) player.assetsReady = false;
-      return;
+      return this.error('NOT_ENOUGH_PLAYERS', '至少需要两名玩家。');
     }
-    this.tryBeginLoadedMatch();
+    if (
+      connectedPlayers.some((player) => player.selectedRole === null)
+      || connectedPlayers.filter((player) => player.selectedRole === 'ghost').length !== 1
+    ) {
+      return this.error('ROLE_SELECTION_REQUIRED', '所有玩家必须选择阵营，且必须恰好有一名鬼。');
+    }
+    return null;
+  }
+
+  private canRestore(player: PrototypePlayer): boolean {
+    if (this.phase === 'loading' || this.phase === 'playing') return true;
+    return this.phase === 'ended'
+      && player.disconnectDeadlineMs !== null
+      && player.disconnectDeadlineMs >= Date.now();
+  }
+
+  private scheduleExpirationSweep(): void {
+    if (this.expirationHandle) clearTimeout(this.expirationHandle);
+    this.expirationHandle = null;
+    const deadlines = [...this.players.values()]
+      .map((player) => player.disconnectDeadlineMs)
+      .filter((deadline): deadline is number => deadline !== null);
+    if (deadlines.length === 0) return;
+    const delayMs = Math.max(0, Math.min(...deadlines) - Date.now());
+    this.expirationHandle = setTimeout(() => {
+      this.expirationHandle = null;
+      this.expireDisconnectedPlayers();
+      this.scheduleExpirationSweep();
+    }, delayMs);
+  }
+
+  private expireDisconnectedPlayers(): void {
+    const nowMs = Date.now();
+    let changed = false;
+    for (const [playerId, player] of this.players) {
+      if (player.connected || player.disconnectDeadlineMs === null || player.disconnectDeadlineMs > nowMs) {
+        continue;
+      }
+      this.players.delete(playerId);
+      changed = true;
+    }
+    if (!changed) return;
+    this.promoteHost();
+    this.postPlayerCount();
+    this.broadcastRoomState();
   }
 
   private close(): void {
     if (this.tickHandle) clearInterval(this.tickHandle);
     this.tickHandle = null;
+    if (this.expirationHandle) clearTimeout(this.expirationHandle);
+    this.expirationHandle = null;
     this.engine = null;
     this.players.clear();
     this.peerPlayers.clear();
@@ -519,7 +644,6 @@ class HarmonyHostedRoomPrototype {
     this.matchId = null;
     this.round = 0;
     this.notice = null;
-    this.lastGhostPlayerId = null;
     this.responseCache.clear();
     this.responseOrder.length = 0;
   }

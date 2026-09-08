@@ -33,6 +33,7 @@ import type { ViewerFrame } from './game/ViewerFrame';
 import { GameClient } from './net/GameClient';
 import { FramePresenter } from './net/FramePresenter';
 import { HarmonyLanGameClient } from './net/HarmonyLanGameClient';
+import type { PlayerRole, RoomPlayerSummary } from './net/protocol';
 import {
   createDeterministicViewerFrame,
   isDeterministicStateName,
@@ -49,8 +50,13 @@ const roomPanel = requireElement<HTMLElement>('#room-panel');
 const roomCodeLabel = requireElement<HTMLElement>('#room-code');
 const roomCodeInput = requireElement<HTMLInputElement>('#room-code-input');
 const roster = requireElement<HTMLUListElement>('#roster');
+const resultRoster = requireElement<HTMLUListElement>('#result-roster');
 const startButton = requireElement<HTMLButtonElement>('#start-match');
 const waitingMessage = requireElement<HTMLElement>('#waiting-message');
+const startRequirements = requireElement<HTMLElement>('#start-requirements');
+const lobbyRolePicker = requireElement<HTMLFieldSetElement>('#lobby-role-picker');
+const resultRolePicker = requireElement<HTMLFieldSetElement>('#result-role-picker');
+const roleChoiceButtons = [...document.querySelectorAll<HTMLButtonElement>('[data-role-choice]')];
 const matchLoading = requireElement<HTMLElement>('#match-loading');
 const loadingStatus = requireElement<HTMLElement>('#loading-status');
 const loadingProgress = requireElement<HTMLElement>('#loading-progress');
@@ -78,6 +84,7 @@ const resultTitle = requireElement<HTMLElement>('#result-title');
 const resultDetail = requireElement<HTMLElement>('#result-detail');
 const readyButton = requireElement<HTMLButtonElement>('#ready-next');
 const readyCount = requireElement<HTMLElement>('#ready-count');
+const resultError = requireElement<HTMLElement>('#result-error');
 const createButton = requireElement<HTMLButtonElement>('#create-room');
 const joinButton = requireElement<HTMLButtonElement>('#join-room');
 const captureMarks = [...document.querySelectorAll<HTMLElement>('.capture-mark')];
@@ -156,6 +163,8 @@ let audioLoadingState: LoadingTaskState = 'waiting';
 let loadingWasActive = false;
 let matchPreparationInFlight = false;
 let matchPreparationError = '';
+let roleSelectionInFlight = false;
+type SelectableRole = Exclude<PlayerRole, null>;
 
 const queryRoom = query.get('room');
 if (queryRoom) roomCodeInput.value = normalizeRoomCode(queryRoom);
@@ -170,6 +179,13 @@ roomCodeInput.addEventListener('keydown', (event) => {
   if (event.key === 'Enter') joinRoom();
 });
 startButton.addEventListener('click', () => void client.startMatch());
+for (const button of roleChoiceButtons) {
+  button.addEventListener('click', () => {
+    const role = button.dataset.roleChoice;
+    if ((role !== 'ghost' && role !== 'child') || roleSelectionInFlight) return;
+    void selectRole(role);
+  });
+}
 loadingRetry.addEventListener('click', () => void prepareForMatch());
 readyButton.addEventListener('click', () => {
   if (scenePlaytest) {
@@ -342,6 +358,17 @@ function joinRoom(): void {
   if (code.length === 6) void client.joinRoom(code, nickname);
 }
 
+async function selectRole(role: SelectableRole): Promise<void> {
+  roleSelectionInFlight = true;
+  renderClientState();
+  try {
+    await client.selectRole(role);
+  } finally {
+    roleSelectionInFlight = false;
+    renderClientState();
+  }
+}
+
 function prepareRendering(): Promise<void> {
   renderingReady ??= world.prewarmCharacterAssets(
     (objects) => stage.prewarm(world.scene, objects),
@@ -422,6 +449,98 @@ function renderLoadingState(): void {
   setHidden(loadingRetry, !matchPreparationError);
 }
 
+function createRosterItems(
+  players: readonly RoomPlayerSummary[],
+  ownPlayerId: string,
+  showLoaded: boolean,
+): HTMLLIElement[] {
+  return players.map((player) => {
+    const item = document.createElement('li');
+    item.dataset.playerId = player.playerId;
+
+    const name = document.createElement('span');
+    name.className = 'roster__name';
+    name.textContent = `${player.nickname}${player.playerId === ownPlayerId ? '（你）' : ''}`;
+    item.append(name);
+
+    if (player.isHost) {
+      const host = document.createElement('span');
+      host.className = 'roster__host';
+      host.textContent = '房主';
+      item.append(host);
+    }
+
+    const status = document.createElement('span');
+    status.className = 'roster__status';
+    status.dataset.connected = String(player.connected);
+    status.title = player.connected ? '在线' : '离线，角色仍留在本局';
+    status.setAttribute('aria-label', status.title);
+    item.append(status);
+
+    const badge = document.createElement('span');
+    badge.className = 'role-badge';
+    badge.dataset.role = player.selectedRole ?? 'unselected';
+    badge.textContent = player.selectedRole === 'ghost'
+      ? '鬼'
+      : player.selectedRole === 'child'
+        ? '小孩'
+        : '未选择';
+    item.append(badge);
+
+    if (showLoaded && player.assetsReady) {
+      const loaded = document.createElement('span');
+      loaded.className = 'sr-only';
+      loaded.textContent = '已加载';
+      item.append(loaded);
+    }
+    return item;
+  });
+}
+
+function renderRolePickers(
+  players: readonly RoomPlayerSummary[],
+  ownPlayer: RoomPlayerSummary | null,
+  phase: 'lobby' | 'loading' | 'playing' | 'ended',
+): void {
+  lobbyRolePicker.hidden = phase !== 'lobby';
+  resultRolePicker.hidden = phase !== 'ended';
+  resultRoster.hidden = phase !== 'ended';
+  const ghostPlayer = players.find((player) => player.connected && player.selectedRole === 'ghost');
+  for (const button of roleChoiceButtons) {
+    const role = button.dataset.roleChoice as SelectableRole;
+    const selected = ownPlayer?.selectedRole === role;
+    const ghostOccupied = role === 'ghost'
+      && ghostPlayer !== undefined
+      && ghostPlayer.playerId !== ownPlayer?.playerId;
+    button.setAttribute('aria-pressed', String(selected));
+    button.disabled = roleSelectionInFlight
+      || !ownPlayer?.connected
+      || (phase !== 'lobby' && phase !== 'ended')
+      || ghostOccupied;
+    button.title = ghostOccupied ? `鬼席位已由 ${ghostPlayer.nickname} 选择` : '';
+  }
+}
+
+function describeRoleSelection(
+  connectedPlayers: readonly RoomPlayerSummary[],
+  minimumPlayers: number,
+  isCurrentHost: boolean,
+): { complete: boolean; message: string } {
+  const missingPlayers = Math.max(0, minimumPlayers - connectedPlayers.length);
+  const unselectedPlayers = connectedPlayers.filter((player) => player.selectedRole === null).length;
+  const ghostPlayers = connectedPlayers.filter((player) => player.selectedRole === 'ghost').length;
+  const unmet: string[] = [];
+  if (missingPlayers > 0) unmet.push(`还需 ${missingPlayers} 名玩家`);
+  if (unselectedPlayers > 0) unmet.push(`还有 ${unselectedPlayers} 人未选择阵营`);
+  if (ghostPlayers === 0) unmet.push('还需要 1 人选择鬼');
+  if (ghostPlayers > 1) unmet.push('只能有 1 个鬼');
+  if (unmet.length > 0) return { complete: false, message: `无法开始：${unmet.join('；')}。` };
+  return {
+    complete: true,
+    message: isCurrentHost ? '阵营已确认，可以开始游戏。' : '阵营已确认，等待房主开始。',
+  };
+}
+
 function renderClientState(): void {
   if (deterministicState || sceneEditorRequested || scenePlaytestRole) return;
   const nativeLanReady = harmonyHost.active && harmonyHost.lan?.listening === true;
@@ -439,9 +558,7 @@ function renderClientState(): void {
   } else {
     networkStatus.textContent = client.connected ? '局域网房间服务已连接' : '等待局域网房间服务';
   }
-  errorMessage.textContent = client.roomState?.notice === 'ghost-disconnected'
-    ? '鬼已断线，本局取消并返回大厅。'
-    : client.errorMessage;
+  errorMessage.textContent = client.errorMessage;
   const room = client.roomState;
   const session = client.session;
   const inRoom = Boolean(session && room);
@@ -449,25 +566,29 @@ function renderClientState(): void {
   roomPanel.hidden = !inRoom;
   if (room && session) {
     roomCodeLabel.textContent = room.roomCode;
-    roster.replaceChildren(
-      ...room.players.map((player) => {
-        const item = document.createElement('li');
-        const role = player.role === 'ghost' ? '鬼' : player.role === 'child' ? '小孩' : '等待';
-        const loaded = room.phase === 'loading' && player.assetsReady ? ' · 已加载' : '';
-        item.textContent = `${player.nickname}${player.isHost ? ' · 房主' : ''} · ${role}${loaded}`;
-        item.dataset.playerId = player.playerId;
-        return item;
-      }),
-    );
+    roster.replaceChildren(...createRosterItems(room.players, session.playerId, room.phase === 'loading'));
+    resultRoster.replaceChildren(...createRosterItems(room.players, session.playerId, false));
     const ownPlayer = room.players.find((player) => player.playerId === session.playerId);
     const isCurrentHost = ownPlayer?.isHost ?? false;
-    const canStart = room.phase === 'lobby' && isCurrentHost && room.players.length >= 2;
+    const connectedPlayers = room.players.filter((player) => player.connected);
+    const selection = describeRoleSelection(connectedPlayers, room.minimumPlayers, isCurrentHost);
+    const canStart = room.phase === 'lobby' && isCurrentHost && selection.complete;
     startButton.hidden = !isCurrentHost || room.phase !== 'lobby';
     startButton.disabled = !canStart;
     waitingMessage.hidden = isCurrentHost || room.phase !== 'lobby';
-    readyButton.disabled = ownPlayer?.ready ?? false;
-    readyButton.textContent = ownPlayer?.ready ? '已准备，等待其他人' : '准备下一局';
-    readyCount.textContent = `${room.players.filter((player) => player.ready).length} / ${room.players.length} 已准备`;
+    waitingMessage.textContent = '等待房主确认所有阵营并开始…';
+    startRequirements.hidden = room.phase !== 'lobby';
+    startRequirements.dataset.ready = String(selection.complete);
+    startRequirements.textContent = selection.message;
+    renderRolePickers(room.players, ownPlayer ?? null, room.phase);
+    readyButton.disabled = roleSelectionInFlight || Boolean(ownPlayer?.ready) || !ownPlayer?.selectedRole;
+    readyButton.textContent = ownPlayer?.ready
+      ? '已准备，等待其他人'
+      : ownPlayer?.selectedRole
+        ? '确认阵营并准备'
+        : '请先选择阵营';
+    readyCount.textContent = `${connectedPlayers.filter((player) => player.ready).length} / ${connectedPlayers.length} 已准备`;
+    resultError.textContent = room.phase === 'ended' ? client.errorMessage : '';
     if (
       room.debugGameplayTuning
       && room.debugGameplayTuning !== lastSyncedDebugGameplayTuning
@@ -479,6 +600,9 @@ function renderClientState(): void {
     }
   } else {
     lastSyncedDebugGameplayTuning = null;
+    roster.replaceChildren();
+    resultRoster.replaceChildren();
+    renderRolePickers([], null, 'lobby');
   }
   const loading = room?.phase === 'loading';
   const playing = room?.phase === 'playing';
@@ -532,6 +656,8 @@ function renderClientState(): void {
 
 function renderDeterministicState(frame: ViewerFrame): void {
   lobbyPanel.hidden = true;
+  resultRolePicker.hidden = true;
+  resultRoster.hidden = true;
   gameHud.hidden = frame.phase === 'ended';
   resultOverlay.hidden = frame.phase !== 'ended';
   roleLabel.textContent = frame.viewerRole === 'ghost' ? '你是鬼' : '你是小孩';
@@ -551,6 +677,8 @@ function renderDeterministicState(frame: ViewerFrame): void {
 
 function renderScenePlaytestState(frame: ViewerFrame): void {
   lobbyPanel.hidden = true;
+  resultRolePicker.hidden = true;
+  resultRoster.hidden = true;
   gameHud.hidden = frame.phase === 'ended';
   resultOverlay.hidden = frame.phase !== 'ended';
   roleLabel.textContent = frame.viewerRole === 'ghost' ? '试玩 · 你是鬼' : '试玩 · 你是小孩';
@@ -576,7 +704,10 @@ function updateHud(frame: ViewerFrame | null): void {
   touchAction.hidden = frame.viewerRole !== 'child';
   setText(timerLabel, formatTime(frame.remainingTicks));
   setText(healthValue, String(Math.ceil(frame.ghostHealth)));
-  setTransform(healthFill, `scaleX(${Math.max(0, frame.ghostHealth / 100)})`);
+  setTransform(
+    healthFill,
+    `scaleX(${Math.max(0, frame.ghostHealth / MATCH_RULES.ghostMaxHealth)})`,
+  );
   if (renderedCaptureCount !== frame.captureCount) {
     renderedCaptureCount = frame.captureCount;
     captureMarks.forEach((mark, index) => mark.classList.toggle('filled', index < frame.captureCount));
@@ -591,7 +722,12 @@ function updateHud(frame: ViewerFrame | null): void {
     const caught = frame.capture?.childPlayerId === frame.viewerPlayerId;
     showBanner(caught ? '你被抓住了' : '鬼抓住了一个孩子', 'danger');
   } else if (frame.phase === 'protection') {
-    showBanner('保护时间 · 计时暂停', 'safe');
+    showBanner(
+      frame.viewerRole === 'child'
+        ? '保护时间 · 快拉开距离'
+        : '保护时间 · 暂停追逐',
+      'safe',
+    );
   } else {
     setHidden(eventBanner, true);
   }
@@ -750,14 +886,14 @@ function isCaptureCinematicViewer(frame: ViewerFrame): boolean {
 function updateControlHint(frame: ViewerFrame): void {
   if (harmonyHost.active) {
     controlHint.textContent = frame.viewerRole === 'ghost'
-      ? '左侧摇杆移动 · 接触孩子自动抓取'
+      ? '左侧摇杆移动 · 持续接触孩子完成抓捕'
       : '左侧摇杆移动并朝向 · 右侧按住手电';
     return;
   }
   controlHint.textContent = frame.viewerRole === 'ghost'
     ? frame.ghost.burning
       ? '灼烧中 · 无法抓取 · WASD 或方向键逃离光束'
-      : 'WASD 或方向键移动 · 接触孩子自动抓取'
+      : 'WASD 或方向键移动 · 持续接触孩子完成抓捕'
     : 'WASD 或方向键移动并朝向 · 空格手电';
 }
 

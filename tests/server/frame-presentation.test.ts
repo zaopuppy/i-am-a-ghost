@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { MATCH_RULES } from '../../src/game/MatchEngine';
 import { FramePresenter, movePredictedPosition } from '../../src/net/FramePresenter';
 import type { ChildViewerFrame } from '../../src/game/ViewerFrame';
 
@@ -26,6 +27,18 @@ test('prediction respects static house walls and records hard corrections', () =
   presenter.present(0.1, { x: 1, z: 0 });
   presenter.ingest('match', childFrame(3, 5, 10));
   assert.equal(presenter.stats().hardSnaps, 1);
+});
+
+test('children keep local movement prediction while protection freezes the ghost', () => {
+  const presenter = new FramePresenter();
+  const protectedFrame = childFrame(30, 0, 10);
+  protectedFrame.phase = 'protection';
+  presenter.ingest('match', protectedFrame);
+
+  const presented = presenter.present(0.05, { x: 1, z: 0 });
+  assert.equal(presented?.viewerRole, 'child');
+  const own = presented?.children.find((child) => child.playerId === 'own');
+  assert.ok(own && own.position.x > 0);
 });
 
 test('remote presentation stays continuous when 20 Hz frames arrive with jitter', () => {
@@ -135,6 +148,11 @@ test('presentation frames cannot mutate buffered authority snapshots', () => {
     ticksRemaining: 90,
     durationTicks: 210,
   };
+  source.captureContact = {
+    childPlayerId: 'own',
+    ticks: 9,
+    durationTicks: 18,
+  };
   source.lightning = {
     id: 4,
     startTick: 12,
@@ -226,7 +244,7 @@ function childFrame(tick: number, ownX: number, remoteX: number): ChildViewerFra
     winner: null,
     remainingTicks: 18_000 - tick,
     captureCount: 0,
-    ghostHealth: 100,
+    ghostHealth: MATCH_RULES.ghostMaxHealth,
     lightning: null,
     capture: null,
     viewerRole: 'child',

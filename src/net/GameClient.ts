@@ -127,6 +127,13 @@ export class GameClient {
     return response;
   }
 
+  async selectRole(role: 'ghost' | 'child'): Promise<BasicActionResponse> {
+    const response = await this.socket.emitWithAck('select-role', role);
+    this.errorMessage = response.ok ? '' : response.error.message;
+    this.notify();
+    return response;
+  }
+
   async setReady(ready: boolean): Promise<BasicActionResponse> {
     const response = await this.socket.emitWithAck('set-ready', ready);
     if (!response.ok) this.errorMessage = response.error.message;

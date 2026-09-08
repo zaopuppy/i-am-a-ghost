@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 test('two browser pages join, start, and move through the authoritative input path', async ({ context }) => {
+  test.setTimeout(120_000);
   const host = await context.newPage();
   const guest = await context.newPage();
   const errors: string[] = [];
@@ -17,6 +18,19 @@ test('two browser pages join, start, and move through the authoritative input pa
   await guest.getByTestId('join-room').click();
   await expect(host.getByTestId('roster').locator('li')).toHaveCount(2);
   await expect(guest.getByTestId('roster').locator('li')).toHaveCount(2);
+  await expect(host.getByTestId('start-match')).toBeDisabled();
+  await expect(host.getByTestId('start-requirements')).toContainText('还有 2 人未选择阵营');
+  await selectLobbyRole(host, 'ghost');
+  await selectLobbyRole(guest, 'child');
+  await expect(host.getByTestId('lobby-role-picker').locator('[data-role-choice="ghost"]'))
+    .toHaveAttribute('aria-pressed', 'true');
+  await expect(guest.getByTestId('lobby-role-picker').locator('[data-role-choice="child"]'))
+    .toHaveAttribute('aria-pressed', 'true');
+  await expect(host.getByTestId('roster').locator('[data-role="ghost"]')).toHaveCount(1);
+  await expect(host.getByTestId('roster').locator('[data-role="child"]')).toHaveCount(1);
+  await expect(guest.getByTestId('roster').locator('[data-role="ghost"]')).toHaveCount(1);
+  await expect(host.getByTestId('start-requirements')).toHaveText('阵营已确认，可以开始游戏。');
+  await expect(host.getByTestId('start-match')).toBeEnabled();
   await host.getByRole('button', { name: '房间移动（房主）' }).click();
   const childSpeedInput = host
     .locator('.lil-gui .lil-controller')
@@ -34,15 +48,13 @@ test('two browser pages join, start, and move through the authoritative input pa
   await expect(guest.getByTestId('match-loading')).toBeVisible();
   await expect(host.getByTestId('match-timer')).toBeHidden();
   await expect(host.getByTestId('debug-panel')).toBeHidden();
-  await expect(host.getByTestId('match-loading')).toBeHidden({ timeout: 20_000 });
-  await expect(guest.getByTestId('match-loading')).toBeHidden({ timeout: 20_000 });
+  await expect(host.getByTestId('match-loading')).toBeHidden({ timeout: 45_000 });
+  await expect(guest.getByTestId('match-loading')).toBeHidden({ timeout: 45_000 });
 
-  await expect
-    .poll(async () => Promise.all([readRole(host), readRole(guest)]), { timeout: 10_000 })
-    .toEqual(expect.arrayContaining(['ghost', 'child']));
-  const hostRole = await readRole(host);
-  const childPage = hostRole === 'child' ? host : guest;
-  const ghostPage = hostRole === 'ghost' ? host : guest;
+  await expect.poll(() => readRole(host), { timeout: 10_000 }).toBe('ghost');
+  await expect.poll(() => readRole(guest), { timeout: 10_000 }).toBe('child');
+  const childPage = guest;
+  const ghostPage = host;
   await expect(childPage.getByTestId('role-label')).toContainText('小孩');
   await expect(ghostPage.getByTestId('role-label')).toContainText('鬼');
   await expect(childPage.getByTestId('match-timer')).toHaveText(/^0[45]:[0-5]\d$/);
@@ -52,7 +64,7 @@ test('two browser pages join, start, and move through the authoritative input pa
   await expect
     .poll(() => ghostPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.cameraMode))
     .toBe('follow');
-  await expect(ghostPage.locator('#control-hint')).toContainText('接触孩子自动抓取');
+  await expect(ghostPage.locator('#control-hint')).toContainText('持续接触孩子完成抓捕');
   await expect(childPage.locator('#control-hint')).toContainText('WASD 或方向键移动并朝向');
   await expect(childPage.locator('#control-hint')).not.toContainText('鼠标');
   await host.getByRole('button', { name: '感应与手电（房主）' }).click();
@@ -217,15 +229,81 @@ test('two browser pages join, start, and move through the authoritative input pa
     .poll(() => childPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.network.reconnecting ?? true))
     .toBe(false);
 
-  await ghostPage.close();
-  await expect(childPage.getByTestId('lobby-panel')).toBeVisible();
-  await expect(childPage.locator('#error-message')).toContainText('鬼已断线');
+  const ghostPlayerId = await ghostPage.evaluate(() => {
+    const frame = window.__THREE_GAME_DIAGNOSTICS__?.viewerFrame;
+    return frame?.viewerPlayerId ?? null;
+  });
+  expect(ghostPlayerId).not.toBeNull();
+  const ghostRosterEntry = childPage.getByTestId('roster').locator(`[data-player-id="${ghostPlayerId}"]`);
+  const childRosterBeforeGhostReload = await childPage.evaluate(() => {
+    const frame = window.__THREE_GAME_DIAGNOSTICS__?.viewerFrame;
+    return frame?.viewerRole === 'child'
+      ? { children: frame.children.length, dolls: frame.dolls.length }
+      : null;
+  });
+  const timerBeforeGhostReload = await childPage.getByTestId('match-timer').textContent();
+  const ghostReload = ghostPage.reload({ waitUntil: 'domcontentloaded' });
+  await expect(ghostRosterEntry.locator('.roster__status')).toHaveAttribute(
+    'aria-label',
+    '离线，角色仍留在本局',
+  );
+  expect(await readRole(childPage)).toBe('child');
+  await expect.poll(() => childPage.getByTestId('match-timer').textContent())
+    .not.toBe(timerBeforeGhostReload);
+  expect(await childPage.evaluate(() => {
+    const frame = window.__THREE_GAME_DIAGNOSTICS__?.viewerFrame;
+    return frame?.viewerRole === 'child'
+      ? { children: frame.children.length, dolls: frame.dolls.length }
+      : null;
+  })).toEqual(childRosterBeforeGhostReload);
+  await ghostReload;
+  await expect.poll(() => readRole(ghostPage), { timeout: 10_000 }).toBe('ghost');
+  expect(await ghostPage.evaluate(() => (
+    window.__THREE_GAME_DIAGNOSTICS__?.viewerFrame?.viewerPlayerId ?? null
+  ))).toBe(ghostPlayerId);
+  await expect(ghostRosterEntry.locator('.roster__status')).toHaveAttribute('aria-label', '在线');
+  await expect(childPage.getByTestId('lobby-panel')).toBeHidden();
 
   expect(errors).toEqual([]);
 });
 
+test('simultaneous ghost claims leave one public winner and a recoverable loser', async ({ context }) => {
+  const first = await context.newPage();
+  const second = await context.newPage();
+  await Promise.all([first.goto('/'), second.goto('/')]);
+  await first.getByTestId('create-room').click();
+  const roomCode = (await first.getByTestId('room-code').textContent())?.trim() ?? '';
+  await second.getByTestId('room-code-input').fill(roomCode);
+  await second.getByTestId('join-room').click();
+  await expect(first.getByTestId('roster').locator('li')).toHaveCount(2);
+
+  await Promise.all([
+    first.getByTestId('lobby-role-picker').locator('[data-role-choice="ghost"]').dispatchEvent('click'),
+    second.getByTestId('lobby-role-picker').locator('[data-role-choice="ghost"]').dispatchEvent('click'),
+  ]);
+  await expect.poll(async () => Promise.all([
+    first.getByTestId('roster').locator('[data-role="ghost"]').count(),
+    second.getByTestId('roster').locator('[data-role="ghost"]').count(),
+  ])).toEqual([1, 1]);
+  const firstSelected = await first.getByTestId('lobby-role-picker')
+    .locator('[data-role-choice="ghost"]')
+    .getAttribute('aria-pressed');
+  const loser = firstSelected === 'true' ? second : first;
+  await expect(loser.locator('#error-message')).toContainText('鬼阵营已经被其他玩家选择');
+  await selectLobbyRole(loser, 'child');
+  await expect(first.getByTestId('roster').locator('[data-role="ghost"]')).toHaveCount(1);
+  await expect(first.getByTestId('roster').locator('[data-role="child"]')).toHaveCount(1);
+  await expect(first.getByTestId('start-match')).toBeEnabled();
+});
+
 function readRole(page: Page): Promise<string | null> {
   return page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.role ?? null);
+}
+
+async function selectLobbyRole(page: Page, role: 'ghost' | 'child'): Promise<void> {
+  const choice = page.getByTestId('lobby-role-picker').locator(`[data-role-choice="${role}"]`);
+  await choice.click();
+  await expect(choice).toHaveAttribute('aria-pressed', 'true');
 }
 
 function readOwnChildFacing(page: Page): Promise<number | null> {

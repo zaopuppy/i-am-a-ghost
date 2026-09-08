@@ -289,6 +289,9 @@ export class GameWorld {
 
     for (const child of frame.children) {
       const actor = this.actor(`child:${child.playerId}`, 'child', child.slot);
+      const captureContact = frame.captureContact?.childPlayerId === child.playerId
+        ? frame.captureContact
+        : null;
       syncActor(
         actor,
         child.position,
@@ -301,8 +304,10 @@ export class GameWorld {
       );
       updateWorldMeter(
         actor.statusMeter,
-        child.batteryCharge,
-        batteryMeterColor(child.batteryCharge),
+        captureContact
+          ? captureContact.ticks / Math.max(1, captureContact.durationTicks)
+          : child.batteryCharge,
+        captureContact ? 0xd94f5f : batteryMeterColor(child.batteryCharge),
       );
       if (actor.statusMeter) actor.statusMeter.root.visible = frame.phase === 'playing';
       const flashlightRequested = child.flashlightOn && frame.phase === 'playing';

@@ -40,6 +40,15 @@ export function projectViewerFrame(
           durationTicks: MATCH_RULES.captureAnimationTicks,
         }
       : null,
+    captureContact: checkpoint.phase === 'playing'
+      && checkpoint.captureContactChildPlayerId
+      && (viewer.role === 'ghost' || checkpoint.captureContactChildPlayerId === viewerPlayerId)
+      ? {
+          childPlayerId: checkpoint.captureContactChildPlayerId,
+          ticks: checkpoint.captureContactTicks,
+          durationTicks: MATCH_RULES.captureContactTicks,
+        }
+      : null,
   };
   const children: VisibleChild[] = checkpoint.players
     .filter((player) => player.role === 'child' && player.active)

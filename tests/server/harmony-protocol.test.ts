@@ -17,6 +17,16 @@ test('Harmony room protocol rejects legal JSON with invalid fields', () => {
   }), null);
   assert.equal(parseHarmonyClientMessage({ type: 'set-ready', requestId: 'ready-1', ready: 'yes' }), null);
   assert.equal(parseHarmonyClientMessage({ type: 'set-assets-ready', requestId: 'assets-1', ready: 'yes' }), null);
+  assert.equal(parseHarmonyClientMessage({ type: 'select-role', requestId: 'role-1', role: 'spectator' }), null);
+  assert.equal(parseHarmonyClientMessage({
+    type: 'join-room',
+    requestId: 'join-2',
+    protocolVersion: PROTOCOL_VERSION,
+    buildVersion: BUILD_VERSION,
+    roomCode: 'GHOST7',
+    nickname: '访客',
+    playerId: 'player-1',
+  }), null);
   assert.equal(parseHarmonyClientMessage({ type: 'unknown', requestId: 'unknown-1' }), null);
 });
 
@@ -48,5 +58,36 @@ test('Harmony room protocol accepts local asset readiness', () => {
     type: 'set-assets-ready',
     requestId: 'assets-1',
     ready: true,
+  });
+});
+
+test('Harmony room protocol accepts role selection and rejoin identity', () => {
+  assert.deepEqual(parseHarmonyClientMessage({
+    type: 'select-role',
+    requestId: 'role-1',
+    role: 'ghost',
+  }), {
+    type: 'select-role',
+    requestId: 'role-1',
+    role: 'ghost',
+  });
+  assert.deepEqual(parseHarmonyClientMessage({
+    type: 'join-room',
+    requestId: 'join-1',
+    protocolVersion: PROTOCOL_VERSION,
+    buildVersion: BUILD_VERSION,
+    roomCode: 'GHOST7',
+    nickname: '访客',
+    playerId: 'player-1',
+    rejoinToken: 'rejoin-1',
+  }), {
+    type: 'join-room',
+    requestId: 'join-1',
+    protocolVersion: PROTOCOL_VERSION,
+    buildVersion: BUILD_VERSION,
+    roomCode: 'GHOST7',
+    nickname: '访客',
+    playerId: 'player-1',
+    rejoinToken: 'rejoin-1',
   });
 });

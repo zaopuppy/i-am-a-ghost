@@ -14,6 +14,7 @@ const VISUAL_STATES = [
   'flashlight-wall',
   'ghost-playing',
   'low-battery',
+  'capture-contact',
   'capture',
   'child-win',
   ...LIGHTNING_STATES.map(([state]) => state),
@@ -47,8 +48,17 @@ for (const state of VISUAL_STATES) {
         expect.arrayContaining(['Idle_A', 'Running_A', 'Hit_A']),
       );
       expect(diagnostics?.world.animatedActors).toBe(5);
-      await expect(page.locator('#control-hint')).toContainText('接触孩子自动抓取');
+      await expect(page.locator('#control-hint')).toContainText('持续接触孩子完成抓捕');
       await expect(page.getByTestId('event-banner')).toBeHidden();
+    }
+    if (state === 'capture-contact') {
+      const frame = await page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.viewerFrame);
+      expect(frame?.captureContact).toEqual({
+        childPlayerId: 'child-1',
+        ticks: 9,
+        durationTicks: 18,
+      });
+      if (frame?.viewerRole === 'child') expect(frame.ghost).toBeUndefined();
     }
     if (state === 'capture') {
       const diagnostics = await page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__);
