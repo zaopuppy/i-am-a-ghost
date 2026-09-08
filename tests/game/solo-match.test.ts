@@ -15,6 +15,18 @@ const openMap: MatchMap = {
   batterySpawns: [{ x: -3, z: -3 }, { x: 3, z: 3 }],
 };
 
+test('solo uses initial tuning and applies live speed changes without restarting authority', () => {
+  const match = new SoloMatch({ ...openMap, ghostSpawn: { x: 10, z: 10 } },
+    { role: 'ghost', childCount: 1, seed: 71 }, { ghostMoveSpeed: 2 });
+  const start = match.frame().ghost!.position.x;
+  const first = match.update(1 / 60, { x: 1, z: 0 }, 0, false);
+  assert.ok(Math.abs(first.ghost!.position.x - start - 2 / 60) < 1e-9);
+  match.setGameplayTuning({ ghostMoveSpeed: 6 });
+  const second = match.update(1 / 60, { x: 1, z: 0 }, 0, false);
+  assert.equal(second.tick, first.tick + 1);
+  assert.ok(Math.abs(second.ghost!.position.x - first.ghost!.position.x - 6 / 60) < 1e-9);
+});
+
 test('solo supports both roles, one to four children, and sensor dolls only in empty slots', () => {
   for (const role of ['ghost', 'child'] as const) {
     for (let childCount = 1; childCount <= 4; childCount += 1) {

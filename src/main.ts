@@ -22,7 +22,7 @@ import { GameWorld } from './game/GameWorld';
 import { compileHouseScene, type CompiledHouseScene } from './game/HouseScene';
 import { loadHouseSceneDraft } from './game/HouseSceneDraft';
 import { lightningSourceVector, type LightningPresentationFrame } from './game/LightningPresentation';
-import { DEFAULT_GAMEPLAY_TUNING, MATCH_RULES, type GameplayTuning } from './game/MatchEngine';
+import { MATCH_RULES, type GameplayTuning } from './game/MatchEngine';
 import { createRuntimeTuning } from './game/RuntimeTuning';
 import {
   parseScenePlaytestRole,
@@ -307,7 +307,7 @@ const loop = new Loop(
     const presentationSeconds = soloMatch ? soloPresentationSeconds : deterministicState && (screenshotPaused || reducedMotion)
       ? 2.75
       : elapsedSeconds;
-    const presentationTuning = soloActive ? DEFAULT_GAMEPLAY_TUNING : runtimeTuning;
+    const presentationTuning = runtimeTuning;
     world.setFlashlightTuning(presentationTuning.flashlightLength, presentationTuning.flashlightConeDegrees);
     const lightningFrame = world.sync(frame, presentationSeconds);
     if (!soloMatch?.paused) updateCamera(frame, deltaSeconds, Boolean(deterministicState));
@@ -457,7 +457,7 @@ async function openSoloSetup(): Promise<void> {
 }
 
 function startSoloMatch(options: SoloOptions): void {
-  soloMatch = new SoloMatch(DEFAULT_HOUSE_MAP, options);
+  soloMatch = new SoloMatch(DEFAULT_HOUSE_MAP, options, runtimeTuning);
   soloPresentationSeconds = 0;
   childAimKey = '';
   lastActionHeld = false;
@@ -1124,7 +1124,7 @@ async function installDebugGui(): Promise<void> {
   ];
   positionFolder.close();
   targetFolder.close();
-  const movementFolder = gui.addFolder('房间移动（房主）');
+  const movementFolder = gui.addFolder('移动（单人 / 联机房主）');
   movementFolder
     .add(runtimeTuning, 'childMoveSpeed', 1, 8, 0.05)
     .name('小孩速度')
@@ -1133,7 +1133,7 @@ async function installDebugGui(): Promise<void> {
     .add(runtimeTuning, 'ghostMoveSpeed', 1, 8, 0.05)
     .name('鬼速度')
     .onChange(queueDebugGameplayTuning);
-  const sensingFolder = gui.addFolder('感应与手电（房主）');
+  const sensingFolder = gui.addFolder('感应与手电（单人 / 联机房主）');
   sensingFolder
     .add(runtimeTuning, 'headlampDetectionRange', 1, 20, 0.1)
     .name('灯感应范围')
@@ -1338,6 +1338,10 @@ function cameraPresetFromDebugState(): CameraPreset {
 }
 
 function queueDebugGameplayTuning(): void {
+  if (soloActive) {
+    soloMatch?.setGameplayTuning(runtimeTuning);
+    return;
+  }
   if (!client.session?.isHost) {
     const serverTuning = client.roomState?.debugGameplayTuning;
     if (serverTuning) Object.assign(runtimeTuning, serverTuning);
@@ -1409,7 +1413,7 @@ function updateDiagnostics(frame: ViewerFrame | null, elapsedSeconds: number): v
     cameraViewHeight: camera.viewHeight,
     camera,
     capturedChildPlayerId: frame?.capture?.childPlayerId ?? null,
-    tuning: { ...runtimeTuning, ...(soloActive ? DEFAULT_GAMEPLAY_TUNING : {}) },
+    tuning: { ...runtimeTuning },
     world: world.metrics(),
     input: { actionHeld: input.actionHeld(), movement: input.movement() },
     network: {

@@ -31,7 +31,7 @@ test('two browser pages join, start, and move through the authoritative input pa
   await expect(guest.getByTestId('roster').locator('[data-role="ghost"]')).toHaveCount(1);
   await expect(host.getByTestId('start-requirements')).toHaveText('阵营已确认，可以开始游戏。');
   await expect(host.getByTestId('start-match')).toBeEnabled();
-  await host.getByRole('button', { name: '房间移动（房主）' }).click();
+  await host.getByRole('button', { name: '移动（单人 / 联机房主）' }).click();
   const childSpeedInput = host
     .locator('.lil-gui .lil-controller')
     .filter({ hasText: '小孩速度' })
@@ -42,7 +42,7 @@ test('two browser pages join, start, and move through the authoritative input pa
   await expect
     .poll(() => guest.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.tuning.childMoveSpeed ?? 0))
     .toBe(5.25);
-  await host.getByRole('button', { name: '房间移动（房主）' }).click();
+  await host.getByRole('button', { name: '移动（单人 / 联机房主）' }).click();
   await host.getByTestId('start-match').click();
   await expect(host.getByTestId('match-loading')).toBeVisible();
   await expect(guest.getByTestId('match-loading')).toBeVisible();
@@ -67,7 +67,7 @@ test('two browser pages join, start, and move through the authoritative input pa
   await expect(ghostPage.locator('#control-hint')).toContainText('持续接触孩子完成抓捕');
   await expect(childPage.locator('#control-hint')).toContainText('WASD 或方向键移动');
   await expect(childPage.locator('#control-hint')).toContainText('鼠标转向');
-  await host.getByRole('button', { name: '感应与手电（房主）' }).click();
+  await host.getByRole('button', { name: '感应与手电（单人 / 联机房主）' }).click();
   const flashlightLengthInput = host
     .locator('.lil-gui .lil-controller')
     .filter({ hasText: '手电距离' })
@@ -104,7 +104,7 @@ test('two browser pages join, start, and move through the authoritative input pa
   await expect
     .poll(() => guest.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.tuning.infiniteFlashlightEnergy))
     .toBe(false);
-  await host.getByRole('button', { name: '感应与手电（房主）' }).click();
+  await host.getByRole('button', { name: '感应与手电（单人 / 联机房主）' }).click();
   await ghostPage.evaluate(() => {
     window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space' }));
     window.dispatchEvent(new KeyboardEvent('keyup', { code: 'Space' }));

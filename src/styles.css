@@ -27,7 +27,6 @@ button:disabled { cursor: not-allowed; opacity: 0.42; }
 .solo-card .solo-secondary { color: #cec8ba; background: transparent; border-color: rgb(255 255 255 / 18%); }
 .solo-pause { position: absolute; z-index: 8; bottom: max(24px, env(safe-area-inset-bottom)); left: max(24px, env(safe-area-inset-left)); min-height: 44px; padding: 10px 16px; }
 .solo-pause span { margin-left: 8px; font-size: 11px; opacity: .6; }
-:root[data-solo-active="true"] .lil-gui,
 :root[data-solo-active="true"] .milestone { display: none !important; }
 :root[data-solo-paused="true"] #app::after { animation-play-state: paused; }
 @media (pointer: coarse) {

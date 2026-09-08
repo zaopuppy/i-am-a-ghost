@@ -144,7 +144,7 @@ export const MATCH_RULES = Object.freeze({
   playerRadius: 0.45,
   mapCollisionRadius: 0.35,
   flashlightSecondsAtFullCharge: 8,
-  flashlightLength: 7.5,
+  flashlightLength: 3.4,
   flashlightConeDegrees: 44,
   flashlightDamagePerSecond: 12.5,
   beamDamageMultipliers: [1, 0.65, 0.45, 0.3] as const,

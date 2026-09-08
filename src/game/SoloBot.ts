@@ -1,6 +1,6 @@
 import { GridNavigator } from './GridNavigator';
 import { mapPositionIsOpen, mapSegmentIsOpen } from './MapCollision';
-import { MATCH_RULES, type MatchMap, type PlayerCommand, type Vec2 } from './MatchEngine';
+import { DEFAULT_GAMEPLAY_TUNING, MATCH_RULES, type GameplayTuning, type MatchMap, type PlayerCommand, type Vec2 } from './MatchEngine';
 import type { ViewerFrame } from './ViewerFrame';
 
 const THINK_TICKS = 15;
@@ -34,7 +34,7 @@ export class SoloBot {
     this.intention = { playerId, move: { x: 0, z: 0 }, facingRadians: 0, action: false };
   }
 
-  command(frame: ViewerFrame): PlayerCommand {
+  command(frame: ViewerFrame, tuning: Readonly<GameplayTuning> = DEFAULT_GAMEPLAY_TUNING): PlayerCommand {
     const own = frame.viewerRole === 'ghost'
       ? frame.ghost
       : frame.children.find((child) => child.playerId === this.playerId)!;
@@ -49,7 +49,7 @@ export class SoloBot {
     }
     if (frame.tick >= this.nextThinkTick) {
       this.nextThinkTick = frame.tick + THINK_TICKS;
-      this.intention = this.think(frame, own.position, own.facingRadians);
+      this.intention = this.think(frame, own.position, own.facingRadians, tuning);
     }
     const move = this.destination
       ? this.navigator.moveToward(this.playerId, own.position, this.destination, frame.tick)
@@ -66,7 +66,7 @@ export class SoloBot {
     return { ...this.intention, move, facingRadians: Math.atan2(Math.sin(facing), Math.cos(facing)) };
   }
 
-  private think(frame: ViewerFrame, position: Vec2, facing: number): PlayerCommand {
+  private think(frame: ViewerFrame, position: Vec2, facing: number, tuning: Readonly<GameplayTuning>): PlayerCommand {
     const visible = frame.viewerRole === 'ghost'
       ? frame.children.filter((child) => this.canSee(position, child.position))
         .sort((a, b) => distance(position, a.position) - distance(position, b.position))[0]?.position
@@ -90,10 +90,10 @@ export class SoloBot {
         .sort((a, b) => distance(position, a.position) - distance(position, b.position))[0];
       if (visible) {
         const range = distance(position, visible);
-        action = frame.ownBattery > 0 && range < MATCH_RULES.flashlightLength;
-        if (range < 3.2 || frame.ownBattery < 0.08) {
+        action = frame.ownBattery > 0 && range < tuning.flashlightLength;
+        if (range < Math.min(3.2, tuning.flashlightLength * 0.43) || frame.ownBattery < 0.08) {
           destination = this.escape(position, visible);
-        } else if (range < 5.5) {
+        } else if (range < Math.min(5.5, tuning.flashlightLength * 0.73)) {
           // Hold a useful beam distance instead of alternating approach/retreat
           // around one threshold on every decision tick.
           destination = position;
@@ -113,7 +113,7 @@ export class SoloBot {
         aim = null;
         action = (frame.tick + this.offset * 17) % 120 < 72;
       } else if (!visible && this.target) {
-        action = frame.ownBattery > 0 && distance(position, this.target) < MATCH_RULES.flashlightLength;
+        action = frame.ownBattery > 0 && distance(position, this.target) < tuning.flashlightLength;
       }
     } else if (frame.ghost.burning && visible) {
       destination = this.escape(position, visible);

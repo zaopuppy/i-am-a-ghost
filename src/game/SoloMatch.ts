@@ -1,5 +1,5 @@
 import { GridNavigator } from './GridNavigator';
-import { MATCH_RULES, MatchEngine, type MatchEvent, type MatchMap, type Vec2 } from './MatchEngine';
+import { DEFAULT_GAMEPLAY_TUNING, MATCH_RULES, MatchEngine, type GameplayTuning, type MatchEvent, type MatchMap, type Vec2 } from './MatchEngine';
 import { SoloBot } from './SoloBot';
 import type { ViewerFrame } from './ViewerFrame';
 import { projectViewerFrame } from './ViewerProjection';
@@ -21,20 +21,27 @@ export class SoloMatch {
   private accumulator = 0;
   private isPaused = false;
   private previousFrame: ViewerFrame | null = null;
+  private tuning: GameplayTuning;
 
-  constructor(map: MatchMap, readonly options: Readonly<SoloOptions>) {
+  constructor(map: MatchMap, readonly options: Readonly<SoloOptions>, tuning: Partial<GameplayTuning> = {}) {
+    this.tuning = { ...DEFAULT_GAMEPLAY_TUNING, ...tuning };
     if (!Number.isInteger(options.childCount) || options.childCount < 1 || options.childCount > 4) {
       throw new RangeError('Solo matches require one to four children.');
     }
     const childPlayerIds = Array.from({ length: options.childCount }, (_, index) => `solo-child-${index}`);
     this.viewerPlayerId = options.role === 'ghost' ? 'solo-ghost' : childPlayerIds[0];
-    this.engine = new MatchEngine({ seed: options.seed, map, ghostPlayerId: 'solo-ghost', childPlayerIds });
+    this.engine = new MatchEngine({ seed: options.seed, map, ghostPlayerId: 'solo-ghost', childPlayerIds, gameplayTuning: this.tuning });
     const navigator = new GridNavigator(map);
     this.botIds = ['solo-ghost', ...childPlayerIds].filter((id) => id !== this.viewerPlayerId);
     this.bots = this.botIds.map((id, index) => new SoloBot(id, map, navigator, index + Math.abs(options.seed % 31)));
   }
 
   get paused(): boolean { return this.isPaused; }
+
+  setGameplayTuning(tuning: Partial<GameplayTuning>): void {
+    Object.assign(this.tuning, tuning);
+    this.engine.setGameplayTuning(tuning);
+  }
 
   setPaused(paused: boolean): void {
     this.isPaused = paused;
@@ -49,7 +56,7 @@ export class SoloMatch {
       const before = this.engine.checkpoint();
       const commands = this.bots.map((bot, index) => bot.command(projectViewerFrame(before, this.botIds[index], {
         activeFlashlightPlayerIds: this.flashlights,
-      })));
+      }), this.tuning));
       commands.push({ playerId: this.viewerPlayerId, move: movement, facingRadians, action: actionHeld });
       const result = this.engine.advance(commands);
       this.events.push(...result.events);
