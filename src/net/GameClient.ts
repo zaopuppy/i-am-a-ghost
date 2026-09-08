@@ -169,6 +169,31 @@ export class GameClient {
     });
   }
 
+  async leaveRoom(): Promise<void> {
+    if (this.connected && this.session) {
+      try {
+        const response = await this.socket.timeout(5000).emitWithAck('leave-room');
+        if (!response.ok && response.error.code !== 'NOT_IN_ROOM') throw new Error(response.error.message);
+      } catch {
+        throw new Error('未能确认退出房间，请检查连接后重试。');
+      }
+    }
+    this.session = null;
+    this.roomState = null;
+    this.latestFrame = null;
+    this.latestEvents = null;
+    this.nickname = '';
+    this.errorMessage = '';
+    this.inputSequence = 0;
+    this.clientTick = 0;
+    this.lastFrameReceivedAt = 0;
+    this.lastAckLatencyMs = null;
+    this.inputSentAt.clear();
+    this.eventLedger.clear();
+    sessionStorage.removeItem(SESSION_STORAGE_KEY);
+    this.notify();
+  }
+
   dispose(): void {
     this.listeners.clear();
     this.socket.disconnect();

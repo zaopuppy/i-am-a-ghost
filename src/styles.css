@@ -760,3 +760,19 @@ input { width: 100%; padding: 0 12px; color: #f3f0e8; background: rgb(255 255 25
   .scene-editor__section { padding-block: 10px; }
   .scene-editor__header > p:last-child { display: none; }
 }
+
+.multiplayer-dialog .multiplayer-warning { color: #ead18b; font-weight: 700; }
+.multiplayer-dialog details { text-align: left; border: 1px solid rgb(255 255 255 / 18%); }
+.multiplayer-dialog summary { min-height: 44px; padding: 12px 16px; cursor: pointer; color: #cec8ba; }
+.multiplayer-dialog details p { padding: 0 16px 12px; margin: 0; }
+.multiplayer-dialog summary:focus-visible { outline: 2px solid #ead99f; outline-offset: 3px; }
+#multiplayer-confirm { margin-top: 20px; padding-top: 12px; border-top: 1px solid #665c40; }
+#multiplayer-confirm-leave { background: #8c3934; border-color: #bf7062; color: #fff1e9; }
+
+@media (max-height: 500px) {
+  .multiplayer-dialog .solo-card { padding: 16px 22px; }
+  .multiplayer-dialog .eyebrow { margin: 0; }
+  .multiplayer-dialog h2 { margin: 8px 0; font-size: 28px; }
+  .multiplayer-dialog .solo-buttons { grid-template-columns: 1fr 1fr; gap: 6px; }
+  #multiplayer-help, #multiplayer-leave { grid-column: 1 / -1; }
+}

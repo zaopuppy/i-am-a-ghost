@@ -187,6 +187,16 @@ export class HarmonyLanGameClient {
     };
   }
 
+  get isRoomHost(): boolean { return this.hostMode; }
+
+  async leaveRoom(): Promise<void> {
+    if (!this.hostMode && this.connected && this.session) {
+      const response = await this.request({ type: 'leave-room', requestId: requestId() });
+      if (!response.ok) throw new Error(response.error.message);
+    }
+    this.resetSession();
+  }
+
   dispose(): void {
     window.clearInterval(this.pollTimer);
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
@@ -198,6 +208,7 @@ export class HarmonyLanGameClient {
     this.worker?.terminate();
     const worker = new Worker(new URL('./HarmonyRoomWorker.ts', import.meta.url), { type: 'module' });
     worker.addEventListener('message', (event: MessageEvent<HarmonyWorkerOutput>) => {
+      if (this.worker !== worker) return;
       const message = event.data;
       if (message.type === 'player-count') {
         this.host.setHostedRoomPlayers(message.count);
@@ -309,7 +320,8 @@ export class HarmonyLanGameClient {
         this.notify();
         break;
       case 'host-closed':
-        this.connected = false;
+        if (!this.session && !this.roomState) break;
+        this.resetSession();
         this.errorMessage = '房间主机已离开。';
         this.notify();
         break;
@@ -358,6 +370,7 @@ export class HarmonyLanGameClient {
     this.host.closeHostedRoom();
     clearHarmonyRoomSurfaces();
     this.hostMode = false;
+    this.connected = false;
     this.session = null;
     this.roomState = null;
     this.latestFrame = null;
@@ -369,7 +382,10 @@ export class HarmonyLanGameClient {
     this.lastAckLatencyMs = null;
     this.inputSentAt.clear();
     this.eventLedger.clear();
-    for (const pending of this.pending.values()) window.clearTimeout(pending.timer);
+    for (const pending of this.pending.values()) {
+      window.clearTimeout(pending.timer);
+      pending.resolve({ ok: false, error: { code: 'NOT_IN_ROOM', message: '已离开房间。' } });
+    }
     this.pending.clear();
     this.notify();
   }

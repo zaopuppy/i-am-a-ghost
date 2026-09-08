@@ -112,6 +112,15 @@ class HarmonyHostedRoomPrototype {
       case 'join-room':
         this.handleRequest(peerId, message.requestId, () => this.joinRoom(peerId, message));
         break;
+      case 'leave-room':
+        this.handleRequest(peerId, message.requestId, () => {
+          const player = this.playerForPeer(peerId);
+          if (!player || player.isHost) return this.error('BAD_REQUEST', '无法退出此席位。');
+          player.rejoinToken = '';
+          this.disconnectPeer(peerId);
+          return { ok: true };
+        });
+        break;
       case 'start-match':
         this.handleRequest(peerId, message.requestId, () => this.startMatch(peerId));
         break;

@@ -122,7 +122,7 @@ export type HarmonyClientMessage =
     rejoinToken?: string;
   }
   | {
-    type: 'start-match';
+    type: 'start-match' | 'leave-room';
     requestId: string;
   }
   | {
@@ -289,6 +289,7 @@ export function parseHarmonyClientMessage(value: unknown): HarmonyClientMessage 
         ...(typeof value.rejoinToken === 'string' ? { rejoinToken: value.rejoinToken } : {}),
       };
     case 'start-match':
+    case 'leave-room':
       return isRequestId(value.requestId)
         ? { type: value.type, requestId: value.requestId }
         : null;

@@ -33,6 +33,7 @@ import {
 import type { ViewerFrame } from './game/ViewerFrame';
 import { DEFAULT_HOUSE_MAP } from './game/defaultHouse';
 import { SoloMatch, type SoloOptions } from './game/SoloMatch';
+import { MultiplayerMenu } from './game/MultiplayerMenu';
 import { SoloMenu } from './game/SoloMenu';
 import { GameClient } from './net/GameClient';
 import { FramePresenter } from './net/FramePresenter';
@@ -187,6 +188,24 @@ const soloMenu = new SoloMenu({
   home: leaveSolo,
   setup: () => void openSoloSetup(),
 });
+const multiplayerMenuButton = requireElement<HTMLButtonElement>('#multiplayer-menu-button');
+const multiplayerMenu = new MultiplayerMenu({
+  resume: closeMultiplayerMenu,
+  toggleSound,
+  leave: async () => {
+    await client.leaveRoom();
+    closeMultiplayerMenu();
+    audio.stopAll();
+    world.sync(null, 0);
+    eventBanner.hidden = true;
+    soloButton.focus();
+  },
+});
+multiplayerMenuButton.addEventListener('click', openMultiplayerMenu);
+try {
+  if (localStorage.getItem('i-am-a-ghost:muted') === 'true') audio.toggleMuted();
+} catch { /* Storage may be unavailable in an embedded browser. */ }
+syncSoundButtons();
 soloButton.addEventListener('click', () => void openSoloSetup());
 soloPauseButton.addEventListener('click', () => setSoloPaused(true));
 window.addEventListener('keydown', handleSoloKey);
@@ -221,11 +240,7 @@ readyButton.addEventListener('click', () => {
   }
   void client.setReady(true);
 });
-audioButton.addEventListener('click', () => {
-  void audio.unlock();
-  const muted = audio.toggleMuted();
-  audioButton.textContent = muted ? '声音：关' : '声音：开';
-});
+audioButton.addEventListener('click', toggleSound);
 const unlockAudio = (): void => {
   void audio.unlock();
 };
@@ -247,10 +262,10 @@ const loop = new Loop(
       }
     }
     const cameraPose = cameraRig.snapshot();
-    const movement = deterministicState || soloMatch?.paused
+    const movement = deterministicState || soloMatch?.paused || multiplayerMenu.open
       ? { x: 0, z: 0 }
       : orientMovementToCamera(input.movement(), cameraPose.position, cameraPose.target);
-    const actionHeld = !soloMatch?.paused && !cameraPose.pointerMode && !sceneEditorRequested && input.actionHeld();
+    const actionHeld = !multiplayerMenu.open && !soloMatch?.paused && !cameraPose.pointerMode && !sceneEditorRequested && input.actionHeld();
     let facingRadians = lastFacingRadians;
     const resolveChildFacing = (aimFrame: ViewerFrame): number => {
       const ownChild = aimFrame.children.find((child) => child.playerId === aimFrame.viewerPlayerId);
@@ -260,9 +275,9 @@ const loop = new Loop(
         childAimKey = aimKey;
       }
       if (ownChild && (aimFrame.phase === 'playing' || aimFrame.phase === 'protection')) {
-        const mouse = input.mousePosition();
-        const direction = harmonyHost.active || (soloActive && matchMedia('(pointer: coarse)').matches)
-          ? orientMovementToCamera(input.aimDirection(), cameraPose.position, cameraPose.target)
+        const mouse = multiplayerMenu.open ? null : input.mousePosition();
+        const direction = harmonyHost.active || matchMedia('(pointer: coarse)').matches
+          ? orientMovementToCamera(multiplayerMenu.open ? { x: 0, z: 0 } : input.aimDirection(), cameraPose.position, cameraPose.target)
           : mouse && !cameraPose.pointerMode && !sceneEditorRequested
             ? childAim.mouseDirection(mouse, canvas.getBoundingClientRect(), stage.camera, ownChild.position)
             : null;
@@ -278,7 +293,7 @@ const loop = new Loop(
         ? soloMatch?.frame() ?? null
         : scenePlaytest
           ? scenePlaytest.frame()
-          : presenter.present(deltaSeconds, movement, runtimeTuning, resolveChildFacing);
+          : envelope ? presenter.present(deltaSeconds, movement, runtimeTuning, resolveChildFacing) : null;
     if (!deterministicState && frame) {
       if (frame.viewerRole === 'ghost') {
         facingRadians = calculateFacing(movement);
@@ -399,6 +414,7 @@ if (import.meta.hot) {
     input.dispose();
     soloPreparationVersion += 1;
     soloMenu.dispose();
+    multiplayerMenu.dispose();
     window.removeEventListener('keydown', handleSoloKey);
     window.removeEventListener('blur', handleSoloBlur);
     document.removeEventListener('visibilitychange', handleSoloVisibility);
@@ -489,12 +505,53 @@ function setSoloPaused(paused: boolean): void {
 }
 
 function handleSoloKey(event: KeyboardEvent): void {
+  if (event.key === 'Escape' && !event.repeat && !soloActive && !multiplayerMenu.open) {
+    if (client.connected && client.roomState?.phase === 'playing') {
+      event.preventDefault();
+      openMultiplayerMenu();
+      return;
+    }
+  }
   // The modal's cancel event owns Escape while it is open.
   if (event.key === 'Escape' && !event.repeat && soloMatch && !soloMatch.paused
     && soloMatch.frame().phase !== 'ended') {
     event.preventDefault();
     setSoloPaused(true);
   }
+}
+
+function syncSoundButtons(): void {
+  const muted = audio.metrics().muted;
+  audioButton.textContent = muted ? '声音：关' : '声音：开';
+  audioButton.setAttribute('aria-pressed', String(muted));
+  multiplayerMenu.setMuted(muted);
+}
+
+function toggleSound(): void {
+  void audio.unlock();
+  const muted = audio.toggleMuted();
+  try { localStorage.setItem('i-am-a-ghost:muted', String(muted)); } catch { /* Keep the in-memory setting. */ }
+  syncSoundButtons();
+}
+
+function openMultiplayerMenu(): void {
+  if (soloActive || deterministicState || scenePlaytest || !client.connected
+    || client.roomState?.phase !== 'playing' || multiplayerMenu.open) return;
+  input.clear();
+  client.sendInput({ moveX: 0, moveZ: 0, facingRadians: lastFacingRadians, action: false });
+  multiplayerMenu.show(
+    controlHint.textContent ?? '',
+    client instanceof HarmonyLanGameClient && client.isRoomHost,
+    audio.metrics().muted,
+  );
+  renderClientState();
+}
+
+function closeMultiplayerMenu(): void {
+  multiplayerMenu.close();
+  input.clear();
+  renderClientState();
+  canvas.focus();
 }
 
 function handleSoloBlur(): void { setSoloPaused(true); }
@@ -789,6 +846,11 @@ function renderClientState(): void {
   }
   const loading = room?.phase === 'loading';
   const playing = room?.phase === 'playing';
+  if ((!playing || !client.connected) && multiplayerMenu.open) {
+    multiplayerMenu.close();
+    input.clear();
+  }
+  multiplayerMenuButton.hidden = !playing || !client.connected || multiplayerMenu.open;
   const ended = room?.phase === 'ended';
   if (!playing && !scenePlaytest && !deterministicState) input.clear();
   if (loading && !loadingWasActive) {
@@ -804,11 +866,12 @@ function renderClientState(): void {
   loadingWasActive = Boolean(loading);
   document.documentElement.dataset.matchLoading = String(loading);
   document.documentElement.dataset.harmonyPlaying = String(harmonyHost.active && playing);
-  lobbyPanel.hidden = Boolean(loading || playing || ended);
-  matchLoading.hidden = !loading;
-  gameHud.hidden = !playing;
-  touchControls.hidden = !(harmonyHost.active && playing);
-  resultOverlay.hidden = !ended;
+  lobbyPanel.hidden = client.connected && Boolean(loading || playing || ended);
+  matchLoading.hidden = !loading || !client.connected;
+  gameHud.hidden = !playing || !client.connected;
+  touchControls.hidden = !(client.connected && playing && !multiplayerMenu.open
+    && (harmonyHost.active || matchMedia('(pointer: coarse)').matches));
+  resultOverlay.hidden = !ended || !client.connected;
   if (harmonyHost.active) {
     const nearbyPanel = document.querySelector<HTMLElement>('[data-harmony-nearby-rooms]');
     const qrPanel = document.querySelector<HTMLElement>('[data-harmony-qr-room]');
@@ -1068,7 +1131,7 @@ function isCaptureCinematicViewer(frame: ViewerFrame): boolean {
 }
 
 function updateControlHint(frame: ViewerFrame): void {
-  if (harmonyHost.active || (soloActive && matchMedia('(pointer: coarse)').matches)) {
+  if (harmonyHost.active || matchMedia('(pointer: coarse)').matches) {
     controlHint.textContent = frame.viewerRole === 'ghost'
       ? '左侧摇杆移动 · 持续接触孩子完成抓捕'
       : '左摇杆移动 · 右摇杆照明转向 · 松手转身跑';

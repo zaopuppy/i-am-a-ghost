@@ -109,6 +109,9 @@ test('Harmony create-room opens a native QR and enters the local hosted lobby', 
 test('Harmony QR scan connects and joins the game lobby', async ({ page }) => {
   await page.addInitScript(() => {
     let inbox: Array<{ peerId: string; payload: string }> = [];
+    Object.assign(window, {
+      __CLOSE_REMOTE_ROOM__: () => inbox.push({ peerId: 'host', payload: '{\"type\":\"host-closed\"}' }),
+    });
     Object.defineProperty(window, 'harmonyHost', {
       value: {
         ping: (message: string) => `pong:${message}`,
@@ -202,6 +205,12 @@ test('Harmony QR scan connects and joins the game lobby', async ({ page }) => {
     roomCode: 'GHOST7',
     instanceId: 'gate-a-test',
   });
+  await page.evaluate(() => {
+    (window as Window & { __CLOSE_REMOTE_ROOM__?: () => void }).__CLOSE_REMOTE_ROOM__?.();
+  });
+  await expect(page.getByTestId('create-room')).toBeVisible();
+  await expect(page.locator('#error-message')).toContainText('房间主机已离开');
+  await expect(page.locator('#room-panel')).toBeHidden();
 });
 
 test('Harmony host worker admits a peer and starts authoritative frames', async ({ page }) => {
@@ -443,4 +452,35 @@ test('Harmony host worker admits a peer and starts authoritative frames', async 
       .find((message) => message.type === 'response' && message.requestId === 'remote-rejoin');
     return response?.result ?? null;
   })).toMatchObject({ ok: true, session: { playerId: remoteSession?.playerId } });
+
+  await page.evaluate(() => {
+    (window as Window & { __PUSH_HARMONY_PEER__?: (payload: string) => void })
+      .__PUSH_HARMONY_PEER__?.(JSON.stringify({ type: 'leave-room', requestId: 'remote-leave' }));
+  });
+  await expect.poll(() => page.evaluate(() => {
+    const messages = (window as Window & { __HARMONY_PEER_MESSAGES__?: string[] }).__HARMONY_PEER_MESSAGES__ ?? [];
+    return messages.map((payload) => JSON.parse(payload))
+      .find((message) => message.type === 'response' && message.requestId === 'remote-leave')?.result;
+  })).toEqual({ ok: true });
+  await page.evaluate(({ protocolVersion, buildVersion, session }) => {
+    (window as Window & { __PUSH_HARMONY_PEER__?: (payload: string) => void })
+      .__PUSH_HARMONY_PEER__?.(JSON.stringify({
+        type: 'join-room', requestId: 'rejoin-after-leave', protocolVersion, buildVersion,
+        roomCode: 'GHOST7', nickname: '远端玩家', playerId: session?.playerId, rejoinToken: session?.rejoinToken,
+      }));
+  }, { protocolVersion: PROTOCOL_VERSION, buildVersion: BUILD_VERSION, session: remoteSession });
+  await expect.poll(() => page.evaluate(() => {
+    const messages = (window as Window & { __HARMONY_PEER_MESSAGES__?: string[] }).__HARMONY_PEER_MESSAGES__ ?? [];
+    return messages.map((payload) => JSON.parse(payload))
+      .find((message) => message.type === 'response' && message.requestId === 'rejoin-after-leave')?.result?.ok;
+  })).toBe(false);
+  await page.locator('#multiplayer-menu-button').click();
+  await expect(page.locator('#touch-controls')).toBeHidden();
+  await page.locator('#multiplayer-help summary').click();
+  await expect(page.locator('#multiplayer-help')).toContainText('左侧摇杆');
+  await page.locator('#multiplayer-leave').click();
+  await expect(page.locator('#multiplayer-confirm')).toContainText('退出将结束整个房间');
+  await page.locator('#multiplayer-confirm-leave').click();
+  await expect(page.getByTestId('create-room')).toBeVisible();
+  await expect(page.locator('#multiplayer-menu')).toBeHidden();
 });

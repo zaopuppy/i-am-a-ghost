@@ -247,6 +247,17 @@ class LanHostProbe {
   }
 
   closeHostedRoom(): void {
+    this.closeGameClient();
+    const clients = Array.from(this.clients.values());
+    this.clients.clear();
+    this.clientBuffers.clear();
+    this.clientDecoders.clear();
+    for (const client of clients) {
+      void client.close().catch((error: BusinessError) => {
+        debugWarn(`peer close skipped: ${stringifyError(error)}`);
+      });
+    }
+    this.gameInbox = [];
     this.hostedRoom = null;
     this.hostedPlayers = 0;
   }
