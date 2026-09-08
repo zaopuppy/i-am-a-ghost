@@ -6,47 +6,122 @@ const MOVE_UP = new Set(['KeyW', 'ArrowUp']);
 const MOVE_DOWN = new Set(['KeyS', 'ArrowDown']);
 const JOYSTICK_DEAD_ZONE = 0.12;
 
+/** Each floating stick owns its captured touch independently. */
+class FloatingJoystick {
+  pointerId: number | null = null;
+  vector: Vec2 = { x: 0, z: 0 };
+  private origin: { x: number; y: number } | null = null;
+
+  constructor(private readonly surfaceId: string, private readonly stickId: string) {}
+
+  private get surface(): HTMLElement | null { return document.getElementById(this.surfaceId); }
+  private get stick(): HTMLElement | null { return document.getElementById(this.stickId); }
+  private get knob(): HTMLElement | null { return this.stick?.querySelector('.touch-joystick__knob') ?? null; }
+
+  start(event: PointerEvent): void {
+    const surface = this.surface;
+    const stick = this.stick;
+    if (this.pointerId !== null || !surface || !stick || !surface.getClientRects().length) return;
+    event.preventDefault();
+    this.pointerId = event.pointerId;
+    this.origin = { x: event.clientX, y: event.clientY };
+    this.vector = { x: 0, z: 0 };
+    const bounds = surface.getBoundingClientRect();
+    stick.style.left = `${event.clientX - bounds.left}px`;
+    stick.style.top = `${event.clientY - bounds.top}px`;
+    stick.style.bottom = 'auto';
+    stick.style.transform = 'translate(-50%, -50%)';
+    stick.dataset.active = 'true';
+    this.drawKnob(0);
+    try { surface.setPointerCapture(event.pointerId); } catch {
+      // ArkWeb may already own pointer capture.
+    }
+  }
+
+  move(event: PointerEvent): void {
+    if (event.pointerId !== this.pointerId || !this.origin || !this.stick) return;
+    event.preventDefault();
+    const bounds = this.stick.getBoundingClientRect();
+    const radius = Math.min(bounds.width, bounds.height) * 0.32;
+    this.vector = joystickVectorFromDelta(event.clientX - this.origin.x, event.clientY - this.origin.y, radius);
+    this.drawKnob(radius);
+  }
+
+  end(event: PointerEvent): void {
+    if (event.pointerId !== this.pointerId) return;
+    event.preventDefault();
+    this.release();
+  }
+
+  release(): void {
+    const pointerId = this.pointerId;
+    this.pointerId = null;
+    this.origin = null;
+    this.vector = { x: 0, z: 0 };
+    const surface = this.surface;
+    if (pointerId !== null && surface?.hasPointerCapture(pointerId)) surface.releasePointerCapture(pointerId);
+    const stick = this.stick;
+    if (stick) {
+      stick.dataset.active = 'false';
+      for (const property of ['left', 'top', 'bottom', 'transform']) stick.style.removeProperty(property);
+    }
+    this.drawKnob(0);
+  }
+
+  private drawKnob(radius: number): void {
+    const knob = this.knob;
+    if (knob) knob.style.transform =
+      `translate(calc(-50% + ${this.vector.x * radius}px), calc(-50% + ${this.vector.z * radius}px))`;
+  }
+}
+
 export class GameInput {
   private readonly pressed = new Set<string>();
-  private touchMovement: Vec2 = { x: 0, z: 0 };
-  private joystickPointerId: number | null = null;
-  private joystickOrigin: { x: number; y: number } | null = null;
-  private actionPointerId: number | null = null;
+  private readonly moveStick = new FloatingJoystick('touch-move-area', 'touch-joystick');
+  private readonly aimStick = new FloatingJoystick('touch-aim-area', 'touch-action');
+  private pointer: { x: number; y: number } | null = null;
 
   constructor() {
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
     window.addEventListener('blur', this.clear);
     document.addEventListener('visibilitychange', this.onVisibilityChange);
-    document.addEventListener('pointerdown', this.onTouchPointerDown);
-    document.addEventListener('pointermove', this.onTouchPointerMove);
-    document.addEventListener('pointerup', this.onTouchPointerEnd);
-    document.addEventListener('pointercancel', this.onTouchPointerEnd);
-    document.addEventListener('lostpointercapture', this.onTouchPointerEnd);
+    document.addEventListener('pointerdown', this.onPointerDown);
+    document.addEventListener('pointermove', this.onPointerMove);
+    document.addEventListener('pointerout', this.onPointerOut);
+    for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+      document.addEventListener(type, this.onPointerEnd as EventListener);
+    }
   }
 
   movement(): Vec2 {
-    if (Math.hypot(this.touchMovement.x, this.touchMovement.z) > 0.01) {
-      return { ...this.touchMovement };
-    }
-    return movementFromPressed(this.pressed);
+    return this.moveStick.pointerId !== null ? { ...this.moveStick.vector } : movementFromPressed(this.pressed);
   }
 
-  actionHeld(): boolean {
-    return this.pressed.has('Space') || this.actionPointerId !== null;
-  }
+  aimDirection(): Vec2 { return { ...this.aimStick.vector }; }
+  mousePosition(): { x: number; y: number } | null { return this.pointer ? { ...this.pointer } : null; }
+  actionHeld(): boolean { return this.pressed.has('Space') || this.aimStick.pointerId !== null; }
 
   dispose(): void {
+    this.clear();
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);
     window.removeEventListener('blur', this.clear);
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
-    document.removeEventListener('pointerdown', this.onTouchPointerDown);
-    document.removeEventListener('pointermove', this.onTouchPointerMove);
-    document.removeEventListener('pointerup', this.onTouchPointerEnd);
-    document.removeEventListener('pointercancel', this.onTouchPointerEnd);
-    document.removeEventListener('lostpointercapture', this.onTouchPointerEnd);
+    document.removeEventListener('pointerdown', this.onPointerDown);
+    document.removeEventListener('pointermove', this.onPointerMove);
+    document.removeEventListener('pointerout', this.onPointerOut);
+    for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+      document.removeEventListener(type, this.onPointerEnd as EventListener);
+    }
   }
+
+  readonly clear = (): void => {
+    this.pressed.clear();
+    this.pointer = null;
+    this.moveStick.release();
+    this.aimStick.release();
+  };
 
   private readonly onKeyDown = (event: KeyboardEvent): void => {
     if (isEditableTarget(event.target)) return;
@@ -55,140 +130,39 @@ export class GameInput {
   };
 
   private readonly onKeyUp = (event: KeyboardEvent): void => {
-    if (isEditableTarget(event.target)) return;
-    if (isGameKey(event.code)) event.preventDefault();
+    if (!isEditableTarget(event.target) && isGameKey(event.code)) event.preventDefault();
     this.pressed.delete(event.code);
-  };
-
-  private readonly clear = (): void => {
-    this.pressed.clear();
-    this.releaseJoystick();
-    this.releaseAction();
   };
 
   private readonly onVisibilityChange = (): void => {
     if (document.visibilityState !== 'visible') this.clear();
   };
 
-  private readonly onTouchPointerDown = (event: PointerEvent): void => {
+  private readonly onPointerDown = (event: PointerEvent): void => {
     const target = event.target instanceof Element ? event.target : null;
-    if (target?.closest('#touch-move-area')) {
-      this.onJoystickPointerDown(event);
-    } else if (target?.closest('#touch-action')) {
-      this.onActionPointerDown(event);
+    if (target?.closest('#touch-move-area')) this.moveStick.start(event);
+    else if (target?.closest('#touch-aim-area')) this.aimStick.start(event);
+  };
+
+  private readonly onPointerMove = (event: PointerEvent): void => {
+    this.moveStick.move(event);
+    this.aimStick.move(event);
+    if (event.pointerType === 'mouse') {
+      this.pointer = event.target instanceof Element && event.target.closest('#game-canvas')
+        ? { x: event.clientX, y: event.clientY } : null;
     }
   };
 
-  private readonly onTouchPointerMove = (event: PointerEvent): void => {
-    if (event.pointerId === this.joystickPointerId) this.onJoystickPointerMove(event);
-  };
-
-  private readonly onTouchPointerEnd = (event: PointerEvent): void => {
-    if (event.pointerId === this.joystickPointerId) this.onJoystickPointerEnd(event);
-    if (event.pointerId === this.actionPointerId) this.onActionPointerEnd(event);
-  };
-
-  private readonly onJoystickPointerDown = (event: PointerEvent): void => {
-    const surface = this.joystickSurface;
-    const joystick = this.joystick;
-    if (this.joystickPointerId !== null || surface === null || joystick === null) return;
-    event.preventDefault();
-    this.joystickPointerId = event.pointerId;
-    this.joystickOrigin = { x: event.clientX, y: event.clientY };
-    this.touchMovement = { x: 0, z: 0 };
-    const surfaceBounds = surface.getBoundingClientRect();
-    joystick.style.left = `${event.clientX - surfaceBounds.left}px`;
-    joystick.style.top = `${event.clientY - surfaceBounds.top}px`;
-    joystick.style.bottom = 'auto';
-    joystick.style.transform = 'translate(-50%, -50%)';
-    joystick.dataset.active = 'true';
-    if (this.joystickKnob !== null) {
-      this.joystickKnob.style.transform = 'translate(-50%, -50%)';
-    }
-    try {
-      surface.setPointerCapture(event.pointerId);
-    } catch {
-      // Pointer capture may already be owned by ArkWeb.
+  private readonly onPointerOut = (event: PointerEvent): void => {
+    if (event.pointerType === 'mouse' && event.target instanceof Element && event.target.closest('#game-canvas')) {
+      this.pointer = null;
     }
   };
 
-  private readonly onJoystickPointerMove = (event: PointerEvent): void => {
-    if (event.pointerId !== this.joystickPointerId) return;
-    event.preventDefault();
-    this.updateJoystick(event);
+  private readonly onPointerEnd = (event: PointerEvent): void => {
+    this.moveStick.end(event);
+    this.aimStick.end(event);
   };
-
-  private readonly onJoystickPointerEnd = (event: PointerEvent): void => {
-    if (event.pointerId !== this.joystickPointerId) return;
-    event.preventDefault();
-    this.releaseJoystick();
-  };
-
-  private readonly onActionPointerDown = (event: PointerEvent): void => {
-    if (this.actionPointerId !== null || this.actionButton === null) return;
-    event.preventDefault();
-    this.actionPointerId = event.pointerId;
-    this.actionButton.dataset.active = 'true';
-    try {
-      this.actionButton.setPointerCapture(event.pointerId);
-    } catch {
-      // Pointer capture may already be owned by ArkWeb.
-    }
-  };
-
-  private readonly onActionPointerEnd = (event: PointerEvent): void => {
-    if (event.pointerId !== this.actionPointerId) return;
-    event.preventDefault();
-    this.releaseAction();
-  };
-
-  private updateJoystick(event: PointerEvent): void {
-    if (this.joystick === null || this.joystickOrigin === null) return;
-    const bounds = this.joystick.getBoundingClientRect();
-    const radius = Math.min(bounds.width, bounds.height) * 0.32;
-    const rawX = event.clientX - this.joystickOrigin.x;
-    const rawZ = event.clientY - this.joystickOrigin.y;
-    this.touchMovement = joystickVectorFromDelta(rawX, rawZ, radius);
-    if (this.joystickKnob !== null) {
-      this.joystickKnob.style.transform =
-        `translate(calc(-50% + ${this.touchMovement.x * radius}px), calc(-50% + ${this.touchMovement.z * radius}px))`;
-    }
-  }
-
-  private releaseJoystick(): void {
-    this.joystickPointerId = null;
-    this.joystickOrigin = null;
-    this.touchMovement = { x: 0, z: 0 };
-    if (this.joystick !== null) {
-      this.joystick.dataset.active = 'false';
-      this.joystick.style.removeProperty('left');
-      this.joystick.style.removeProperty('top');
-      this.joystick.style.removeProperty('bottom');
-      this.joystick.style.removeProperty('transform');
-    }
-    if (this.joystickKnob !== null) this.joystickKnob.style.transform = 'translate(-50%, -50%)';
-  }
-
-  private releaseAction(): void {
-    this.actionPointerId = null;
-    if (this.actionButton !== null) this.actionButton.dataset.active = 'false';
-  }
-
-  private get joystick(): HTMLElement | null {
-    return document.querySelector<HTMLElement>('#touch-joystick');
-  }
-
-  private get joystickSurface(): HTMLElement | null {
-    return document.querySelector<HTMLElement>('#touch-move-area');
-  }
-
-  private get joystickKnob(): HTMLElement | null {
-    return document.querySelector<HTMLElement>('#touch-joystick-knob');
-  }
-
-  private get actionButton(): HTMLButtonElement | null {
-    return document.querySelector<HTMLButtonElement>('#touch-action');
-  }
 }
 
 export function movementFromPressed(pressed: ReadonlySet<string>): Vec2 {
@@ -198,37 +172,23 @@ export function movementFromPressed(pressed: ReadonlySet<string>): Vec2 {
   };
 }
 
-export function joystickVectorFromDelta(
-  deltaX: number,
-  deltaY: number,
-  radius: number,
-): Vec2 {
+export function joystickVectorFromDelta(deltaX: number, deltaY: number, radius: number): Vec2 {
   if (!Number.isFinite(radius) || radius <= 0) return { x: 0, z: 0 };
   const magnitude = Math.hypot(deltaX, deltaY);
   if (magnitude / radius < JOYSTICK_DEAD_ZONE) return { x: 0, z: 0 };
   const scale = magnitude > radius ? radius / magnitude : 1;
-  return {
-    x: (deltaX * scale) / radius,
-    z: (deltaY * scale) / radius,
-  };
+  return { x: (deltaX * scale) / radius, z: (deltaY * scale) / radius };
 }
 
 function hasAny(pressed: ReadonlySet<string>, codes: ReadonlySet<string>): boolean {
-  for (const code of codes) {
-    if (pressed.has(code)) return true;
-  }
+  for (const code of codes) if (pressed.has(code)) return true;
   return false;
 }
 
 function isGameKey(code: string): boolean {
-  return MOVE_LEFT.has(code)
-    || MOVE_RIGHT.has(code)
-    || MOVE_UP.has(code)
-    || MOVE_DOWN.has(code)
-    || code === 'Space';
+  return MOVE_LEFT.has(code) || MOVE_RIGHT.has(code) || MOVE_UP.has(code) || MOVE_DOWN.has(code) || code === 'Space';
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {
-  return target instanceof HTMLElement
-    && (target.matches('input, select, textarea') || target.isContentEditable);
+  return target instanceof HTMLElement && (target.matches('input, select, textarea') || target.isContentEditable);
 }

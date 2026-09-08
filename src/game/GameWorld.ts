@@ -40,7 +40,6 @@ import {
 import { FLASHLIGHT_OCCLUDER_LAYER, LIGHTNING_OCCLUDER_LAYER } from './RenderLayers';
 import {
   advanceChildBodyFacing,
-  advanceChildLookFacing,
   advanceGhostBodyFacing,
   calculateLookOffsets,
   createVisualFacingState,
@@ -936,7 +935,6 @@ function syncActor(
     updateHeadlampSpin(actor, elapsedSeconds);
   }
   const elapsed = actorDeltaSeconds(actor, elapsedSeconds);
-  const lookFacingRadians = advanceChildLookFacing(actor.facing, facingRadians, elapsed);
   if (doll) {
     actor.facing.bodyRadians = 0;
     actor.facing.initialized = true;
@@ -966,10 +964,15 @@ function syncActor(
           ? 'Running_A'
           : 'Idle_A';
     playActorAnimation(actor, nextAnimation);
+    // Reuse the running cycle in reverse for backpedalling; sideways movement
+    // retains the running cycle while the body continues facing the light.
+    actor.imported.actions.get('Running_A')?.setEffectiveTimeScale(
+      actor.facing.locomotion === 'backward' ? -1 : 1,
+    );
     // Capture uses the stable base pose below plus authoritative procedural limb motion.
     if (!captured) actor.imported.mixer.update(doll ? 0 : elapsed);
     if (!doll && nextAnimation !== 'Hit_A') {
-      applyLookPose(actor.imported, actor.facing.bodyRadians, lookFacingRadians);
+      applyLookPose(actor.imported, actor.facing.bodyRadians, actor.facing.bodyRadians);
     }
   }
   if (actor.lastPosition) {

@@ -10,6 +10,7 @@ import {
   type CameraVector,
 } from './core/CameraRig';
 import { GameInput } from './core/GameInput';
+import { ChildAim } from './core/ChildAim';
 import {
   getHarmonyHostApi,
   initializeHarmonyHost,
@@ -67,7 +68,7 @@ const loadingRetry = requireElement<HTMLButtonElement>('#loading-retry');
 const errorMessage = requireElement<HTMLElement>('#error-message');
 const gameHud = requireElement<HTMLElement>('#game-hud');
 const touchControls = requireElement<HTMLElement>('#touch-controls');
-const touchAction = requireElement<HTMLButtonElement>('#touch-action');
+const touchAction = requireElement<HTMLElement>('#touch-action');
 const roleLabel = requireElement<HTMLElement>('#role-label');
 const objectiveLabel = requireElement<HTMLElement>('#objective-label');
 const timerLabel = requireElement<HTMLElement>('#match-timer');
@@ -111,6 +112,8 @@ const client = harmonyHost.active && harmonyApi
   : new GameClient();
 const presenter = new FramePresenter();
 const input = new GameInput();
+const childAim = new ChildAim();
+let childAimKey = '';
 const audio = new GameAudio();
 const batteryScreenPoint = new THREE.Vector3();
 const ownScreenPoint = new THREE.Vector3();
@@ -224,16 +227,43 @@ const loop = new Loop(
       ? { x: 0, z: 0 }
       : orientMovementToCamera(input.movement(), cameraPose.position, cameraPose.target);
     const actionHeld = input.actionHeld();
-    const frame = deterministicState
+    let frame = deterministicState
       ? createDeterministicViewerFrame(deterministicState, deterministicSeed)
       : scenePlaytest
-        ? scenePlaytest.update(
-            deltaSeconds,
-            movement,
-            calculateFacing(movement),
-            actionHeld,
-          )
+        ? scenePlaytest.frame()
         : presenter.present(deltaSeconds, movement, runtimeTuning);
+    let facingRadians = lastFacingRadians;
+    if (!deterministicState && frame) {
+      if (frame.viewerRole === 'child') {
+        const viewerPlayerId = frame.viewerPlayerId;
+        const ownChild = frame.children.find((child) => child.playerId === viewerPlayerId);
+        const aimKey = `${envelope?.matchId ?? 'scene'}:${frame.viewerPlayerId}:${frame.captureCount}:${frame.phase}`;
+        if (ownChild && aimKey !== childAimKey) {
+          childAim.reset(ownChild.facingRadians);
+          childAimKey = aimKey;
+        }
+        if (ownChild && (frame.phase === 'playing' || frame.phase === 'protection')) {
+          const mouse = input.mousePosition();
+          const direction = harmonyHost.active
+            ? orientMovementToCamera(input.aimDirection(), cameraPose.position, cameraPose.target)
+            : mouse && !cameraPose.pointerMode && !sceneEditorRequested
+              ? childAim.mouseDirection(mouse, canvas.getBoundingClientRect(), stage.camera, ownChild.position)
+              : null;
+          facingRadians = childAim.advance(direction, deltaSeconds);
+          // Predict only our own facing, on the presenter's copy, never on authority snapshots.
+          ownChild.facingRadians = facingRadians;
+        } else {
+          facingRadians = childAim.radians;
+        }
+      } else {
+        facingRadians = calculateFacing(movement);
+        childAimKey = '';
+      }
+      if (scenePlaytest) frame = scenePlaytest.update(deltaSeconds, movement, facingRadians, actionHeld);
+    } else if (!frame) {
+      childAimKey = '';
+      input.clear();
+    }
     if (!deterministicState && !scenePlaytest && client.latestEvents && client.latestEvents !== lastAudioEvents) {
       lastAudioEvents = client.latestEvents;
       audio.handleEvents(client.latestEvents.events, frame?.viewerPlayerId);
@@ -256,7 +286,7 @@ const loop = new Loop(
       client.sendInput({
         moveX: movement.x,
         moveZ: movement.z,
-        facingRadians: calculateFacing(movement),
+        facingRadians,
         action: frame.viewerRole === 'child' && actionHeld,
       });
     }
@@ -607,6 +637,7 @@ function renderClientState(): void {
   const loading = room?.phase === 'loading';
   const playing = room?.phase === 'playing';
   const ended = room?.phase === 'ended';
+  if (!playing && !scenePlaytest && !deterministicState) input.clear();
   if (loading && !loadingWasActive) {
     matchPreparationError = '';
     const audioMetrics = audio.metrics();
@@ -887,14 +918,14 @@ function updateControlHint(frame: ViewerFrame): void {
   if (harmonyHost.active) {
     controlHint.textContent = frame.viewerRole === 'ghost'
       ? '左侧摇杆移动 · 持续接触孩子完成抓捕'
-      : '左侧摇杆移动并朝向 · 右侧按住手电';
+      : '左摇杆移动 · 右摇杆按住照明、拖动转向';
     return;
   }
   controlHint.textContent = frame.viewerRole === 'ghost'
     ? frame.ghost.burning
       ? '灼烧中 · 无法抓取 · WASD 或方向键逃离光束'
       : 'WASD 或方向键移动 · 持续接触孩子完成抓捕'
-    : 'WASD 或方向键移动并朝向 · 空格手电';
+    : 'WASD 或方向键移动 · 鼠标转向 · 按住空格照明';
 }
 
 async function installDebugGui(): Promise<void> {

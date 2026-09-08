@@ -308,7 +308,7 @@ input { width: 100%; padding: 0 12px; color: #f3f0e8; background: rgb(255 255 25
 }
 .touch-move-area {
   position: absolute;
-  inset: max(52px, env(safe-area-inset-top)) 48% 0 0;
+  inset: max(52px, env(safe-area-inset-top)) 50% 0 0;
   pointer-events: auto;
   touch-action: none;
 }
@@ -350,27 +350,6 @@ input { width: 100%; padding: 0 12px; color: #f3f0e8; background: rgb(255 255 25
   border-color: rgb(244 228 174 / 82%);
   box-shadow: inset 0 0 30px rgb(0 0 0 / 46%), 0 0 28px rgb(216 189 114 / 18%);
 }
-.touch-action {
-  position: absolute;
-  right: max(22px, calc(env(safe-area-inset-right) + 16px));
-  bottom: max(18px, calc(env(safe-area-inset-bottom) + 12px));
-  display: grid;
-  place-content: center;
-  gap: 5px;
-  width: 96px;
-  height: 96px;
-  min-height: 96px;
-  padding: 0;
-  border: 2px solid rgb(216 189 114 / 64%);
-  border-radius: 50%;
-  color: #f4e4ae;
-  background: radial-gradient(circle at 40% 35%, rgb(94 82 48 / 96%), rgb(18 17 19 / 94%) 70%);
-  box-shadow: 0 9px 30px rgb(0 0 0 / 48%), inset 0 0 18px rgb(216 189 114 / 12%);
-  font-size: 11px;
-  letter-spacing: .12em;
-  pointer-events: auto;
-  touch-action: none;
-}
 .touch-action__beam {
   width: 30px;
   height: 16px;
@@ -378,13 +357,33 @@ input { width: 100%; padding: 0 12px; color: #f3f0e8; background: rgb(255 255 25
   clip-path: polygon(0 34%, 100% 0, 100% 100%, 0 66%);
   background: linear-gradient(90deg, #ead99f, rgb(234 217 159 / 16%));
 }
-.touch-action[data-active="true"] {
-  transform: scale(.94);
-  border-color: #fff1b8;
-  background: radial-gradient(circle, rgb(216 189 114 / 44%), rgb(18 17 19 / 96%) 72%);
-  box-shadow: 0 0 30px rgb(234 217 159 / 30%), inset 0 0 22px rgb(234 217 159 / 22%);
+
+.touch-aim-area {
+  position: absolute;
+  inset: max(52px, env(safe-area-inset-top)) 0 0 50%;
+  pointer-events: auto;
+  touch-action: none;
 }
-.touch-controls[data-role="ghost"] .touch-action { display: none; }
+.touch-aim-joystick {
+  left: auto;
+  right: max(20px, calc(env(safe-area-inset-right) + 14px));
+}
+.touch-aim-joystick .touch-action__beam {
+  display: block;
+  margin-top: 15px;
+  background: linear-gradient(90deg, #382d16, rgb(56 45 22 / 30%));
+}
+.touch-aim-label {
+  position: absolute;
+  top: -24px;
+  right: 0;
+  white-space: nowrap;
+  color: #ead99f;
+  font-size: 10px;
+  text-align: right;
+  pointer-events: none;
+}
+.touch-controls[data-role="ghost"] .touch-aim-area { display: none; }
 
 :root[data-harmony-playing="true"] .hud-fps,
 :root[data-harmony-playing="true"] .milestone { display: none; }

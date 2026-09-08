@@ -7,7 +7,7 @@ import {
   calculateLookOffsets,
   CHILD_CHEST_MAX_RADIANS,
   CHILD_HEAD_MAX_RADIANS,
-  CHILD_IDLE_TURN_DELAY_SECONDS,
+  childLocomotion,
   createVisualFacingState,
   movementFacing,
   shortestAngleDelta,
@@ -32,18 +32,25 @@ test('movement heading ignores positional noise', () => {
   assertNear(movementFacing({ x: 1, z: 1 }, { x: 1, z: 2 }) ?? 0, Math.PI / 2);
 });
 
-test('moving child follows movement while an idle child waits before turning to aim', () => {
+test('child body follows light while moving backwards, sideways and standing still', () => {
   const state = createVisualFacingState();
   advanceChildBodyFacing(state, Math.PI, 0, 0);
-  assertNear(state.bodyRadians, 0);
-
-  advanceChildBodyFacing(state, Math.PI, null, CHILD_IDLE_TURN_DELAY_SECONDS * 0.5);
+  assertNear(state.bodyRadians, Math.PI);
+  assert.equal(state.locomotion, 'backward');
+  advanceChildBodyFacing(state, Math.PI / 2, 0, 1 / 60);
+  assertNear(state.bodyRadians, Math.PI / 2);
+  assert.equal(state.locomotion, 'left');
+  advanceChildBodyFacing(state, -Math.PI / 2, null, 1 / 60);
+  assertNear(state.bodyRadians, -Math.PI / 2);
   assert.equal(state.idleTurning, false);
-  assertNear(state.bodyRadians, 0);
+});
 
-  advanceChildBodyFacing(state, Math.PI, null, CHILD_IDLE_TURN_DELAY_SECONDS * 0.5);
-  assert.equal(state.idleTurning, true);
-  assert.ok(Math.abs(state.bodyRadians) > 0);
+test('locomotion classification retains its gait near diagonal boundaries', () => {
+  assert.equal(childLocomotion(0, 50 * DEG, 'forward'), 'forward');
+  assert.equal(childLocomotion(0, 60 * DEG, 'forward'), 'right');
+  assert.equal(childLocomotion(0, 40 * DEG, 'right'), 'right');
+  assert.equal(childLocomotion(0, 30 * DEG, 'right'), 'forward');
+  assert.equal(childLocomotion(179 * DEG, -179 * DEG, 'forward'), 'forward');
 });
 
 test('head and chest share look motion and clamp at the combined anatomical limit', () => {

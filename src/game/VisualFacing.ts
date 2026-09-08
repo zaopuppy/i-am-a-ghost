@@ -8,13 +8,12 @@ export const CHILD_IDLE_TURN_START_RADIANS = 65 * DEGREES_TO_RADIANS;
 export const CHILD_IDLE_TURN_STOP_RADIANS = 25 * DEGREES_TO_RADIANS;
 export const CHILD_IDLE_TURN_DELAY_SECONDS = 0.2;
 
-const CHILD_MOVE_RESPONSE = 16;
-const CHILD_IDLE_TURN_RESPONSE = 8;
 const CHILD_LOOK_RESPONSE = 20;
 const GHOST_AIM_RESPONSE = 14;
 
 export interface VisualFacingState {
   bodyRadians: number;
+  locomotion: ChildLocomotion;
   initialized: boolean;
   lookRadians: number;
   lookInitialized: boolean;
@@ -30,6 +29,7 @@ export interface LookOffsets {
 export function createVisualFacingState(): VisualFacingState {
   return {
     bodyRadians: 0,
+    locomotion: 'forward',
     initialized: false,
     lookRadians: 0,
     lookInitialized: false,
@@ -68,59 +68,41 @@ export function movementFacing(
   return Math.atan2(offsetZ, offsetX);
 }
 
+export type ChildLocomotion = 'forward' | 'backward' | 'left' | 'right';
+
+export function childLocomotion(
+  facingRadians: number,
+  movementRadians: number,
+  previous: ChildLocomotion,
+): ChildLocomotion {
+  const offset = shortestAngleDelta(facingRadians, movementRadians);
+  const centers: Record<ChildLocomotion, number> = {
+    forward: 0, right: Math.PI / 2, backward: Math.PI, left: -Math.PI / 2,
+  };
+  // Ten degrees of hysteresis stops diagonal movement jitter from flipping the gait.
+  if (Math.abs(shortestAngleDelta(centers[previous], offset)) <= 55 * DEGREES_TO_RADIANS) return previous;
+  if (Math.abs(offset) < Math.PI / 4) return 'forward';
+  if (Math.abs(offset) > 3 * Math.PI / 4) return 'backward';
+  return offset > 0 ? 'right' : 'left';
+}
+
 export function advanceChildBodyFacing(
   state: VisualFacingState,
   aimRadians: number,
   movementRadians: number | null,
-  deltaSeconds: number,
+  _deltaSeconds: number,
 ): void {
-  if (!state.initialized) {
-    state.bodyRadians = movementRadians ?? aimRadians;
-    state.initialized = true;
-  }
-
-  if (movementRadians !== null) {
-    state.bodyRadians = dampAngle(
-      state.bodyRadians,
-      movementRadians,
-      CHILD_MOVE_RESPONSE,
-      deltaSeconds,
-    );
-    state.idleTurnDelaySeconds = 0;
-    state.idleTurning = false;
-    return;
-  }
-
-  const aimOffset = Math.abs(shortestAngleDelta(state.bodyRadians, aimRadians));
-  if (state.idleTurning) {
-    state.bodyRadians = dampAngle(
-      state.bodyRadians,
-      aimRadians,
-      CHILD_IDLE_TURN_RESPONSE,
-      deltaSeconds,
-    );
-    if (Math.abs(shortestAngleDelta(state.bodyRadians, aimRadians)) <= CHILD_IDLE_TURN_STOP_RADIANS) {
-      state.idleTurning = false;
-    }
-    return;
-  }
-
-  if (aimOffset <= CHILD_IDLE_TURN_START_RADIANS) {
-    state.idleTurnDelaySeconds = 0;
-    return;
-  }
-
-  state.idleTurnDelaySeconds += Math.max(0, deltaSeconds);
-  if (state.idleTurnDelaySeconds < CHILD_IDLE_TURN_DELAY_SECONDS) return;
-
+  // Aim has already been smoothed by the input owner. Further damping separates
+  // the hand-mounted light from its authority cone.
+  state.bodyRadians = aimRadians;
+  state.initialized = true;
+  state.lookRadians = aimRadians;
+  state.lookInitialized = true;
   state.idleTurnDelaySeconds = 0;
-  state.idleTurning = true;
-  state.bodyRadians = dampAngle(
-    state.bodyRadians,
-    aimRadians,
-    CHILD_IDLE_TURN_RESPONSE,
-    deltaSeconds,
-  );
+  state.idleTurning = false;
+  if (movementRadians !== null) {
+    state.locomotion = childLocomotion(aimRadians, movementRadians, state.locomotion);
+  }
 }
 
 export function advanceGhostBodyFacing(

@@ -65,8 +65,8 @@ test('two browser pages join, start, and move through the authoritative input pa
     .poll(() => ghostPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.cameraMode))
     .toBe('follow');
   await expect(ghostPage.locator('#control-hint')).toContainText('持续接触孩子完成抓捕');
-  await expect(childPage.locator('#control-hint')).toContainText('WASD 或方向键移动并朝向');
-  await expect(childPage.locator('#control-hint')).not.toContainText('鼠标');
+  await expect(childPage.locator('#control-hint')).toContainText('WASD 或方向键移动');
+  await expect(childPage.locator('#control-hint')).toContainText('鼠标转向');
   await host.getByRole('button', { name: '感应与手电（房主）' }).click();
   const flashlightLengthInput = host
     .locator('.lil-gui .lil-controller')
@@ -130,14 +130,16 @@ test('two browser pages join, start, and move through the authoritative input pa
   expect(childFrame?.viewerRole).toBe('child');
   if (childFrame?.viewerRole === 'child') expect(childFrame.ghost).toBeUndefined();
 
+  await childPage.mouse.move(100, 360);
+  await expect.poll(async () => Math.cos((await readOwnChildFacing(childPage)) ?? 0)).toBeLessThan(-0.5);
+  await childPage.mouse.move(880, 360);
+  await expect.poll(async () => Math.cos((await readOwnChildFacing(childPage)) ?? 0)).toBeGreaterThan(0.5);
+  await childPage.mouse.move(-10, -10);
+  const facingBeforeMovement = await readOwnChildFacing(childPage);
   await childPage.keyboard.down('w');
-  await expect.poll(() => readOwnChildFacing(childPage)).toBeCloseTo(-Math.PI / 2, 2);
+  await childPage.waitForTimeout(200);
   await childPage.keyboard.up('w');
-  const facingBeforePointerMove = await readOwnChildFacing(childPage);
-  await childPage.mouse.move(20, 20);
-  await childPage.mouse.move(1100, 650);
-  await childPage.waitForTimeout(150);
-  expect(await readOwnChildFacing(childPage)).toBeCloseTo(facingBeforePointerMove ?? 0, 5);
+  expect(await readOwnChildFacing(childPage)).toBeCloseTo(facingBeforeMovement ?? 0, 5);
 
   const initialX = await childPage.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.ownPosition?.x ?? null);
   expect(initialX).not.toBeNull();

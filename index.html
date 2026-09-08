@@ -123,10 +123,13 @@
             <span class="touch-joystick__knob" id="touch-joystick-knob"></span>
           </div>
         </div>
-        <button class="touch-action" id="touch-action" type="button" aria-label="按住打开手电">
-          <span class="touch-action__beam" aria-hidden="true"></span>
-          <span>手电</span>
-        </button>
+        <div class="touch-aim-area" id="touch-aim-area" role="application" aria-label="按住开灯，拖动调整方向">
+          <div class="touch-joystick touch-aim-joystick" id="touch-action" aria-hidden="true">
+            <span class="touch-joystick__cross"></span>
+            <span class="touch-joystick__knob"><span class="touch-action__beam"></span></span>
+            <span class="touch-aim-label">按住照明 · 拖动转向</span>
+          </div>
+        </div>
       </section>
       <p class="event-banner" id="event-banner" data-testid="event-banner" hidden></p>
       <button class="audio-toggle" id="audio-toggle" type="button" aria-label="切换声音">声音：开</button>
