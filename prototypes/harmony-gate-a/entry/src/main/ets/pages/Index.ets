@@ -4,6 +4,7 @@ import { BusinessError } from '@kit.BasicServicesKit';
 import { scanBarcode, scanCore } from '@kit.ScanKit';
 import BuildProfile from 'entry/BuildProfile';
 import { lanHostProbe } from '../network/LanHostProbe';
+import { gameService } from '../services/GameService';
 
 const BRIDGE_PERMISSION = '{"javascriptProxyPermission":{"urlPermissionList":' +
   '[{"scheme":"https","host":"game.local","port":"","path":""}]}}';
@@ -132,6 +133,42 @@ class HarmonyHostBridge {
 @Entry
 @Component
 struct Index {
+  @StorageLink('gameServiceState') private gameServiceState: string = 'checking';
+  @StorageLink('gameServiceMessage') private gameServiceMessage: string = '正在连接华为游戏服务…';
+
+  build() {
+    Stack() {
+      if (this.gameServiceState === 'ready') {
+        GameWeb()
+      } else {
+        Column({ space: 20 }) {
+          Text('I AM A GHOST').fontSize(28).fontColor('#f2efea')
+          Text(this.gameServiceMessage).fontSize(16).fontColor('#c8c7cf')
+            .textAlign(TextAlign.Center)
+          if (this.gameServiceState === 'checking') {
+            LoadingProgress().width(36).height(36).color('#c8c7cf')
+          } else {
+            Button('重新登录').onClick(() => gameService.retry())
+          }
+          Button('退出游戏').onClick(() => {
+            const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+            void context.terminateSelf().catch(() => {});
+          })
+        }
+        .padding(32)
+        .width('100%')
+        .height('100%')
+        .justifyContent(FlexAlign.Center)
+        .backgroundColor('#090b12')
+      }
+    }
+    .width('100%')
+    .height('100%')
+  }
+}
+
+@Component
+struct GameWeb {
   private controller: webview.WebviewController = new webview.WebviewController();
   private hostBridge: HarmonyHostBridge = new HarmonyHostBridge();
 
@@ -241,6 +278,7 @@ struct Index {
         })
         .width('100%')
         .height('100%')
+
     }
     .width('100%')
     .height('100%')

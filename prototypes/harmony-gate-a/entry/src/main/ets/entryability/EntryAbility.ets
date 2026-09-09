@@ -18,6 +18,7 @@ import { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
 import { lanHostProbe } from '../network/LanHostProbe';
+import { gameService } from '../services/GameService';
 
 const DOMAIN = 0x0000;
 
@@ -32,6 +33,7 @@ export default class EntryAbility extends UIAbility {
   }
 
   onDestroy(): void {
+    gameService.stop();
     void lanHostProbe.stop(this.context);
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onDestroy');
   }
@@ -61,6 +63,7 @@ export default class EntryAbility extends UIAbility {
         return;
       }
       hilog.info(DOMAIN, 'testTag', 'Succeeded in loading the content.');
+      gameService.start(this.context);
     });
   }
 
