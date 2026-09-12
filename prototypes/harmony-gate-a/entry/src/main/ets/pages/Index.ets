@@ -134,7 +134,7 @@ class HarmonyHostBridge {
 @Component
 struct Index {
   @StorageLink('gameServiceState') private gameServiceState: string = 'checking';
-  @StorageLink('gameServiceMessage') private gameServiceMessage: string = '正在连接华为游戏服务…';
+  @StorageLink('gameServiceMessage') private gameServiceMessage: string = '正在连接游戏服务…';
 
   build() {
     Stack() {

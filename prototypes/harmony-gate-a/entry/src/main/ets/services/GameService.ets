@@ -48,7 +48,7 @@ class GameService {
     const showLoginDialog = this.loginAgain;
     this.loginAgain = false;
     AppStorage.setOrCreate('gameServiceState', 'checking');
-    AppStorage.setOrCreate('gameServiceMessage', '正在连接华为游戏服务…');
+    AppStorage.setOrCreate('gameServiceMessage', '正在连接游戏服务…');
     try {
       if (!this.initialized) {
         await gamePlayer.init(context);
@@ -65,7 +65,7 @@ class GameService {
       });
       if (this.context !== context || revision !== this.revision) return;
       if (result.accountName !== 'hw_account') {
-        AppStorage.setOrCreate('gameServiceMessage', '请使用华为账号登录游戏。');
+        AppStorage.setOrCreate('gameServiceMessage', '请使用平台账号登录游戏。');
         AppStorage.setOrCreate('gameServiceState', 'error');
         return;
       }
@@ -109,13 +109,13 @@ function authenticationMessage(code: number): string {
     case 1002000002:
       return '连接失败，请检查网络后重试。';
     case 1002000003:
-      return '请登录华为账号后重试。';
+      return '请登录平台账号后重试。';
     case 1002000004:
       return '需要完成实名认证才能进入游戏。';
     case 1002000006:
       return '当前不在允许的游戏时间内，请退出游戏。';
     case 1002000011:
-      return '需要同意华为游戏服务隐私声明才能继续。';
+      return '需要同意游戏服务隐私声明才能继续。';
     case 1002000016:
     case 1002000020:
       return '已取消登录。你可以重新登录或退出游戏。';
