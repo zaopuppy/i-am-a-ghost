@@ -1124,9 +1124,10 @@ function updateGhostAudio(frame: ViewerFrame | null): void {
 
 function isCaptureCinematicViewer(frame: ViewerFrame): boolean {
   return Boolean(
-    frame.capture
+    frame.phase === 'capture-animation'
+    && frame.capture
     && frame.ghost
-    && (frame.viewerRole === 'ghost' || frame.capture.childPlayerId === frame.viewerPlayerId),
+    && frame.children.some((child) => child.playerId === frame.capture?.childPlayerId),
   );
 }
 

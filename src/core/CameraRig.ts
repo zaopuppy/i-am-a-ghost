@@ -47,6 +47,8 @@ export interface CameraRigUpdate {
 }
 
 const TOP_DOWN_TILT_RADIANS = THREE.MathUtils.degToRad(30);
+const CAPTURE_TRAVEL_SECONDS = 0.35;
+const CAPTURE_TRAVEL_DISTANCE = 2;
 
 function cameraHeightAtTopDownTilt(horizontalDistance: number, targetHeight = 0): number {
   return roundCameraValue(targetHeight + horizontalDistance / Math.tan(TOP_DOWN_TILT_RADIANS));
@@ -187,6 +189,8 @@ export class CameraRig {
   private currentViewHeight = RECOMMENDED_CAMERA_PRESETS['whole-house'].viewHeight;
   private initialized = false;
   private captureActive = false;
+  private captureTravelRemaining = 0;
+  private readonly captureTravelOffset = new THREE.Vector3();
   private pointerMode = false;
   private controls: OrbitControls | null = null;
   private controlsChangeHandler: (() => void) | null = null;
@@ -233,6 +237,7 @@ export class CameraRig {
   }
 
   update(input: CameraRigUpdate): void {
+    const enteringCapture = input.captureActive && !this.captureActive;
     this.captureActive = input.captureActive;
     if (this.captureActive && this.pointerMode) this.stopDeveloperControl();
     if (this.pointerMode) {
@@ -254,12 +259,28 @@ export class CameraRig {
     );
 
     const snap = input.immediate || !this.initialized;
+    if (!input.captureActive || snap) this.captureTravelRemaining = 0;
+    else if (enteringCapture && Math.hypot(
+      this.desiredTarget.x - this.currentTarget.x,
+      this.desiredTarget.z - this.currentTarget.z,
+    ) > CAPTURE_TRAVEL_DISTANCE) {
+      this.captureTravelRemaining = CAPTURE_TRAVEL_SECONDS;
+      this.captureTravelOffset.subVectors(this.currentPosition, this.currentTarget);
+    }
+    let desiredViewHeight = input.preset.viewHeight;
+    if (this.captureTravelRemaining > 0) {
+      // Move the existing wide composition to the event before tightening it.
+      this.desiredPosition.copy(this.desiredTarget).add(this.captureTravelOffset);
+      desiredViewHeight = this.currentViewHeight;
+      this.captureTravelRemaining = Math.max(0, this.captureTravelRemaining - Math.max(0, input.deltaSeconds));
+      if (this.currentTarget.distanceTo(this.desiredTarget) < 0.25) this.captureTravelRemaining = 0;
+    }
     const factor = snap
       ? 1
       : 1 - Math.exp(-Math.max(0, input.deltaSeconds) * Math.max(0.001, input.responsiveness));
     this.currentPosition.lerp(this.desiredPosition, factor);
     this.currentTarget.lerp(this.desiredTarget, factor);
-    this.currentViewHeight += (input.preset.viewHeight - this.currentViewHeight) * factor;
+    this.currentViewHeight += (desiredViewHeight - this.currentViewHeight) * factor;
     this.initialized = true;
 
     this.renderedPosition.copy(this.currentPosition);

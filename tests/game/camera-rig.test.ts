@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { OrthographicCamera } from 'three';
+import type { RenderStage } from '../../src/core/Renderer';
 import {
+  CameraRig,
   cameraAngles,
   cameraPresetFromPose,
   createRecommendedCameraPresets,
@@ -8,6 +11,51 @@ import {
   orientMovementToCamera,
   resolveCameraMode,
 } from '../../src/core/CameraRig';
+
+test('a distant capture pans to the scene before zooming, then returns to local follow', () => {
+  const stage = { camera: new OrthographicCamera(), setCameraPose() {} } as unknown as RenderStage;
+  const rig = new CameraRig(stage);
+  const presets = createRecommendedCameraPresets();
+  const follow = {
+    mode: 'follow' as const, captureActive: false, baseTarget: { x: -10, y: 0, z: -6 },
+    preset: presets.follow, deltaSeconds: 1 / 60, responsiveness: 22,
+  };
+  rig.update({ ...follow, immediate: true });
+  const capture = {
+    ...follow, mode: 'capture-closeup' as const, captureActive: true,
+    baseTarget: { x: 10, y: 1, z: 6 }, preset: presets['capture-closeup'],
+  };
+  rig.update(capture);
+  const travelling = rig.snapshot();
+  assert.ok(travelling.target.x > -10 && travelling.target.x < 10);
+  assert.equal(travelling.viewHeight, presets.follow.viewHeight, 'keep the wide view while travelling');
+  for (let index = 0; index < 60; index += 1) rig.update(capture);
+  const closeup = rig.snapshot();
+  assert.ok(Math.abs(closeup.target.x - 10) < 0.01);
+  assert.ok(Math.abs(closeup.viewHeight - presets['capture-closeup'].viewHeight) < 0.01);
+  for (let index = 0; index < 60; index += 1) rig.update(follow);
+  assert.equal(rig.snapshot().mode, 'follow');
+  assert.ok(Math.abs(rig.snapshot().target.x + 10) < 0.01);
+  assert.ok(Math.abs(rig.snapshot().viewHeight - presets.follow.viewHeight) < 0.01);
+});
+
+test('nearby and immediate capture cameras can enter the closeup without a travel delay', () => {
+  for (const immediate of [false, true]) {
+    const rig = new CameraRig({ camera: new OrthographicCamera(), setCameraPose() {} } as unknown as RenderStage);
+    const presets = createRecommendedCameraPresets();
+    rig.update({
+      mode: 'follow', captureActive: false, baseTarget: { x: 0, y: 0, z: 0 },
+      preset: presets.follow, deltaSeconds: 1 / 60, responsiveness: 22, immediate: true,
+    });
+    rig.update({
+      mode: 'capture-closeup', captureActive: true,
+      baseTarget: { x: immediate ? 20 : 0.5, y: 1, z: 0 },
+      preset: presets['capture-closeup'], deltaSeconds: 1 / 60, responsiveness: 22, immediate,
+    });
+    assert.ok(rig.snapshot().viewHeight < presets.follow.viewHeight);
+    if (immediate) assert.equal(rig.snapshot().viewHeight, presets['capture-closeup'].viewHeight);
+  }
+});
 
 test('capture camera has priority over a developer preview', () => {
   assert.equal(resolveCameraMode('capture-closeup', 'follow'), 'capture-closeup');

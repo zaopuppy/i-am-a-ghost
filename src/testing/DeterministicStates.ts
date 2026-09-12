@@ -24,6 +24,7 @@ export const DETERMINISTIC_STATE_NAMES = [
   'low-battery',
   'capture-contact',
   'capture',
+  'capture-other',
   'protection',
   'child-win',
   'ghost-win',
@@ -63,6 +64,9 @@ export function createDeterministicViewerFrame(
   state: DeterministicStateName,
   seed = 0,
 ): ViewerFrame {
+  if (state === 'capture-other') {
+    return { ...createDeterministicViewerFrame('capture', seed), viewerPlayerId: 'child-2' };
+  }
   const tick = 4200 + Math.abs(Math.trunc(seed)) % 60;
   const lightningDirection = lightningDirectionForState(state);
   const common = {

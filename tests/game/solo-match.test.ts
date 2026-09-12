@@ -15,6 +15,24 @@ const openMap: MatchMap = {
   batterySpawns: [{ x: -3, z: -3 }, { x: 3, z: 3 }],
 };
 
+test('a human child sees the cinematic when an AI child is captured elsewhere', () => {
+  const match = new SoloMatch({
+    ...openMap,
+    ghostSpawn: { x: 0, z: 4 },
+    childSpawns: [{ x: -10, z: -10 }, { x: 0.95, z: 4 }, { x: 0, z: -4 }, { x: -4, z: 0 }],
+  }, { role: 'child', childCount: 2, seed: 71 }, {
+    childMoveSpeed: 1, ghostMoveSpeed: 8, flashlightLength: 0.5,
+  });
+  let frame = match.frame();
+  for (let tick = 0; tick < 180 && !frame.capture; tick += 1) {
+    frame = match.update(1 / 60, idle, 0, false);
+  }
+  assert.equal(frame.capture?.childPlayerId, 'solo-child-1');
+  assert.notEqual(frame.capture?.childPlayerId, frame.viewerPlayerId);
+  assert.ok(frame.ghost, 'AI capture scene must reach the human observer');
+  assert.ok(match.presentationFrame().ghost);
+});
+
 test('solo uses initial tuning and applies live speed changes without restarting authority', () => {
   const match = new SoloMatch({ ...openMap, ghostSpawn: { x: 10, z: 10 } },
     { role: 'ghost', childCount: 1, seed: 71 }, { ghostMoveSpeed: 2 });

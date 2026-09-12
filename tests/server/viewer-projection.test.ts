@@ -126,7 +126,7 @@ test('lightning state and its frozen reveal are shared without exposing schedule
   assert.notEqual(checkpoint.lightning.pulses[0].durationTicks, 999);
 });
 
-test('capture presentation reveals the ghost only to the captured child', () => {
+test('capture presentation reveals the scene to every child only for the cinematic', () => {
   const engine = new MatchEngine({
     seed: 15,
     map: {
@@ -162,8 +162,12 @@ test('capture presentation reveals the ghost only to the captured child', () => 
   const otherFrame = projectViewerFrame(engine.checkpoint(), 'other-child');
   assert.equal(otherFrame.viewerRole, 'child');
   assert.equal(otherFrame.capture?.childPlayerId, 'captured-child');
-  assert.equal(otherFrame.ghost, undefined);
+  assert.deepEqual(otherFrame.ghost?.position, capturedFrame.ghost?.position);
   assert.doesNotMatch(JSON.stringify(otherFrame), /phaseTicksRemaining|capturedChildPlayerId/);
+  engine.advance([], MATCH_RULES.captureAnimationTicks);
+  const resetFrame = projectViewerFrame(engine.checkpoint(), 'other-child');
+  assert.equal(resetFrame.capture, null);
+  assert.equal(resetFrame.ghost, undefined, 'reset restores normal ghost visibility');
 });
 
 test('a disconnected child is projected as a non-player sensing doll', () => {

@@ -125,7 +125,7 @@ export function projectViewerFrame(
     batteries,
     ...(checkpoint.ghostRevealed
       || checkpoint.ghostBurnTicksRemaining > 0
-      || checkpoint.capturedChildPlayerId === viewerPlayerId
+      || (checkpoint.phase === 'capture-animation' && checkpoint.capturedChildPlayerId !== null)
       ? { ghost }
       : lightningGhost
         ? { ghost: lightningGhost }
