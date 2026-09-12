@@ -34,16 +34,23 @@ npm run stop
 npm install -g @deveco/deveco-cli@latest
 ```
 
-在仓库根目录构建 HAP：
+在仓库根目录构建本地调试包（跳过华为登录，复用现有调试签名）：
 
 ```powershell
-npm run prototype:harmony:build
+npm run prototype:harmony:local
 ```
 
 连接并配置好签名真机后，可以构建、安装并启动：
 
 ```powershell
 npm run prototype:harmony:run
+```
+
+构建应用市场正式发布包（保留完整华为登录验证）：
+
+```powershell
+npm run prototype:harmony:build
+# 等价于 npm run prototype:harmony:release
 ```
 
 多真机、签名和故障排查说明见 [鸿蒙 Gate A 原型](prototypes/harmony-gate-a/README.md)；首次真机准备与签名边界见 [鸿蒙原生宿主研究](docs/2026-08-20_harmonyos-native-host-research.md)。

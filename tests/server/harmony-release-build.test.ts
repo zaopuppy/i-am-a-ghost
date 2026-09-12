@@ -21,6 +21,9 @@ test('Harmony release command selects both web and native release modes', async 
 
   assert.match(packageJson.scripts?.['build:harmony-release'] ?? '', /--mode harmony-release/);
   assert.match(packageJson.scripts?.['prototype:harmony:release'] ?? '', /--build-mode release/);
+  assert.equal(packageJson.scripts?.['prototype:harmony:build'], 'npm run prototype:harmony:release');
+  assert.match(packageJson.scripts?.['prototype:harmony:local'] ?? '', /--product local --build-mode debug/);
+  assert.match(packageJson.scripts?.['prototype:harmony:run'] ?? '', /--product local --build-mode debug --skip-build/);
 });
 
 test('Harmony LAN pauses in background and resumes only after in-process consent', async () => {

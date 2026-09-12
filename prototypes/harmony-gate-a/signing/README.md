@@ -10,13 +10,15 @@
 ## 日常命令
 
 ```powershell
-# 调试签名、debug 构建
-npm run prototype:harmony:build
+# 本地调试：复用现有调试签名，跳过华为登录及玩家验证
+npm run prototype:harmony:local
 
-# 调试签名、安装并运行
+# 构建本地调试包、安装并运行
 npm run prototype:harmony:run
 
-# 发布签名、release 构建
+# 正式发布：发布签名、release 构建、完整华为验证
+npm run prototype:harmony:build
+# 等价命令
 npm run prototype:harmony:release
 ```
 
@@ -26,7 +28,15 @@ npm run prototype:harmony:release
 prototypes/harmony-gate-a/build/outputs/release/harmony-gate-a-release-signed.app
 ```
 
-不要上传 `unsigned.app`，也不要把 `outputs/default` 下的调试包用于发布。
+本地调试产物位于 `entry/build/local/outputs/default/entry-default-signed.hap`。
+本地与发布产物分目录保存，切换命令无需修改签名配置或重新申请 Profile。
+两种包使用相同包名，安装时覆盖切换；安装命令不会主动卸载或清除数据。
+
+本地跳过验证只在 `BuildProfile.PRODUCT_NAME === 'local'` 且 `BuildProfile.DEBUG` 为真时启用。
+正式发布始终调用 `init`、`unionLogin` 和 `verifyLocalPlayer`；本地包不能用于测试华为账号能力。
+当前本地调试 Profile 的应用身份与正式应用不同，因此要验证真实华为登录时，仍需使用匹配正式应用的调试 Profile 或应用市场测试包。
+
+不要上传 `unsigned.app`，也不要把 `outputs/local` 或旧的 `outputs/default` 调试包用于发布。
 
 ## 新电脑恢复现有发布身份
 

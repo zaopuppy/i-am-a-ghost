@@ -17,7 +17,7 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
-function harness() {
+function harness(buildProfile = { DEBUG: false, PRODUCT_NAME: 'release' }) {
   const state = new Map<string, string>();
   const calls: string[] = [];
   let changed: ((result: { event: number }) => void) | undefined;
@@ -43,6 +43,7 @@ function harness() {
     exports,
     AppStorage: { setOrCreate: (key: string, value: string) => state.set(key, value) },
     require: (name: string) => {
+      if (name === 'entry/BuildProfile') return { __esModule: true, default: buildProfile };
       if (name === '@kit.GameServiceKit') return { gamePlayer };
       if (name === '@kit.PerformanceAnalysisKit') return { hilog: { info() {}, error() {} } };
       if (name === '../network/LanHostProbe') return { lanHostProbe: { stop: async () => { calls.push('stopLan'); } } };
@@ -53,6 +54,38 @@ function harness() {
 }
 
 const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
+
+test('explicit local debug build enters without calling Huawei game services', async () => {
+  const h = harness({ DEBUG: true, PRODUCT_NAME: 'local' });
+  h.service.start({});
+  await settle();
+  assert.equal(h.state.get('gameServiceState'), 'ready');
+  assert.deepEqual(h.calls, []);
+  h.service.stop();
+  assert.equal(h.state.get('gameServiceState'), 'checking');
+  h.service.start({});
+  h.service.retry();
+  await settle();
+  assert.equal(h.state.get('gameServiceState'), 'ready');
+  assert.deepEqual(h.calls, []);
+});
+
+for (const profile of [
+  { DEBUG: false, PRODUCT_NAME: 'local' },
+  { DEBUG: true, PRODUCT_NAME: 'release' },
+  { DEBUG: true, PRODUCT_NAME: 'default' },
+]) {
+  test(`${profile.PRODUCT_NAME}/${profile.DEBUG ? 'debug' : 'release'} still requires verification`, async () => {
+    const h = harness(profile);
+    h.service.start({});
+    await settle();
+    assert.deepEqual(h.calls, ['init', 'login', 'verify']);
+    assert.equal(h.state.get('gameServiceState'), 'checking');
+    h.verification.reject({ code: 1002000001 });
+    await settle();
+    assert.equal(h.state.get('gameServiceState'), 'error');
+  });
+}
 
 test('game remains gated until initialization, login and verification complete', async () => {
   const h = harness();

@@ -58,10 +58,16 @@ soak, and device performance/thermal measurements remain open.
 Run from the repository root:
 
 ```powershell
-npm run prototype:harmony:build
+npm run prototype:harmony:local
 npm run prototype:harmony:run
+npm run prototype:harmony:build
 npm run prototype:harmony:release
 ```
+
+`prototype:harmony:local` 构建专用的本地调试包，跳过华为登录及玩家验证；
+`prototype:harmony:run` 构建并安装该本地包。`prototype:harmony:build` 等价于
+`prototype:harmony:release`，生成保留完整玩家验证的正式包。两类产物分别位于
+`build/local` 和 `build/release`，无需修改源码或反复申请签名材料即可切换构建。
 
 `prototype:harmony:release` 会同时使用 Vite 的 `harmony-release` 模式和
 Hvigor 的 `release` 模式。Release 产物会自动关闭 ArkWeb 调试能力和前端

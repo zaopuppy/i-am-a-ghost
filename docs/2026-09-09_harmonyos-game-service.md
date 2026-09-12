@@ -3,6 +3,11 @@
 本次修复审核提出的缺少 `init`、`verifyLocalPlayer` 问题，并按官方 Checklist 补齐
 `unionLogin` 和账号切换处理。入口位于原生层，适用于单人和局域网对局。
 
+2026-09-12：新增专用 `local/debug` 产品用于离线本地调试，该组合不调用华为游戏服务。
+`npm run prototype:harmony:local` 构建本地包，`prototype:harmony:run` 构建并安装本地包。
+`prototype:harmony:build` 与 `prototype:harmony:release` 均构建正式包，保留下面的完整验证流程。
+调试开关来自原生构建常量，不由 Web、运行时设置或环境变量决定。
+
 ## 行为
 
 - `EntryAbility` 的页面加载成功回调启动 `GameService`。

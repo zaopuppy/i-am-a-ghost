@@ -2,6 +2,7 @@ import { common } from '@kit.AbilityKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { gamePlayer } from '@kit.GameServiceKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
+import BuildProfile from 'entry/BuildProfile';
 import { lanHostProbe } from '../network/LanHostProbe';
 
 class GameService {
@@ -35,6 +36,13 @@ class GameService {
   private async authenticate(): Promise<void> {
     const context = this.context;
     if (context === null || this.running) return;
+    // Only the explicit local/debug product may run without platform services.
+    if (BuildProfile.DEBUG && BuildProfile.PRODUCT_NAME.toString() === 'local') {
+      AppStorage.setOrCreate('gameServiceMessage', '本地调试');
+      AppStorage.setOrCreate('gameServiceState', 'ready');
+      hilog.info(0x0000, 'GameService', 'Local debug build: platform authentication disabled.');
+      return;
+    }
     this.running = true;
     const revision = this.revision;
     const showLoginDialog = this.loginAgain;

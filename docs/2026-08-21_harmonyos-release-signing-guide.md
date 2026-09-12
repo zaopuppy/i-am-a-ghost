@@ -107,7 +107,7 @@ Get-ChildItem -LiteralPath "$env:USERPROFILE\.ohos\config" -File |
 npm run prototype:harmony:release
 ```
 
-该脚本先检查本地签名配置，再执行 Web release 构建和 `devecocli build --product release --build-mode release`。调试使用 `npm run prototype:harmony:build` 或 `npm run prototype:harmony:run`，对应 `default/debug`。构建出的正式 `.app` 再上传 AGC；AGC 会对正式包做合法性检测。[华为“发布应用”](https://developer.huawei.com/consumer/cn/doc/doccenter-submission/agc-help-release-0000002235870050)、[华为“上传软件包”](https://developer.huawei.com/consumer/cn/doc/doccenter-submission/agc-help-release-game-upload-pkg-0000002399249081)
+该脚本先检查本地签名配置，再执行 Web release 构建和 `devecocli build --product release --build-mode release`。2026-09-12 起，`prototype:harmony:build` 也构建正式包；本地调试使用 `npm run prototype:harmony:local` 或 `npm run prototype:harmony:run`，对应跳过华为验证的 `local/debug` 产品。构建出的正式 `.app` 再上传 AGC；AGC 会对正式包做合法性检测。[华为“发布应用”](https://developer.huawei.com/consumer/cn/doc/doccenter-submission/agc-help-release-0000002235870050)、[华为“上传软件包”](https://developer.huawei.com/consumer/cn/doc/doccenter-submission/agc-help-release-game-upload-pkg-0000002399249081)
 
 ### 6. 在新电脑恢复或捕获本地签名
 
