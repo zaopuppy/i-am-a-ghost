@@ -19,6 +19,7 @@ for (const mobile of [false, true]) {
     try {
       await page.goto('/');
       await page.waitForFunction(() => Boolean(window.__THREE_GAME_TEST_HOOKS__));
+      if (await page.locator('#opening-skip').isVisible()) await page.locator('#opening-skip').click();
       await page.evaluate(async () => {
         window.__THREE_GAME_TEST_HOOKS__!.hideDebugUi(true);
         const path = '/src/game/GameWorld.ts';

@@ -10,9 +10,24 @@
   <body>
     <main id="app" aria-label="不要被抓到 · I am a Ghost">
       <canvas id="game-canvas" aria-label="Three.js game canvas" tabindex="0"></canvas>
+      <section id="opening" class="opening" role="dialog" aria-modal="true" aria-label="午夜捉迷藏开场动画" hidden>
+        <p class="sr-only">几个孩子触碰旧纸，门突然关闭。一名孩子失去意识，他的影子先动了起来；同伴举起手电，影子避开光束。</p>
+        <p id="opening-status" class="opening__status" role="status">正在进入空屋…</p>
+        <button id="opening-skip" class="opening__skip" type="button">跳过</button>
+        <div id="opening-title" class="opening__title" hidden>
+          <p class="opening__eyebrow">午夜捉迷藏契约</p>
+          <h2>不要被抓到</h2>
+          <p class="opening__english" lang="en">I AM A GHOST</p>
+          <div class="opening__actions">
+            <button id="opening-start" type="button">开始游戏</button>
+            <button id="opening-watch-again" type="button">再看一遍</button>
+          </div>
+        </div>
+      </section>
       <section class="lobby-panel" data-testid="lobby-panel">
         <p class="eyebrow">单人 / 局域网捉迷藏</p>
         <h1>I AM A GHOST</h1>
+        <button id="opening-replay" class="opening-replay" type="button"><span aria-hidden="true">▶</span> 观看开场动画</button>
         <p class="connection" data-connected="false">
           <span class="connection-dot" aria-hidden="true"></span>
           <span id="network-status" data-testid="network-status">连接房间服务…</span>

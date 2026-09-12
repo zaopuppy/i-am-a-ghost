@@ -12,6 +12,15 @@ export default defineConfig({
     baseURL: 'http://127.0.0.1:5189',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
+    // Existing gameplay suites start as returning players. Opening coverage
+    // overrides this with empty storage to exercise a real first visit.
+    storageState: {
+      cookies: [],
+      origins: [{
+        origin: 'http://127.0.0.1:5189',
+        localStorage: [{ name: 'i-am-a-ghost:opening-seen', value: 'true' }],
+      }],
+    },
   },
   webServer: [
     {

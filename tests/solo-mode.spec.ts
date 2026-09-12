@@ -3,6 +3,7 @@ import { expect, test, type Page } from '@playwright/test';
 async function openSolo(page: Page) {
   await page.goto('/');
   await page.waitForFunction(() => Boolean(window.__THREE_GAME_TEST_HOOKS__));
+  if (await page.locator('#opening-skip').isVisible()) await page.locator('#opening-skip').click();
   await page.evaluate(() => window.__THREE_GAME_TEST_HOOKS__!.hideDebugUi(true));
   await page.getByRole('button', { name: '单人游戏', exact: true }).click();
   await expect(page.locator('#solo-start')).toBeEnabled({ timeout: 30_000 });
@@ -27,7 +28,7 @@ test('loaded solo works offline: both roles, movement, pause, background, restar
   await context.setOffline(true);
   await page.locator('#solo-start').click();
   await expect(page.locator('#role-label')).toHaveText('单人 · 你是鬼');
-  expect((await sample(page)).frame?.children).toHaveLength(4);
+  await expect.poll(async () => (await sample(page)).frame?.children.length).toBe(4);
   const before = (await sample(page)).position!;
   await page.keyboard.down('KeyD');
   await expect.poll(async () => (await sample(page)).position?.x).toBeGreaterThan(before.x + 0.3);
@@ -52,8 +53,8 @@ test('loaded solo works offline: both roles, movement, pause, background, restar
   await page.locator('#solo-child-count').selectOption('1');
   await page.locator('#solo-start').click();
   await expect(page.locator('#role-label')).toHaveText('单人 · 你是小孩');
-  expect((await sample(page)).frame?.children).toHaveLength(1);
-  expect((await sample(page)).frame?.dolls).toHaveLength(3);
+  await expect.poll(async () => (await sample(page)).frame?.children.length).toBe(1);
+  await expect.poll(async () => (await sample(page)).frame?.dolls.length).toBe(3);
   // Idle human loses through the normal capture/reset rules; no fixture changes authority.
   await expect(page.locator('#solo-dialog')).toHaveAttribute('data-screen', 'ended', { timeout: 50_000 });
   await expect(page.locator('#solo-title')).toHaveText('这次输了');

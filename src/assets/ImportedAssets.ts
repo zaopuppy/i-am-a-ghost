@@ -219,6 +219,7 @@ function loadCharacterAsset(kind: CharacterAssetKind): Promise<GLTF> {
       return gltf;
     }).catch((error: unknown) => {
       diagnostics[kind].status = 'failed';
+      delete characterPromises[kind];
       throw error;
     });
     characterPromises[kind] = promise;

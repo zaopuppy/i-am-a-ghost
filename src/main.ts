@@ -19,6 +19,7 @@ import {
 import { Loop } from './core/Loop';
 import { createRenderStage } from './core/Renderer';
 import { GameWorld } from './game/GameWorld';
+import { OpeningSequence } from './game/OpeningSequence';
 import { compileHouseScene, type CompiledHouseScene } from './game/HouseScene';
 import { loadHouseSceneDraft } from './game/HouseSceneDraft';
 import { lightningSourceVector, type LightningPresentationFrame } from './game/LightningPresentation';
@@ -247,9 +248,24 @@ const unlockAudio = (): void => {
 window.addEventListener('click', unlockAudio);
 window.addEventListener('keydown', unlockAudio);
 const unsubscribeClient = client.subscribe(renderClientState);
+const opening = new OpeningSequence(() => {
+  input.clear();
+  cameraSnapRequested = true;
+  renderClientState();
+  (client.roomState ? requireElement<HTMLButtonElement>('#opening-replay') : soloButton).focus({ preventScroll: true });
+});
+if (!deterministicState && !sceneEditorRequested && !scenePlaytestRole
+  && !queryRoom && !client.session && !OpeningSequence.seen()) {
+  void opening.play();
+}
 
 const loop = new Loop(
   (deltaSeconds, elapsedSeconds, fps) => {
+    if (opening.active && ((client.roomState && client.roomState.phase !== 'lobby') || deterministicState || soloActive)) opening.close();
+    if (opening.render(stage, canvasBounds.width / Math.max(1, canvasBounds.height))) {
+      input.clear();
+      return;
+    }
     renderFrame += 1;
     measuredFps = fps;
     updateFpsLabel();
@@ -342,7 +358,7 @@ const loop = new Loop(
     }
     updateDiagnostics(frame, elapsedSeconds);
   },
-  () => stage.render(world.scene, world.flashlights()),
+  () => { if (!opening.active) stage.render(world.scene, world.flashlights()); },
 );
 
 function playThunder(frame: LightningPresentationFrame): void {
@@ -367,6 +383,7 @@ function playThunder(frame: LightningPresentationFrame): void {
 const resizeObserver = new ResizeObserver(() => {
   stage.resize();
   canvasBounds = canvas.getBoundingClientRect();
+  if (canvasBounds.width <= 760) debugGui?.close();
 });
 resizeObserver.observe(canvas);
 if (import.meta.env.DEV) {
@@ -411,6 +428,7 @@ loop.start();
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     loop.stop();
+    opening.dispose();
     input.dispose();
     soloPreparationVersion += 1;
     soloMenu.dispose();
@@ -1220,6 +1238,7 @@ async function installDebugGui(): Promise<void> {
   movementFolder.close();
   sensingFolder.close();
   debugGui = gui;
+  if (canvasBounds.width <= 760) gui.close();
   setDebugUiHidden(debugGuiHidden);
 }
 
