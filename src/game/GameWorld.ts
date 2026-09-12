@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { ChildStrafeAnimation } from './ChildStrafeAnimation';
+import { MovementIndicator } from './MovementIndicator';
 import { furnitureAssetMetrics } from '../assets/EnvironmentAssets';
 import {
   createGhostAssetInstance,
@@ -159,6 +160,7 @@ export interface GameWorldOptions {
 
 export class GameWorld {
   readonly scene = new THREE.Scene();
+  private readonly movementIndicator = new MovementIndicator();
   private readonly actors = new Map<string, ActorVisual>();
   private readonly materials: HouseMaterialKit = createHouseMaterialKit();
   private readonly batteries = [createBattery(this.materials), createBattery(this.materials)];
@@ -204,6 +206,7 @@ export class GameWorld {
     this.scene.add(warmFill);
     this.configureLightningLight(options.lightningShadowMapSize);
     this.buildHouse();
+    this.scene.add(this.movementIndicator.root);
     for (const battery of this.batteries) {
       battery.root.visible = false;
       this.scene.add(battery.root);
@@ -282,7 +285,8 @@ export class GameWorld {
     return this.characterPrewarmPromise;
   }
 
-  sync(frame: ViewerFrame | null, elapsedSeconds: number): LightningPresentationFrame {
+  sync(frame: ViewerFrame | null, elapsedSeconds: number, movement: Vec2 = { x: 0, z: 0 }): LightningPresentationFrame {
+    this.movementIndicator.sync(frame, movement);
     const lightningFrame = advanceLightningPresentation(
       this.lightningPresentation,
       frame?.lightning ?? null,

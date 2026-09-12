@@ -324,7 +324,7 @@ const loop = new Loop(
       : elapsedSeconds;
     const presentationTuning = runtimeTuning;
     world.setFlashlightTuning(presentationTuning.flashlightLength, presentationTuning.flashlightConeDegrees);
-    const lightningFrame = world.sync(frame, presentationSeconds);
+    const lightningFrame = world.sync(frame, presentationSeconds, movement);
     if (!soloMatch?.paused) updateCamera(frame, deltaSeconds, Boolean(deterministicState));
     playThunder(lightningFrame);
     updateHud(frame);

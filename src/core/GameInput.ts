@@ -12,7 +12,11 @@ class FloatingJoystick {
   vector: Vec2 = { x: 0, z: 0 };
   private origin: { x: number; y: number } | null = null;
 
-  constructor(private readonly surfaceId: string, private readonly stickId: string) {}
+  constructor(
+    private readonly surfaceId: string,
+    private readonly stickId: string,
+    private readonly followsFinger = false,
+  ) {}
 
   private get surface(): HTMLElement | null { return document.getElementById(this.surfaceId); }
   private get stick(): HTMLElement | null { return document.getElementById(this.stickId); }
@@ -42,7 +46,20 @@ class FloatingJoystick {
     if (event.pointerId !== this.pointerId || !this.origin || !this.stick) return;
     event.preventDefault();
     const bounds = this.stick.getBoundingClientRect();
-    const radius = Math.min(bounds.width, bounds.height) * 0.32;
+    const radius = Math.min(bounds.width, bounds.height) * (this.followsFinger ? 0.2 : 0.32);
+    const deltaX = event.clientX - this.origin.x;
+    const deltaY = event.clientY - this.origin.y;
+    const distance = Math.hypot(deltaX, deltaY);
+    // Bound the return travel even when the finger overshoots the stick.
+    if (this.followsFinger && distance > radius && radius > 0) {
+      this.origin.x = event.clientX - deltaX / distance * radius;
+      this.origin.y = event.clientY - deltaY / distance * radius;
+      const surfaceBounds = this.surface?.getBoundingClientRect();
+      if (surfaceBounds) {
+        this.stick.style.left = `${this.origin.x - surfaceBounds.left}px`;
+        this.stick.style.top = `${this.origin.y - surfaceBounds.top}px`;
+      }
+    }
     this.vector = joystickVectorFromDelta(event.clientX - this.origin.x, event.clientY - this.origin.y, radius);
     this.drawKnob(radius);
   }
@@ -77,7 +94,7 @@ class FloatingJoystick {
 
 export class GameInput {
   private readonly pressed = new Set<string>();
-  private readonly moveStick = new FloatingJoystick('touch-move-area', 'touch-joystick');
+  private readonly moveStick = new FloatingJoystick('touch-move-area', 'touch-joystick', true);
   private readonly aimStick = new FloatingJoystick('touch-aim-area', 'touch-action');
   private pointer: { x: number; y: number } | null = null;
   private mouseActionHeld = false;

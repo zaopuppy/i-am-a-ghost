@@ -10,6 +10,34 @@ async function readInput(page: Page) {
   }).__sampleControls());
 }
 
+test('movement reverses with a short pull after dragging far beyond the stick', async ({ page, context }) => {
+  await page.goto('/?testState=child-playing');
+  await expect(page.getByTestId('role-label')).toContainText('小孩', { timeout: 20_000 });
+  await page.evaluate(async () => {
+    const path = '/src/core/GameInput.ts';
+    const { GameInput } = await import(path);
+    const input = new GameInput();
+    Object.assign(window, {
+      __sampleControls: () => ({
+        move: input.movement(), aim: input.aimDirection(), action: input.actionHeld(),
+      }),
+    });
+    document.querySelector<HTMLElement>('#touch-controls')!.hidden = false;
+    document.documentElement.dataset.harmonyPlaying = 'true';
+  });
+  const session = await context.newCDPSession(page);
+  const finger = { id: 1, x: 160, y: 500 };
+  await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [finger] });
+  finger.x += 180;
+  await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [finger] });
+  expect((await readInput(page)).move.x).toBeGreaterThan(0.9);
+  finger.x -= 48;
+  await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [finger] });
+  await expect.poll(async () => (await readInput(page)).move.x).toBeLessThan(-0.9);
+  await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  expect((await readInput(page)).move).toEqual({ x: 0, z: 0 });
+});
+
 test('desktop flashlight uses held left click only and releases outside the canvas or on blur', async ({ page }) => {
   await page.goto('/?testState=child-playing');
   await expect(page.getByTestId('role-label')).toContainText('小孩', { timeout: 20_000 });
