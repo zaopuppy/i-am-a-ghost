@@ -31,6 +31,6 @@ Follow the existing Conventional Commit style: `feat: add ...`, `fix: prevent ..
 
 ## Agent Workflow
 
-Because `.codegraph/` is present, run `codegraph explore "<question or symbols>"` before searching or reading files to locate code and understand call paths. Preserve unrelated working-tree changes and asset license records.
+Because `.codegraph/` is present, run `codegraph explore "<question or symbols>"` before searching or reading files to locate code and understand call paths. Preserve unrelated working-tree changes and asset license records. Asset replacement for character GLB, wall/floor texture, or furniture: `docs/asset-replacement.md`.
 
 Put downloaded temporary files and disposable repository clones under the repository-root `tmp/` directory, creating it when needed; move only durable documents or assets into their normal project locations. When a repository offers an SSH remote and the environment has SSH credentials configured, prefer SSH cloning so existing passwordless authentication can be reused.
