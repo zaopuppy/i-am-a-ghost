@@ -1,11 +1,15 @@
 import * as THREE from 'three';
 import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
+import {
+  CHARACTER_MODELS,
+  DEFAULT_GHOST_MODEL,
+  DEFAULT_KID_MODEL,
+  type CharacterModelId,
+  type GhostModelId,
+  type KidModelId,
+} from './CharacterCatalog';
 
-const KID_URL = `${import.meta.env.BASE_URL}assets/models/kaykit-adventurers/Rogue_Kid.glb`;
-const GHOST_URL = `${import.meta.env.BASE_URL}assets/models/kaykit-adventurers/Ghost.glb`;
-const KID_HEIGHT = 1.5;
-const GHOST_HEIGHT = 1.72;
 const CHILD_TINTS = [0xf0a060, 0xdcb35d, 0xd98265, 0xe2a08d] as const;
 const REQUIRED_CLIPS = ['Idle_A', 'Running_A', 'Hit_A'] as const;
 type CharacterAssetKind = 'kid' | 'ghost';
@@ -40,6 +44,7 @@ export interface CharacterJoints {
 
 export interface CharacterAssetInstance {
   kind: CharacterAssetKind;
+  modelId: CharacterModelId;
   root: THREE.Group;
   mixer: THREE.AnimationMixer;
   actions: Map<string, THREE.AnimationAction>;
@@ -55,40 +60,48 @@ export type KidAssetInstance = CharacterAssetInstance;
 const diagnostics: {
   kid: ImportedAssetMetrics;
   ghost: ImportedAssetMetrics;
+  scout: ImportedAssetMetrics;
+  wraith: ImportedAssetMetrics;
 } = {
   kid: emptyMetrics(503_252),
   ghost: emptyMetrics(445_612),
+  scout: emptyMetrics(153_564),
+  wraith: emptyMetrics(108_308),
 };
-const characterPromises: Partial<Record<CharacterAssetKind, Promise<GLTF>>> = {};
+const characterPromises: Partial<Record<CharacterModelId, Promise<GLTF>>> = {};
 
 /** Starts network fetch and GLTF parsing before the first match needs character instances. */
 export async function preloadCharacterAssets(): Promise<void> {
   await Promise.allSettled([
-    loadCharacterAsset('kid'),
-    loadCharacterAsset('ghost'),
+    loadCharacterAsset('rogue'),
+    loadCharacterAsset('specter'),
   ]);
 }
 
-export async function createKidAssetInstance(slot: number, doll: boolean): Promise<KidAssetInstance> {
-  return createCharacterAssetInstance('kid', slot, doll);
+export async function createKidAssetInstance(slot: number, doll: boolean, modelId: KidModelId = DEFAULT_KID_MODEL): Promise<KidAssetInstance> {
+  return createCharacterAssetInstance('kid', modelId, slot, doll);
 }
 
-export async function createGhostAssetInstance(): Promise<CharacterAssetInstance> {
-  return createCharacterAssetInstance('ghost', 0, false);
+export async function createGhostAssetInstance(modelId: GhostModelId = DEFAULT_GHOST_MODEL): Promise<CharacterAssetInstance> {
+  return createCharacterAssetInstance('ghost', modelId, 0, false);
 }
 
 async function createCharacterAssetInstance(
   kind: CharacterAssetKind,
+  modelId: CharacterModelId,
   slot: number,
   doll: boolean,
 ): Promise<CharacterAssetInstance> {
-  const gltf = await loadCharacterAsset(kind);
+  const gltf = await loadCharacterAsset(modelId);
+  const profile = kind === 'ghost'
+    ? CHARACTER_MODELS.ghost[modelId as GhostModelId]
+    : CHARACTER_MODELS.kid[modelId as KidModelId];
   const scene = cloneSkeleton(gltf.scene) as THREE.Group;
   scene.updateMatrixWorld(true);
   const bounds = new THREE.Box3().setFromObject(scene);
   const size = bounds.getSize(new THREE.Vector3());
   const center = bounds.getCenter(new THREE.Vector3());
-  const scale = (kind === 'ghost' ? GHOST_HEIGHT : KID_HEIGHT) / Math.max(size.y, 0.001);
+  const scale = profile.height / Math.max(size.y, 0.001);
   scene.scale.setScalar(scale);
   scene.position.set(-center.x * scale, -bounds.min.y * scale, -center.z * scale);
 
@@ -106,7 +119,8 @@ async function createCharacterAssetInstance(
       const material = source.clone();
       if (material instanceof THREE.MeshStandardMaterial) {
         if (kind === 'ghost') {
-          material.color.set(0x9aadc6);
+          if (modelId === 'wraith') material.color.lerp(new THREE.Color(0x9aadc6), 0.35);
+          else material.color.set(0x9aadc6);
           material.emissive.set(0x1c3558);
           material.emissiveIntensity = 0.95;
           material.roughness = 0.68;
@@ -115,7 +129,8 @@ async function createCharacterAssetInstance(
           material.opacity = 0.9;
           material.depthWrite = true;
         } else {
-          material.color.copy(tint).lerp(new THREE.Color(0xffffff), doll ? 0.24 : 0.36);
+          if (modelId === 'scout') material.color.lerp(tint, 0.48);
+          else material.color.copy(tint).lerp(new THREE.Color(0xffffff), doll ? 0.24 : 0.36);
           material.emissive.copy(tint);
           material.emissiveIntensity = doll ? 0.46 : 0.3;
           material.roughness = doll ? 0.94 : 0.78;
@@ -130,7 +145,7 @@ async function createCharacterAssetInstance(
 
   const oriented = new THREE.Group();
   oriented.name = `${kind}-normalized-model`;
-  oriented.rotation.y = Math.PI / 2;
+  oriented.rotation.y = profile.yaw;
   oriented.add(scene);
   const root = new THREE.Group();
   root.name = kind === 'ghost'
@@ -155,19 +170,19 @@ async function createCharacterAssetInstance(
   }
   actions.get('Idle_A')?.play();
   const joints: CharacterJoints = {
-    chest: findObjectByName(scene, 'chest'),
-    head: findObjectByName(scene, 'head'),
-    leftUpperArm: findObjectByName(scene, 'upperarml'),
-    rightUpperArm: findObjectByName(scene, 'upperarmr'),
-    leftLowerArm: findObjectByName(scene, 'lowerarml'),
-    rightLowerArm: findObjectByName(scene, 'lowerarmr'),
-    rightWrist: findObjectByName(scene, 'wristr'),
-    rightHand: findObjectByName(scene, 'handr'),
-    rightHandSlot: findObjectByName(scene, 'handslotr'),
-    leftUpperLeg: findObjectByName(scene, 'upperlegl'),
-    rightUpperLeg: findObjectByName(scene, 'upperlegr'),
-    leftLowerLeg: findObjectByName(scene, 'lowerlegl'),
-    rightLowerLeg: findObjectByName(scene, 'lowerlegr'),
+    chest: findObjectByName(scene, modelJoint(modelId, 'chest')),
+    head: findObjectByName(scene, modelJoint(modelId, 'head')),
+    leftUpperArm: findObjectByName(scene, modelJoint(modelId, 'upperarml')),
+    rightUpperArm: findObjectByName(scene, modelJoint(modelId, 'upperarmr')),
+    leftLowerArm: findObjectByName(scene, modelJoint(modelId, 'lowerarml')),
+    rightLowerArm: findObjectByName(scene, modelJoint(modelId, 'lowerarmr')),
+    rightWrist: findObjectByName(scene, modelJoint(modelId, 'wristr')),
+    rightHand: findObjectByName(scene, modelJoint(modelId, 'handr')),
+    rightHandSlot: findObjectByName(scene, modelJoint(modelId, 'handslotr')),
+    leftUpperLeg: findObjectByName(scene, modelJoint(modelId, 'upperlegl')),
+    rightUpperLeg: findObjectByName(scene, modelJoint(modelId, 'upperlegr')),
+    leftLowerLeg: findObjectByName(scene, modelJoint(modelId, 'lowerlegl')),
+    rightLowerLeg: findObjectByName(scene, modelJoint(modelId, 'lowerlegr')),
   };
   mixer.update(0);
   root.updateMatrixWorld(true);
@@ -182,6 +197,7 @@ async function createCharacterAssetInstance(
   }
   return {
     kind,
+    modelId,
     root,
     mixer,
     actions,
@@ -195,34 +211,54 @@ async function createCharacterAssetInstance(
 
 function findObjectByName(root: THREE.Object3D, name: string): THREE.Object3D | null {
   let match: THREE.Object3D | null = null;
+  const wanted = name.toLowerCase();
   root.traverse((object) => {
-    if (!match && object.name.toLowerCase() === name) match = object;
+    if (!match && object.name.toLowerCase() === wanted) match = object;
   });
   return match;
+}
+
+function modelJoint(modelId: CharacterModelId, standardName: string): string {
+  if (modelId === 'rogue' || modelId === 'specter') return standardName;
+  const names: Record<string, string> = {
+    chest: 'Torso', head: 'Skull',
+    upperarml: 'ArmUpperL', upperarmr: 'ArmUpperR',
+    lowerarml: 'ArmLowerL', lowerarmr: 'ArmLowerR',
+    wristr: 'WristR', handr: 'PalmR', handslotr: 'TorchSocketR',
+    upperlegl: 'LegUpperL', upperlegr: 'LegUpperR',
+    lowerlegl: 'LegLowerL', lowerlegr: 'LegLowerR',
+  };
+  return `${modelId === 'scout' ? 'Scout' : 'Wraith'}_${names[standardName] ?? standardName}`;
 }
 
 export function importedAssetMetrics(): Readonly<{
   kid: ImportedAssetMetrics;
   ghost: ImportedAssetMetrics;
+  scout: ImportedAssetMetrics;
+  wraith: ImportedAssetMetrics;
 }> {
   return diagnostics;
 }
 
-function loadCharacterAsset(kind: CharacterAssetKind): Promise<GLTF> {
-  let promise = characterPromises[kind];
+function loadCharacterAsset(modelId: CharacterModelId): Promise<GLTF> {
+  let promise = characterPromises[modelId];
   if (!promise) {
-    const url = kind === 'ghost' ? GHOST_URL : KID_URL;
-    const fileBytes = kind === 'ghost' ? 445_612 : 503_252;
-    diagnostics[kind].status = 'loading';
+    const metricId = modelId === 'rogue' ? 'kid' : modelId === 'specter' ? 'ghost' : modelId;
+    const profile = modelId === 'rogue' || modelId === 'scout'
+      ? CHARACTER_MODELS.kid[modelId]
+      : CHARACTER_MODELS.ghost[modelId];
+    const url = `${import.meta.env.BASE_URL}assets/models/${profile.file}`;
+    const fileBytes = profile.bytes;
+    diagnostics[metricId].status = 'loading';
     promise = new GLTFLoader().loadAsync(url).then((gltf) => {
-      diagnostics[kind] = inspectGltf(gltf, fileBytes);
+      diagnostics[metricId] = inspectGltf(gltf, fileBytes);
       return gltf;
     }).catch((error: unknown) => {
-      diagnostics[kind].status = 'failed';
-      delete characterPromises[kind];
+      diagnostics[metricId].status = 'failed';
+      delete characterPromises[modelId];
       throw error;
     });
-    characterPromises[kind] = promise;
+    characterPromises[modelId] = promise;
   }
   return promise;
 }

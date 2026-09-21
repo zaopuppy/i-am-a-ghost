@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { DEFAULT_HOUSE_MAP } from '../../src/game/defaultHouse';
 import { GridNavigator } from '../../src/game/GridNavigator';
+import { houseScene } from '../../src/game/HouseCatalog';
 import { MATCH_RULES, MatchEngine, type MatchMap } from '../../src/game/MatchEngine';
 import { SoloBot } from '../../src/game/SoloBot';
 import { SoloMatch } from '../../src/game/SoloMatch';
@@ -160,5 +161,20 @@ test('real house solo matches progress and terminate for both roles with 1–4 c
       const ended = match.frame();
       assert.deepEqual(match.update(0.1, { x: 1, z: 0 }, 0, true), ended);
     }
+  }
+});
+
+test('ring house solo bots navigate and finish from both roles', () => {
+  const map = houseScene('ring-old-house').map;
+  for (const role of ['ghost', 'child'] as const) {
+    const match = new SoloMatch(map, { role, childCount: 4, seed: 71, houseId: 'ring-old-house', modelId: role === 'ghost' ? 'wraith' : 'scout' });
+    let frame = match.frame();
+    for (let index = 0; index < 3300 && frame.phase !== 'ended'; index += 1) {
+      frame = match.update(0.1, idle, 0, false);
+      match.drainEvents();
+    }
+    assert.equal(frame.phase, 'ended', `${role} match completes on the ring house`);
+    assert.ok(frame.captureCount > 0 || frame.ghostHealth < MATCH_RULES.ghostMaxHealth,
+      `${role} match has real contact or flashlight play`);
   }
 });

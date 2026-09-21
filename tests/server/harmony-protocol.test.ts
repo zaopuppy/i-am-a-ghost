@@ -91,3 +91,13 @@ test('Harmony room protocol accepts role selection and rejoin identity', () => {
     rejoinToken: 'rejoin-1',
   });
 });
+
+test('Harmony room protocol carries house and model choices', () => {
+  assert.deepEqual(parseHarmonyClientMessage({
+    type: 'select-house', requestId: 'house-1', houseId: 'ring-old-house',
+  }), { type: 'select-house', requestId: 'house-1', houseId: 'ring-old-house' });
+  assert.deepEqual(parseHarmonyClientMessage({
+    type: 'select-model', requestId: 'model-1', modelId: 'scout',
+  }), { type: 'select-model', requestId: 'model-1', modelId: 'scout' });
+  assert.equal(parseHarmonyClientMessage({ type: 'select-model', requestId: 'model-2', modelId: 4 }), null);
+});

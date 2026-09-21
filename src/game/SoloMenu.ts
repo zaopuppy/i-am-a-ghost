@@ -1,5 +1,8 @@
 import type { SoloOptions } from './SoloMatch';
 import type { ViewerFrame } from './ViewerFrame';
+import { DEFAULT_GHOST_MODEL, DEFAULT_KID_MODEL, type CharacterModelId } from '../assets/CharacterCatalog';
+import { DEFAULT_HOUSE_ID, type HouseId } from './HouseCatalog';
+import { createHousePicker, createModelPicker } from './SelectionControls';
 
 interface SoloMenuActions {
   start(options: SoloOptions): void;
@@ -23,6 +26,12 @@ export class SoloMenu {
   private readonly changeButton: HTMLButtonElement;
   private readonly count: HTMLSelectElement;
   private role: SoloOptions['role'] = 'ghost';
+  private houseId: HouseId = DEFAULT_HOUSE_ID;
+  private selectedModels: { ghost: CharacterModelId; child: CharacterModelId } = {
+    ghost: DEFAULT_GHOST_MODEL, child: DEFAULT_KID_MODEL,
+  };
+  private readonly renderHouses: ReturnType<typeof createHousePicker>;
+  private readonly renderModels: ReturnType<typeof createModelPicker>;
   private screen: 'setup' | 'paused' | 'ended' | null = null;
 
   constructor(actions: SoloMenuActions) {
@@ -33,8 +42,9 @@ export class SoloMenu {
       <div class="result-card solo-card">
         <p class="eyebrow">单人游戏 · 标准难度</p>
         <h2 id="solo-title">独自走进黑暗</h2>
-        <p id="solo-detail">五分钟，一栋房子。其他角色由 AI 控制。</p>
+        <p id="solo-detail">五分钟，选择一栋房子。其他角色由 AI 控制。</p>
         <div id="solo-setup">
+          <fieldset class="selection-field"><legend>选择房子</legend><div id="solo-houses" class="house-picker"></div></fieldset>
           <fieldset class="role-picker">
             <legend>选择你的阵营</legend>
             <p class="role-picker__hint">鬼累计抓捕三次；小孩照亮鬼或撑到天亮。</p>
@@ -49,6 +59,7 @@ export class SoloMenu {
               </button>
             </div>
           </fieldset>
+          <fieldset class="selection-field"><legend>选择角色模型</legend><div id="solo-models" class="model-picker"></div></fieldset>
           <label class="solo-count" for="solo-child-count">小孩数量
             <select id="solo-child-count" aria-describedby="solo-roster">
               <option value="1">1 个</option><option value="2">2 个</option>
@@ -78,6 +89,14 @@ export class SoloMenu {
     this.restartButton = element('#solo-restart');
     this.changeButton = element('#solo-change-role');
     this.count = element('#solo-child-count');
+    this.renderHouses = createHousePicker(element('#solo-houses'), (id) => {
+      this.houseId = id;
+      this.renderHouses(this.houseId, true);
+    });
+    this.renderModels = createModelPicker(element('#solo-models'), (id) => {
+      this.selectedModels[this.role] = id;
+      this.renderModels(this.role === 'child' ? 'kid' : 'ghost', id, true);
+    });
     this.count.addEventListener('change', () => this.renderRoster());
     for (const button of this.dialog.querySelectorAll<HTMLButtonElement>('[data-solo-role]')) {
       button.addEventListener('click', () => {
@@ -86,12 +105,15 @@ export class SoloMenu {
           choice.setAttribute('aria-pressed', String(choice === button));
         }
         this.renderRoster();
+        this.renderModels(this.role === 'child' ? 'kid' : 'ghost', this.selectedModels[this.role], true);
       });
     }
     this.startButton.addEventListener('click', () => actions.start({
       role: this.role,
       childCount: Number(this.count.value),
       seed: crypto.getRandomValues(new Uint32Array(1))[0],
+      houseId: this.houseId,
+      modelId: this.selectedModels[this.role],
     }));
     this.resumeButton.addEventListener('click', actions.resume);
     this.restartButton.addEventListener('click', actions.restart);
@@ -105,8 +127,10 @@ export class SoloMenu {
   }
 
   showSetup(): void {
-    this.show('setup', '独自走进黑暗', '五分钟，一栋房子。其他角色由 AI 控制。');
+    this.show('setup', '独自走进黑暗', '五分钟，选择一栋房子。其他角色由 AI 控制。');
     this.renderRoster();
+    this.renderHouses(this.houseId, true);
+    this.renderModels(this.role === 'child' ? 'kid' : 'ghost', this.selectedModels[this.role], true);
     this.setReady(false);
   }
 

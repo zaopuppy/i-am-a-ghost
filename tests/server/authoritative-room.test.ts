@@ -3,6 +3,7 @@ import test from 'node:test';
 import { io as connect, type Socket } from 'socket.io-client';
 import { createGameServer } from '../../server/createGameServer';
 import { GameRoom } from '../../server/GameRoom';
+import { houseScene } from '../../src/game/HouseCatalog';
 import {
   BUILD_VERSION,
   PROTOCOL_VERSION,
@@ -14,6 +15,49 @@ import {
 } from '../../src/net/protocol';
 
 type TestSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
+
+test('host house and player models are validated and locked into the match', async (context) => {
+  const application = createGameServer();
+  const port = await application.listen(0, '127.0.0.1');
+  const host = connect(`http://127.0.0.1:${port}`, { transports: ['websocket'] });
+  const child = connect(`http://127.0.0.1:${port}`, { transports: ['websocket'] });
+  context.after(async () => {
+    host.disconnect();
+    child.disconnect();
+    await application.close();
+  });
+  await Promise.all([waitForConnect(host), waitForConnect(child)]);
+  const created = await host.emitWithAck('create-room', {
+    protocolVersion: PROTOCOL_VERSION, buildVersion: BUILD_VERSION, nickname: '房主',
+  });
+  assert.ok(created.ok);
+  const joined = await child.emitWithAck('join-room', {
+    protocolVersion: PROTOCOL_VERSION, buildVersion: BUILD_VERSION,
+    nickname: '小孩', roomCode: created.session.roomCode,
+  });
+  assert.ok(joined.ok);
+  assert.equal((await child.emitWithAck('select-house', 'ring-old-house')).ok, false);
+  assert.equal((await host.emitWithAck('select-house', 'toString' as 'ring-old-house')).ok, false);
+  assert.deepEqual(await host.emitWithAck('select-house', 'ring-old-house'), { ok: true });
+  assert.deepEqual(await host.emitWithAck('select-role', 'ghost'), { ok: true });
+  assert.deepEqual(await child.emitWithAck('select-role', 'child'), { ok: true });
+  assert.equal((await child.emitWithAck('select-model', 'wraith')).ok, false);
+  assert.equal((await child.emitWithAck('select-model', 'toString' as 'scout')).ok, false);
+  assert.deepEqual(await host.emitWithAck('select-model', 'wraith'), { ok: true });
+  const selected = waitForRoomState(host, (state) => state.houseId === 'ring-old-house'
+    && state.players.some((player) => player.selectedModel === 'scout'));
+  assert.deepEqual(await child.emitWithAck('select-model', 'scout'), { ok: true });
+  const state = await selected;
+  assert.deepEqual(state.players.map((player) => player.selectedModel), ['wraith', 'scout']);
+  const frame = waitForFrame(host, () => true);
+  assert.deepEqual(await host.emitWithAck('start-match'), { ok: true });
+  assert.equal((await host.emitWithAck('select-house', 'm3-nine-room-house')).ok, false);
+  assert.deepEqual(await host.emitWithAck('set-assets-ready', true), { ok: true });
+  assert.deepEqual(await child.emitWithAck('set-assets-ready', true), { ok: true });
+  const playing = await frame;
+  assert.equal(playing.frame.viewerRole, 'ghost');
+  assert.deepEqual(playing.frame.ghost.position, houseScene('ring-old-house').map.ghostSpawn);
+});
 
 test('match waits in loading until every connected player has prepared local assets', async (context) => {
   const application = createGameServer();

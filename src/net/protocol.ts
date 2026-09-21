@@ -1,10 +1,12 @@
 import type { GameplayTuning, MatchEvent } from '../game/MatchEngine';
 import type { ViewerFrame } from '../game/ViewerFrame';
+import type { CharacterModelId } from '../assets/CharacterCatalog';
+import type { HouseId } from '../game/HouseCatalog';
 
 export type { GameplayTuning } from '../game/MatchEngine';
 
-export const PROTOCOL_VERSION = 8;
-export const BUILD_VERSION = '0.10.0-role-selection';
+export const PROTOCOL_VERSION = 9;
+export const BUILD_VERSION = '0.11.0-house-model-selection';
 export const MIN_PLAYERS = 2;
 export const MAX_PLAYERS = 5;
 export const INPUT_STALE_MS = 250;
@@ -19,6 +21,7 @@ export interface RoomPlayerSummary {
   isHost: boolean;
   connected: boolean;
   selectedRole: PlayerRole;
+  selectedModel: CharacterModelId;
   role: PlayerRole;
   ready: boolean;
   assetsReady: boolean;
@@ -26,6 +29,7 @@ export interface RoomPlayerSummary {
 
 export interface RoomState {
   roomCode: string;
+  houseId: HouseId;
   phase: RoomPhase;
   matchId: string | null;
   round: number;
@@ -130,6 +134,8 @@ export type HarmonyClientMessage =
     requestId: string;
     role: Exclude<PlayerRole, null>;
   }
+  | { type: 'select-house'; requestId: string; houseId: HouseId }
+  | { type: 'select-model'; requestId: string; modelId: CharacterModelId }
   | {
     type: 'set-ready';
     requestId: string;
@@ -210,6 +216,8 @@ export interface ClientToServerEvents {
     role: Exclude<PlayerRole, null>,
     acknowledge: Acknowledge<BasicActionResponse>,
   ) => void;
+  'select-house': (houseId: HouseId, acknowledge: Acknowledge<BasicActionResponse>) => void;
+  'select-model': (modelId: CharacterModelId, acknowledge: Acknowledge<BasicActionResponse>) => void;
   'set-ready': (ready: boolean, acknowledge: Acknowledge<BasicActionResponse>) => void;
   'set-assets-ready': (ready: boolean, acknowledge: Acknowledge<BasicActionResponse>) => void;
   'leave-room': (acknowledge: Acknowledge<BasicActionResponse>) => void;
@@ -296,6 +304,14 @@ export function parseHarmonyClientMessage(value: unknown): HarmonyClientMessage 
     case 'select-role':
       return isRequestId(value.requestId) && (value.role === 'ghost' || value.role === 'child')
         ? { type: value.type, requestId: value.requestId, role: value.role }
+        : null;
+    case 'select-house':
+      return isRequestId(value.requestId) && typeof value.houseId === 'string'
+        ? { type: value.type, requestId: value.requestId, houseId: value.houseId as HouseId }
+        : null;
+    case 'select-model':
+      return isRequestId(value.requestId) && typeof value.modelId === 'string'
+        ? { type: value.type, requestId: value.requestId, modelId: value.modelId as CharacterModelId }
         : null;
     case 'set-ready':
       return isRequestId(value.requestId) && typeof value.ready === 'boolean'

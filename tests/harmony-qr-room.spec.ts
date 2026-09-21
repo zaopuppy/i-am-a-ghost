@@ -312,6 +312,24 @@ test('Harmony host worker admits a peer and starts authoritative frames', async 
   await expect(page.getByTestId('roster').locator('[data-role="ghost"]')).toHaveCount(1);
   await expect(page.getByTestId('roster').locator('[data-role="child"]')).toHaveCount(1);
   await expect(page.getByTestId('start-match')).toBeEnabled();
+  await page.locator('#lobby-houses [data-house-choice="ring-old-house"]').click();
+  await page.locator('#lobby-models [data-model-choice="wraith"]').click();
+  await page.evaluate(() => {
+    const push = (window as Window & { __PUSH_HARMONY_PEER__?: (payload: string) => void })
+      .__PUSH_HARMONY_PEER__;
+    push?.(JSON.stringify({ type: 'select-model', requestId: 'remote-select-scout', modelId: 'scout' }));
+  });
+  await expect(page.locator('#lobby-houses [data-house-choice="ring-old-house"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#lobby-models [data-model-choice="wraith"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(() => page.evaluate(() => {
+    const messages = (window as Window & { __HARMONY_PEER_MESSAGES__?: string[] })
+      .__HARMONY_PEER_MESSAGES__ ?? [];
+    return messages.some((payload) => {
+      const message = JSON.parse(payload) as { type?: string; state?: { houseId?: string; players?: Array<{ selectedModel?: string }> } };
+      return message.type === 'room-state' && message.state?.houseId === 'ring-old-house'
+        && message.state.players?.some((player) => player.selectedModel === 'scout');
+    });
+  })).toBe(true);
 
   await page.getByTestId('start-match').click();
   await expect(page.getByTestId('match-loading')).toBeVisible();
@@ -327,6 +345,7 @@ test('Harmony host worker admits a peer and starts authoritative frames', async 
   await expect(page.getByTestId('match-loading')).toBeHidden({ timeout: 45_000 });
   await expect(page.getByTestId('lobby-panel')).toBeHidden();
   await expect(page.getByTestId('role-label')).toContainText('你是鬼');
+  await expect.poll(() => page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.world.sceneId)).toBe('ring-old-house');
   await expect(page.locator('#touch-controls')).toBeVisible();
   await expect(page.locator('[data-harmony-qr-room]')).toBeHidden();
   await expect(page.locator('[data-harmony-nearby-rooms]')).toBeHidden();

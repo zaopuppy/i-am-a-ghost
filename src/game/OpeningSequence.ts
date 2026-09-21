@@ -1,5 +1,6 @@
 import type { RenderStage } from '../core/Renderer';
 import type { OpeningScene } from './OpeningScene';
+import { DEFAULT_GHOST_MODEL, DEFAULT_KID_MODEL, type GhostModelId, type KidModelId } from '../assets/CharacterCatalog';
 
 const SEEN_KEY = 'i-am-a-ghost:opening-seen';
 const DURATION = 8;
@@ -22,6 +23,8 @@ export class OpeningSequence {
   private readonly watchAgain = document.querySelector<HTMLButtonElement>('#opening-watch-again')!;
   private readonly motion = matchMedia('(prefers-reduced-motion: reduce)');
   private readonly inertElements = new Map<HTMLElement, boolean>();
+  private childModels: KidModelId[] = [DEFAULT_KID_MODEL, DEFAULT_KID_MODEL, DEFAULT_KID_MODEL];
+  private ghostModel: GhostModelId = DEFAULT_GHOST_MODEL;
 
   constructor(private readonly onExit: () => void) {
     this.skip.addEventListener('click', this.dismiss);
@@ -37,6 +40,14 @@ export class OpeningSequence {
   static seen(): boolean {
     try { return localStorage.getItem(SEEN_KEY) === 'true'; }
     catch { return false; }
+  }
+
+  setModels(children: readonly KidModelId[], ghost: GhostModelId): void {
+    const next = [0, 1, 2].map((slot) => children[slot] ?? DEFAULT_KID_MODEL);
+    if (next.join(',') === this.childModels.join(',') && ghost === this.ghostModel) return;
+    this.childModels = next;
+    this.ghostModel = ghost;
+    if (!this.running) this.releaseScene();
   }
 
   async play(manual = false): Promise<void> {
@@ -70,7 +81,7 @@ export class OpeningSequence {
     try {
       const { OpeningScene } = await import('./OpeningScene');
       if (generation !== this.generation) return;
-      const scene = new OpeningScene();
+      const scene = new OpeningScene(this.childModels, this.ghostModel);
       this.scene = scene;
       await scene.ready;
       if (generation !== this.generation) return;

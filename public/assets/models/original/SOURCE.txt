@@ -1,0 +1,4 @@
+Night_Scout.glb and Old_House_Wraith.glb are original project assets created for
+this repository with Blender. Their editable .blend sources are under
+assets/models/original/. Regenerate both with scripts/create-original-characters.py.
+They contain no third-party meshes, textures, animations, or sounds.

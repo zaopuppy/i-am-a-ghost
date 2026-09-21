@@ -134,6 +134,20 @@ export class GameClient {
     return response;
   }
 
+  async selectHouse(houseId: import('../game/HouseCatalog').HouseId): Promise<BasicActionResponse> {
+    const response = await this.socket.emitWithAck('select-house', houseId);
+    this.errorMessage = response.ok ? '' : response.error.message;
+    this.notify();
+    return response;
+  }
+
+  async selectModel(modelId: import('../assets/CharacterCatalog').CharacterModelId): Promise<BasicActionResponse> {
+    const response = await this.socket.emitWithAck('select-model', modelId);
+    this.errorMessage = response.ok ? '' : response.error.message;
+    this.notify();
+    return response;
+  }
+
   async setReady(ready: boolean): Promise<BasicActionResponse> {
     const response = await this.socket.emitWithAck('set-ready', ready);
     if (!response.ok) this.errorMessage = response.error.message;

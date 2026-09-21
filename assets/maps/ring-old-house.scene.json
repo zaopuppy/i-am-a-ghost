@@ -1,0 +1,396 @@
+{
+  "version": 1,
+  "id": "ring-old-house",
+  "bounds": {
+    "minX": -16,
+    "maxX": 16,
+    "minZ": -12,
+    "maxZ": 12
+  },
+  "walls": [
+    {
+      "id": "v--7-0-0",
+      "minX": -7.12,
+      "maxX": -6.88,
+      "minZ": -12,
+      "maxZ": -9.75
+    },
+    {
+      "id": "v--7-0-1",
+      "minX": -7.12,
+      "maxX": -6.88,
+      "minZ": -7.25,
+      "maxZ": -5
+    },
+    {
+      "id": "v--7-1-0",
+      "minX": -7.12,
+      "maxX": -6.88,
+      "minZ": -5,
+      "maxZ": -1.25
+    },
+    {
+      "id": "v--7-1-1",
+      "minX": -7.12,
+      "maxX": -6.88,
+      "minZ": 1.25,
+      "maxZ": 5
+    },
+    {
+      "id": "v--7-2-0",
+      "minX": -7.12,
+      "maxX": -6.88,
+      "minZ": 5,
+      "maxZ": 7.25
+    },
+    {
+      "id": "v--7-2-1",
+      "minX": -7.12,
+      "maxX": -6.88,
+      "minZ": 9.75,
+      "maxZ": 12
+    },
+    {
+      "id": "v-7-0-0",
+      "minX": 6.88,
+      "maxX": 7.12,
+      "minZ": -12,
+      "maxZ": -9.75
+    },
+    {
+      "id": "v-7-0-1",
+      "minX": 6.88,
+      "maxX": 7.12,
+      "minZ": -7.25,
+      "maxZ": -5
+    },
+    {
+      "id": "v-7-1-0",
+      "minX": 6.88,
+      "maxX": 7.12,
+      "minZ": -5,
+      "maxZ": -1.25
+    },
+    {
+      "id": "v-7-1-1",
+      "minX": 6.88,
+      "maxX": 7.12,
+      "minZ": 1.25,
+      "maxZ": 5
+    },
+    {
+      "id": "v-7-2-0",
+      "minX": 6.88,
+      "maxX": 7.12,
+      "minZ": 5,
+      "maxZ": 7.25
+    },
+    {
+      "id": "v-7-2-1",
+      "minX": 6.88,
+      "maxX": 7.12,
+      "minZ": 9.75,
+      "maxZ": 12
+    },
+    {
+      "id": "h--5-0-0",
+      "minX": -16,
+      "maxX": -12.75,
+      "minZ": -5.12,
+      "maxZ": -4.88
+    },
+    {
+      "id": "h--5-0-1",
+      "minX": -10.25,
+      "maxX": -7,
+      "minZ": -5.12,
+      "maxZ": -4.88
+    },
+    {
+      "id": "h--5-1-0",
+      "minX": -7,
+      "maxX": 7,
+      "minZ": -5.12,
+      "maxZ": -4.88
+    },
+    {
+      "id": "h--5-2-0",
+      "minX": 7,
+      "maxX": 10.25,
+      "minZ": -5.12,
+      "maxZ": -4.88
+    },
+    {
+      "id": "h--5-2-1",
+      "minX": 12.75,
+      "maxX": 16,
+      "minZ": -5.12,
+      "maxZ": -4.88
+    },
+    {
+      "id": "h-5-0-0",
+      "minX": -16,
+      "maxX": -12.75,
+      "minZ": 4.88,
+      "maxZ": 5.12
+    },
+    {
+      "id": "h-5-0-1",
+      "minX": -10.25,
+      "maxX": -7,
+      "minZ": 4.88,
+      "maxZ": 5.12
+    },
+    {
+      "id": "h-5-1-0",
+      "minX": -7,
+      "maxX": 7,
+      "minZ": 4.88,
+      "maxZ": 5.12
+    },
+    {
+      "id": "h-5-2-0",
+      "minX": 7,
+      "maxX": 10.25,
+      "minZ": 4.88,
+      "maxZ": 5.12
+    },
+    {
+      "id": "h-5-2-1",
+      "minX": 12.75,
+      "maxX": 16,
+      "minZ": 4.88,
+      "maxZ": 5.12
+    }
+  ],
+  "rooms": [
+    {
+      "id": "r00",
+      "name": "旧寝室",
+      "family": "sleep",
+      "center": {
+        "x": -11.5,
+        "z": -8.5
+      },
+      "width": 9,
+      "depth": 7
+    },
+    {
+      "id": "r01",
+      "name": "南回廊",
+      "family": "old",
+      "center": {
+        "x": 0.0,
+        "z": -8.5
+      },
+      "width": 14,
+      "depth": 7
+    },
+    {
+      "id": "r02",
+      "name": "藏书室",
+      "family": "old",
+      "center": {
+        "x": 11.5,
+        "z": -8.5
+      },
+      "width": 9,
+      "depth": 7
+    },
+    {
+      "id": "r10",
+      "name": "西回廊",
+      "family": "old",
+      "center": {
+        "x": -11.5,
+        "z": 0.0
+      },
+      "width": 9,
+      "depth": 10
+    },
+    {
+      "id": "r11",
+      "name": "封尘中庭",
+      "family": "old",
+      "center": {
+        "x": 0.0,
+        "z": 0.0
+      },
+      "width": 14,
+      "depth": 10
+    },
+    {
+      "id": "r12",
+      "name": "东回廊",
+      "family": "old",
+      "center": {
+        "x": 11.5,
+        "z": 0.0
+      },
+      "width": 9,
+      "depth": 10
+    },
+    {
+      "id": "r20",
+      "name": "缝纫室",
+      "family": "living",
+      "center": {
+        "x": -11.5,
+        "z": 8.5
+      },
+      "width": 9,
+      "depth": 7
+    },
+    {
+      "id": "r21",
+      "name": "北回廊",
+      "family": "old",
+      "center": {
+        "x": 0.0,
+        "z": 8.5
+      },
+      "width": 14,
+      "depth": 7
+    },
+    {
+      "id": "r22",
+      "name": "钟表室",
+      "family": "old",
+      "center": {
+        "x": 11.5,
+        "z": 8.5
+      },
+      "width": 9,
+      "depth": 7
+    }
+  ],
+  "furniture": [
+    {
+      "id": "rug-west",
+      "roomId": "r00",
+      "asset": "rug_oval_A",
+      "offsetX": 1.2,
+      "offsetZ": 1.0
+    },
+    {
+      "id": "shelf-south",
+      "roomId": "r01",
+      "asset": "shelf_B_large_decorated",
+      "offsetX": 3.4,
+      "offsetZ": -2.8
+    },
+    {
+      "id": "shelf-library",
+      "roomId": "r02",
+      "asset": "shelf_B_large_decorated",
+      "offsetX": 2.3,
+      "offsetZ": 2.0
+    },
+    {
+      "id": "chair-west",
+      "roomId": "r10",
+      "asset": "armchair_pillows",
+      "offsetX": -1.8,
+      "offsetZ": 2.5
+    },
+    {
+      "id": "rug-court",
+      "roomId": "r11",
+      "asset": "rug_rectangle_stripes_A",
+      "offsetX": 0,
+      "offsetZ": 0
+    },
+    {
+      "id": "table-court",
+      "roomId": "r11",
+      "asset": "table_low",
+      "offsetX": 0,
+      "offsetZ": 0
+    },
+    {
+      "id": "cabinet-east",
+      "roomId": "r12",
+      "asset": "cabinet_medium_decorated",
+      "offsetX": 2.3,
+      "offsetZ": -2.6
+    },
+    {
+      "id": "chair-sewing",
+      "roomId": "r20",
+      "asset": "chair_A_wood",
+      "offsetX": 2.0,
+      "offsetZ": -1.5
+    },
+    {
+      "id": "shelf-north",
+      "roomId": "r21",
+      "asset": "shelf_B_large_decorated",
+      "offsetX": -3.7,
+      "offsetZ": 2.7
+    }
+  ],
+  "ghostSpawn": {
+    "x": 0,
+    "z": 2.5
+  },
+  "childSpawns": [
+    {
+      "x": -13.5,
+      "z": -9.5
+    },
+    {
+      "x": 13.5,
+      "z": -9.5
+    },
+    {
+      "x": -13.5,
+      "z": 9.5
+    },
+    {
+      "x": 13.5,
+      "z": 9.5
+    }
+  ],
+  "batterySpawns": [
+    {
+      "x": -10,
+      "z": -8
+    },
+    {
+      "x": 10,
+      "z": -8
+    },
+    {
+      "x": -12,
+      "z": 0
+    },
+    {
+      "x": 12,
+      "z": 0
+    },
+    {
+      "x": -10,
+      "z": 8
+    },
+    {
+      "x": 10,
+      "z": 8
+    },
+    {
+      "x": -3,
+      "z": -8
+    },
+    {
+      "x": 3,
+      "z": 8
+    },
+    {
+      "x": -3,
+      "z": 1
+    },
+    {
+      "x": 3,
+      "z": -1
+    }
+  ]
+}

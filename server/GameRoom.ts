@@ -5,7 +5,8 @@ import {
   type GameplayTuning,
   type MatchEvent,
 } from '../src/game/MatchEngine';
-import { DEFAULT_HOUSE_MAP } from '../src/game/defaultHouse';
+import { DEFAULT_HOUSE_ID, houseScene, isHouseId, type HouseId } from '../src/game/HouseCatalog';
+import { DEFAULT_KID_MODEL, defaultModelForRole, modelKind, type CharacterModelId } from '../src/assets/CharacterCatalog';
 import {
   activeFlashlightPlayerIds,
   buildAuthorityCommands,
@@ -37,6 +38,7 @@ interface RoomPlayer {
   isHost: boolean;
   connected: boolean;
   selectedRole: PlayerRole;
+  selectedModel: CharacterModelId;
   role: PlayerRole;
   lastAcceptedSeq: number;
   latestInput: ClientInputFrame | null;
@@ -49,6 +51,7 @@ interface RoomPlayer {
 export class GameRoom {
   private readonly players = new Map<string, RoomPlayer>();
   private phase: RoomState['phase'] = 'lobby';
+  private houseId: HouseId = DEFAULT_HOUSE_ID;
   private matchId: string | null = null;
   private round = 0;
   private engine: MatchEngine | null = null;
@@ -86,6 +89,7 @@ export class GameRoom {
       isHost: this.players.size === 0,
       connected: true,
       selectedRole: null,
+      selectedModel: DEFAULT_KID_MODEL,
       role: null,
       lastAcceptedSeq: -1,
       latestInput: null,
@@ -144,6 +148,38 @@ export class GameRoom {
     }
     if (player.selectedRole !== role) {
       player.selectedRole = role;
+      if (modelKind(player.selectedModel) !== (role === 'ghost' ? 'ghost' : 'kid')) {
+        player.selectedModel = defaultModelForRole(role);
+      }
+      player.ready = false;
+    }
+    this.broadcastRoomState();
+    return { ok: true };
+  }
+
+  selectHouse(socketId: string, houseId: unknown): BasicActionResponse {
+    const player = this.playerForSocket(socketId);
+    if (!player) return this.error('NOT_IN_ROOM', '尚未加入房间。');
+    if (!player.isHost) return this.error('NOT_HOST', '只有房主可以选择房子。');
+    if (this.phase !== 'lobby' && this.phase !== 'ended') return this.error('ROOM_CLOSED', '当前不能更换房子。');
+    if (!isHouseId(houseId)) return this.error('BAD_REQUEST', '房子选择无效。');
+    if (this.houseId !== houseId) {
+      this.houseId = houseId;
+      for (const member of this.players.values()) member.ready = false;
+    }
+    this.broadcastRoomState();
+    return { ok: true };
+  }
+
+  selectModel(socketId: string, modelId: unknown): BasicActionResponse {
+    const player = this.playerForSocket(socketId);
+    if (!player) return this.error('NOT_IN_ROOM', '尚未加入房间。');
+    if (this.phase !== 'lobby' && this.phase !== 'ended') return this.error('ROOM_CLOSED', '当前不能更换模型。');
+    if (!player.selectedRole || modelKind(modelId) !== (player.selectedRole === 'ghost' ? 'ghost' : 'kid')) {
+      return this.error('BAD_REQUEST', '模型与所选阵营不匹配。');
+    }
+    if (player.selectedModel !== modelId) {
+      player.selectedModel = modelId as CharacterModelId;
       player.ready = false;
     }
     this.broadcastRoomState();
@@ -235,7 +271,7 @@ export class GameRoom {
     this.matchId = randomUUID();
     this.engine = new MatchEngine({
       seed: randomInt(0, 0x7fff_ffff),
-      map: DEFAULT_HOUSE_MAP,
+      map: houseScene(this.houseId).map,
       ghostPlayerId: ghost.playerId,
       childPlayerIds: children.map((child) => child.playerId),
       gameplayTuning: this.gameplayTuning,
@@ -297,7 +333,6 @@ export class GameRoom {
       this.reconcileLoadingAfterDeparture();
     } else {
       player.connected = false;
-      player.selectedRole = null;
       player.ready = false;
       player.assetsReady = false;
       player.latestInput = null;
@@ -346,6 +381,7 @@ export class GameRoom {
   state(): RoomState {
     return {
       roomCode: this.code,
+      houseId: this.houseId,
       phase: this.phase,
       matchId: this.matchId,
       round: this.round,
@@ -355,6 +391,7 @@ export class GameRoom {
         isHost: player.isHost,
         connected: player.connected,
         selectedRole: player.selectedRole,
+        selectedModel: player.selectedModel,
         role: player.role,
         ready: player.ready,
         assetsReady: player.assetsReady,
@@ -394,7 +431,6 @@ export class GameRoom {
       this.phase = 'ended';
       const endedAtMs = Date.now();
       for (const player of this.players.values()) {
-        player.selectedRole = null;
         player.ready = false;
         player.assetsReady = false;
         if (!player.connected) player.disconnectDeadlineMs = endedAtMs + RECONNECT_GRACE_MS;

@@ -50,6 +50,7 @@
           <p class="room-label">房间码</p>
           <p class="room-code" id="room-code" data-testid="room-code">——</p>
           <ul class="roster" id="roster" data-testid="roster"></ul>
+          <fieldset class="selection-field" id="lobby-house-field"><legend>本局房子 · 房主选择</legend><div id="lobby-houses" class="house-picker"></div></fieldset>
           <fieldset class="role-picker" id="lobby-role-picker" data-testid="lobby-role-picker">
             <legend>选择本局阵营</legend>
             <p class="role-picker__hint">每局只有一个鬼席位，先选先得。</p>
@@ -64,6 +65,7 @@
               </button>
             </div>
           </fieldset>
+          <fieldset class="selection-field" id="lobby-model-field"><legend>我的角色模型</legend><div id="lobby-models" class="model-picker"></div></fieldset>
           <button id="start-match" data-testid="start-match" hidden>开始游戏</button>
           <p class="waiting" id="waiting-message" aria-live="polite">等待房主开始…</p>
           <p class="start-requirements" id="start-requirements" data-testid="start-requirements" aria-live="polite"></p>
@@ -170,6 +172,8 @@
               </button>
             </div>
           </fieldset>
+          <fieldset class="selection-field" id="result-house-field"><legend>下一局房子 · 房主选择</legend><div id="result-houses" class="house-picker"></div></fieldset>
+          <fieldset class="selection-field" id="result-model-field"><legend>下一局角色模型</legend><div id="result-models" class="model-picker"></div></fieldset>
           <ul class="roster roster--result" id="result-roster" data-testid="result-roster" aria-label="下一局阵营选择"></ul>
           <button id="ready-next" data-testid="ready-next">准备下一局</button>
           <p class="ready-count" id="ready-count">0 / 0 已准备</p>

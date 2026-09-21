@@ -8,6 +8,11 @@
 !/assets/maps/
 /assets/maps/*
 !/assets/maps/*.scene.json
+!/assets/models/
+/assets/models/*
+!/assets/models/original/
+/assets/models/original/*
+!/assets/models/original/*.blend
 
 node_modules/
 dist/

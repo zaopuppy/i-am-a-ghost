@@ -1,4 +1,10 @@
 import * as THREE from 'three';
+import {
+  DEFAULT_GHOST_MODEL,
+  DEFAULT_KID_MODEL,
+  type GhostModelId,
+  type KidModelId,
+} from './assets/CharacterCatalog';
 import { GAME_AUDIO_ASSETS, GameAudio } from './audio/GameAudio';
 import {
   CameraRig,
@@ -32,14 +38,15 @@ import {
   type ScenePlaytestRole,
 } from './game/ScenePlaytest';
 import type { ViewerFrame } from './game/ViewerFrame';
-import { DEFAULT_HOUSE_MAP } from './game/defaultHouse';
+import { DEFAULT_HOUSE_ID, houseScene, type HouseId } from './game/HouseCatalog';
+import { createHousePicker, createModelPicker } from './game/SelectionControls';
 import { SoloMatch, type SoloOptions } from './game/SoloMatch';
 import { MultiplayerMenu } from './game/MultiplayerMenu';
 import { SoloMenu } from './game/SoloMenu';
 import { GameClient } from './net/GameClient';
 import { FramePresenter } from './net/FramePresenter';
 import { HarmonyLanGameClient } from './net/HarmonyLanGameClient';
-import type { PlayerRole, RoomPlayerSummary } from './net/protocol';
+import type { PlayerRole, RoomPlayerSummary, RoomState } from './net/protocol';
 import {
   createDeterministicViewerFrame,
   isDeterministicStateName,
@@ -107,10 +114,11 @@ const scenePlaytestRole = import.meta.env.DEV
 const scenePlaytestHouse = scenePlaytestRole ? loadPlayableHouseDraft() : null;
 
 const stage = createRenderStage(canvas);
-const world = new GameWorld(scenePlaytestHouse ?? undefined, {
+let world = new GameWorld(scenePlaytestHouse ?? undefined, {
   lightningShadowMapSize: harmonyHost.active ? 512 : 1024,
 });
 let renderingReady: Promise<void> | null = null;
+let worldConfiguration = `${DEFAULT_HOUSE_ID}:rogue,rogue,rogue,rogue:specter`;
 const harmonyApi = getHarmonyHostApi();
 const client = harmonyHost.active && harmonyApi
   ? new HarmonyLanGameClient(harmonyApi)
@@ -189,6 +197,10 @@ const soloMenu = new SoloMenu({
   home: leaveSolo,
   setup: () => void openSoloSetup(),
 });
+const renderLobbyHouses = createHousePicker(requireElement('#lobby-houses'), (id) => void client.selectHouse(id));
+const renderResultHouses = createHousePicker(requireElement('#result-houses'), (id) => void client.selectHouse(id));
+const renderLobbyModels = createModelPicker(requireElement('#lobby-models'), (id) => void client.selectModel(id));
+const renderResultModels = createModelPicker(requireElement('#result-models'), (id) => void client.selectModel(id));
 const multiplayerMenuButton = requireElement<HTMLButtonElement>('#multiplayer-menu-button');
 const multiplayerMenu = new MultiplayerMenu({
   resume: closeMultiplayerMenu,
@@ -490,8 +502,24 @@ async function openSoloSetup(): Promise<void> {
   }
 }
 
-function startSoloMatch(options: SoloOptions): void {
-  soloMatch = new SoloMatch(DEFAULT_HOUSE_MAP, options, runtimeTuning);
+async function startSoloMatch(options: SoloOptions): Promise<void> {
+  const version = ++soloPreparationVersion;
+  const childModels: KidModelId[] = [
+    options.role === 'child' ? options.modelId as KidModelId : DEFAULT_KID_MODEL,
+    DEFAULT_KID_MODEL, DEFAULT_KID_MODEL, DEFAULT_KID_MODEL,
+  ];
+  const ghostModel = options.role === 'ghost' ? options.modelId as GhostModelId : DEFAULT_GHOST_MODEL;
+  opening.setModels(childModels, ghostModel);
+  switchWorld(options.houseId, childModels, ghostModel);
+  soloMenu.setReady(false);
+  try {
+    await prepareRendering();
+  } catch (error) {
+    if (version === soloPreparationVersion) soloMenu.setReady(false, error instanceof Error ? error.message : '角色加载失败。');
+    return;
+  }
+  if (version !== soloPreparationVersion) return;
+  soloMatch = new SoloMatch(houseScene(options.houseId).map, options, runtimeTuning);
   soloPresentationSeconds = 0;
   childAimKey = '';
   lastActionHeld = false;
@@ -628,10 +656,42 @@ async function selectRole(role: SelectableRole): Promise<void> {
 }
 
 function prepareRendering(): Promise<void> {
-  renderingReady ??= world.prewarmCharacterAssets(
-    (objects) => stage.prewarm(world.scene, objects),
+  const selectedWorld = world;
+  renderingReady ??= selectedWorld.prewarmCharacterAssets(
+    (objects) => stage.prewarm(selectedWorld.scene, objects),
   );
   return renderingReady;
+}
+
+function switchWorld(houseId: HouseId, children: readonly KidModelId[], ghost: GhostModelId, force = false): void {
+  const normalized = Array.from({ length: 4 }, (_, slot) => children[slot] ?? DEFAULT_KID_MODEL);
+  const configuration = `${houseId}:${normalized.join(',')}:${ghost}`;
+  if (!force && configuration === worldConfiguration) return;
+  world.dispose();
+  world = new GameWorld(houseScene(houseId), {
+    lightningShadowMapSize: harmonyHost.active ? 512 : 1024,
+  });
+  world.setCharacterModels(normalized, ghost);
+  worldConfiguration = configuration;
+  renderingReady = null;
+  renderingLoadingState = 'waiting';
+  cameraSnapRequested = true;
+}
+
+function configureWorldForRoom(room: RoomState, force: boolean): void {
+  const children = room.players.filter((player) => player.role === 'child')
+    .map((player) => player.selectedModel === 'scout' ? 'scout' : DEFAULT_KID_MODEL);
+  const ghost = room.players.find((player) => player.role === 'ghost')?.selectedModel === 'wraith'
+    ? 'wraith' : DEFAULT_GHOST_MODEL;
+  switchWorld(room.houseId, children, ghost, force);
+}
+
+function syncOpeningModelsFromRoom(room: RoomState): void {
+  const children = room.players.filter((player) => player.selectedRole === 'child')
+    .map((player) => player.selectedModel === 'scout' ? 'scout' : DEFAULT_KID_MODEL);
+  const ghost = room.players.find((player) => player.selectedRole === 'ghost')?.selectedModel === 'wraith'
+    ? 'wraith' : DEFAULT_GHOST_MODEL;
+  opening.setModels(children, ghost);
 }
 
 async function prepareForMatch(): Promise<void> {
@@ -819,6 +879,10 @@ function renderClientState(): void {
   errorMessage.textContent = client.errorMessage;
   const room = client.roomState;
   const session = client.session;
+  if (room) syncOpeningModelsFromRoom(room);
+  if (room && (room.phase === 'loading' || room.phase === 'playing')) {
+    configureWorldForRoom(room, room.phase === 'loading' && !loadingWasActive);
+  }
   const inRoom = Boolean(session && room);
   lobbyActions.hidden = inRoom;
   roomPanel.hidden = !inRoom;
@@ -828,6 +892,17 @@ function renderClientState(): void {
     resultRoster.replaceChildren(...createRosterItems(room.players, session.playerId, false));
     const ownPlayer = room.players.find((player) => player.playerId === session.playerId);
     const isCurrentHost = ownPlayer?.isHost ?? false;
+    const choicesOpen = room.phase === 'lobby' || room.phase === 'ended';
+    requireElement<HTMLElement>('#lobby-house-field').hidden = room.phase !== 'lobby';
+    requireElement<HTMLElement>('#result-house-field').hidden = room.phase !== 'ended';
+    requireElement<HTMLElement>('#lobby-model-field').hidden = room.phase !== 'lobby';
+    requireElement<HTMLElement>('#result-model-field').hidden = room.phase !== 'ended';
+    renderLobbyHouses(room.houseId, choicesOpen && isCurrentHost);
+    renderResultHouses(room.houseId, choicesOpen && isCurrentHost);
+    const modelKind = ownPlayer?.selectedRole === 'ghost' ? 'ghost'
+      : ownPlayer?.selectedRole === 'child' ? 'kid' : null;
+    renderLobbyModels(modelKind, ownPlayer?.selectedModel ?? null, choicesOpen && Boolean(ownPlayer?.connected));
+    renderResultModels(modelKind, ownPlayer?.selectedModel ?? null, choicesOpen && Boolean(ownPlayer?.connected));
     const connectedPlayers = room.players.filter((player) => player.connected);
     const selection = describeRoleSelection(connectedPlayers, room.minimumPlayers, isCurrentHost);
     const canStart = room.phase === 'lobby' && isCurrentHost && selection.complete;

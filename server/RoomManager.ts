@@ -62,6 +62,14 @@ export class RoomManager {
         );
       }
     });
+    socket.on('select-house', (houseId, acknowledge) => {
+      const room = this.roomForSocket(socket);
+      acknowledge(room ? room.selectHouse(socket.id, houseId) : this.error('NOT_IN_ROOM', '尚未加入房间。'));
+    });
+    socket.on('select-model', (modelId, acknowledge) => {
+      const room = this.roomForSocket(socket);
+      acknowledge(room ? room.selectModel(socket.id, modelId) : this.error('NOT_IN_ROOM', '尚未加入房间。'));
+    });
     socket.on('set-ready', (ready, acknowledge) => {
       const room = this.roomForSocket(socket);
       acknowledge(

@@ -141,6 +141,16 @@ export class HarmonyLanGameClient {
     return this.acceptBasicAction(result);
   }
 
+  async selectHouse(houseId: import('../game/HouseCatalog').HouseId): Promise<BasicActionResponse> {
+    const result = await this.request({ type: 'select-house', requestId: requestId(), houseId });
+    return this.acceptBasicAction(result);
+  }
+
+  async selectModel(modelId: import('../assets/CharacterCatalog').CharacterModelId): Promise<BasicActionResponse> {
+    const result = await this.request({ type: 'select-model', requestId: requestId(), modelId });
+    return this.acceptBasicAction(result);
+  }
+
   async setReady(ready: boolean): Promise<BasicActionResponse> {
     const result = await this.request({ type: 'set-ready', requestId: requestId(), ready });
     return this.acceptBasicAction(result);

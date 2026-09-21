@@ -11,6 +11,7 @@ import {
   isHouseSceneDefinition,
 } from '../../src/game/HouseScene';
 import { DEFAULT_HOUSE_SCENE } from '../../src/game/defaultHouseScene';
+import { houseScene } from '../../src/game/HouseCatalog';
 
 test('the default scene compiles into one valid render and collision definition', () => {
   assert.deepEqual(COMPILED_DEFAULT_HOUSE.issues, []);
@@ -18,6 +19,14 @@ test('the default scene compiles into one valid render and collision definition'
   assert.equal(COMPILED_DEFAULT_HOUSE.openings.length, 12);
   assert.equal(COMPILED_DEFAULT_HOUSE.furniture.length, 34);
   assert.equal(COMPILED_DEFAULT_HOUSE.map.movementObstacles?.length, 22);
+});
+
+test('the selectable ring house has connected spawns and a different wall plan', () => {
+  const ring = houseScene('ring-old-house');
+  assert.deepEqual(ring.issues, []);
+  assert.equal(ring.map.childSpawns.length, 4);
+  assert.equal(ring.map.batterySpawns.length, 10);
+  assert.notDeepEqual(ring.map.walls, COMPILED_DEFAULT_HOUSE.map.walls);
 });
 
 test('the versioned scene file is the canonical default house source', () => {

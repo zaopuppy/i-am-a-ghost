@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { DEFAULT_GHOST_MODEL, DEFAULT_KID_MODEL, type GhostModelId, type KidModelId } from '../assets/CharacterCatalog';
 import { loadFurnitureLibrary } from '../assets/EnvironmentAssets';
 import {
   createGhostAssetInstance,
@@ -53,7 +54,10 @@ export class OpeningScene {
   private readonly ownedGeometries = new Set<THREE.BufferGeometry>();
   private disposed = false;
 
-  constructor() {
+  constructor(
+    private readonly childModels: readonly KidModelId[] = [DEFAULT_KID_MODEL, DEFAULT_KID_MODEL, DEFAULT_KID_MODEL],
+    private readonly ghostModel: GhostModelId = DEFAULT_GHOST_MODEL,
+  ) {
     this.scene.name = 'midnight-pact-opening';
     this.scene.background = new THREE.Color(0x06090f);
     this.scene.fog = new THREE.Fog(0x06090f, 13, 25);
@@ -284,7 +288,12 @@ export class OpeningScene {
 
   private async loadActorsAndFurniture(): Promise<void> {
     const results = await Promise.allSettled([
-      Promise.allSettled([createKidAssetInstance(0, false), createKidAssetInstance(1, false), createKidAssetInstance(2, false), createGhostAssetInstance()]),
+      Promise.allSettled([
+        createKidAssetInstance(0, false, this.childModels[0] ?? DEFAULT_KID_MODEL),
+        createKidAssetInstance(1, false, this.childModels[1] ?? DEFAULT_KID_MODEL),
+        createKidAssetInstance(2, false, this.childModels[2] ?? DEFAULT_KID_MODEL),
+        createGhostAssetInstance(this.ghostModel),
+      ]),
       loadFurnitureLibrary(this.materials),
     ]);
     const actorResults = results[0].status === 'fulfilled' ? results[0].value : [];

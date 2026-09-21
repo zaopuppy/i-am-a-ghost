@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { DEFAULT_GHOST_MODEL, DEFAULT_KID_MODEL, type GhostModelId, type KidModelId } from '../assets/CharacterCatalog';
 import { ChildStrafeAnimation } from './ChildStrafeAnimation';
 import { MovementIndicator } from './MovementIndicator';
 import { furnitureAssetMetrics } from '../assets/EnvironmentAssets';
@@ -80,6 +81,8 @@ const LOOK_ROTATION = new THREE.Quaternion();
 const FLASHLIGHT_WORLD_POSITION = new THREE.Vector3();
 const FLASHLIGHT_WORLD_ROTATION = new THREE.Quaternion();
 const FLASHLIGHT_ROOT_ROTATION = new THREE.Quaternion();
+const FLASHLIGHT_MOUNT_ROTATION = new THREE.Quaternion();
+const FLASHLIGHT_AIM_ROTATION = new THREE.Quaternion();
 
 interface ActorVisual {
   kind: 'child' | 'ghost' | 'doll';
@@ -183,6 +186,8 @@ export class GameWorld {
   private lightningShadowKey: string | null = null;
   private lightningShadowUpdates = 0;
   private disposed = false;
+  private childModels: KidModelId[] = [DEFAULT_KID_MODEL, DEFAULT_KID_MODEL, DEFAULT_KID_MODEL, DEFAULT_KID_MODEL];
+  private ghostModel: GhostModelId = DEFAULT_GHOST_MODEL;
 
   constructor(
     private readonly house: CompiledHouseScene = COMPILED_DEFAULT_HOUSE,
@@ -204,6 +209,18 @@ export class GameWorld {
     const warmFill = new THREE.DirectionalLight(0x6f5239, 0.52);
     warmFill.position.set(10, 7, -8);
     this.scene.add(warmFill);
+    if (this.house.definition.id === 'ring-old-house') {
+      this.scene.background = new THREE.Color(0x090d0d);
+      this.scene.fog = new THREE.FogExp2(0x090d0d, 0.021);
+      moon.color.set(0xb6ad99);
+      moon.intensity = 1.8;
+      warmFill.color.set(0xa47743);
+      warmFill.intensity = 0.82;
+      this.materials.wall.color.set(0xaeb4a5);
+      this.materials.wall.emissive.set(0x2c332b);
+      this.materials.roomFloors.old.color.set(0x554733);
+      this.materials.furniture.old.color.set(0xd2bea1);
+    }
     this.configureLightningLight(options.lightningShadowMapSize);
     this.buildHouse();
     this.scene.add(this.movementIndicator.root);
@@ -211,6 +228,14 @@ export class GameWorld {
       battery.root.visible = false;
       this.scene.add(battery.root);
     }
+  }
+
+  setCharacterModels(children: readonly KidModelId[], ghost: GhostModelId): void {
+    if (this.characterPrewarmPromise || this.actors.size) {
+      throw new Error('Character models must be chosen before preparing the world.');
+    }
+    this.childModels = Array.from({ length: CHILD_COLORS.length }, (_, slot) => children[slot] ?? DEFAULT_KID_MODEL);
+    this.ghostModel = ghost;
   }
 
   prewarmCharacterAssets(
@@ -488,14 +513,24 @@ export class GameWorld {
     this.disposed = true;
     this.lightningLight.shadow.dispose();
     const allActors = new Set([...this.actors.values(), ...this.preparedActors.values()]);
+    const sharedGeometries = new Set<THREE.BufferGeometry>();
     for (const actor of allActors) {
       actor.imported?.mixer.stopAllAction();
       actor.beam?.light.shadow.dispose();
       if (!actor.root.parent) this.scene.add(actor.root);
+      actor.imported?.root.traverse((object) => {
+        if (object instanceof THREE.Mesh) sharedGeometries.add(object.geometry);
+      });
     }
     this.scene.traverse((object) => {
+      if (!object.name.startsWith('furniture-')) return;
+      object.traverse((child) => {
+        if (child instanceof THREE.Mesh) sharedGeometries.add(child.geometry);
+      });
+    });
+    this.scene.traverse((object) => {
       if (!(object instanceof THREE.Mesh || object instanceof THREE.Sprite)) return;
-      if (object instanceof THREE.Mesh) object.geometry.dispose();
+      if (object instanceof THREE.Mesh && !sharedGeometries.has(object.geometry)) object.geometry.dispose();
       if (object instanceof THREE.Sprite) object.material.map?.dispose();
       const materials = Array.isArray(object.material) ? object.material : [object.material];
       for (const material of materials) material.dispose();
@@ -707,8 +742,8 @@ export class GameWorld {
   ): Promise<void> {
     try {
       const imported = kind === 'ghost'
-        ? await createGhostAssetInstance()
-        : await createKidAssetInstance(slot, kind === 'doll');
+        ? await createGhostAssetInstance(this.ghostModel)
+        : await createKidAssetInstance(slot, kind === 'doll', kind === 'doll' ? DEFAULT_KID_MODEL : this.childModels[slot]);
       if (this.disposed) return;
       actor.imported = imported;
       if (kind === 'child') actor.strafeAnimation = new ChildStrafeAnimation(imported);
@@ -1030,6 +1065,16 @@ function syncFlashlightPresentation(
   );
   if (actor.imported && actor.kind === 'child') {
     stabilizeChildFlashlightArm(actor.imported, frame.poseProgress);
+    if (actor.imported.modelId === 'scout' && actor.flashlight && actor.imported.joints.rightHandSlot) {
+      // The original Scout rig has its own hand-space axes. Keep the prop at its
+      // socket while rotating its local mount to the model's forward direction.
+      actor.imported.joints.rightHandSlot.getWorldQuaternion(FLASHLIGHT_MOUNT_ROTATION).invert();
+      actor.imported.root.getWorldQuaternion(FLASHLIGHT_AIM_ROTATION);
+      actor.flashlight.root.quaternion.identity().slerp(
+        FLASHLIGHT_MOUNT_ROTATION.multiply(FLASHLIGHT_AIM_ROTATION),
+        frame.poseProgress,
+      );
+    }
   }
   if (actor.flashlight) updateFlashlightProp(actor.flashlight, frame.lightStrength);
   if (actor.flashlight && actor.beam) {

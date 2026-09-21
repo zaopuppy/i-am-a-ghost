@@ -5,6 +5,9 @@ All runtime assets in this project are local files. No API key or expiring remot
 | Runtime path | Source | Creator | License | Use |
 | --- | --- | --- | --- | --- |
 | `public/assets/models/kaykit-adventurers/Rogue_Kid.glb` | KayKit Adventurers Character Pack 2.0 | Kay Lousberg | CC0 1.0 | Child and sensing-doll visual; the authoritative collider remains a separate circle |
+| `public/assets/models/kaykit-adventurers/Ghost.glb` | KayKit Adventurers Character Pack 2.0 | Kay Lousberg | CC0 1.0 | Original selectable ghost visual |
+| `public/assets/models/original/Night_Scout.glb` | Created for this repository with Blender | Project | Project-owned original | Second selectable child visual; same authoritative collider |
+| `public/assets/models/original/Old_House_Wraith.glb` | Created for this repository with Blender | Project | Project-owned original | Second selectable ghost visual; same authoritative collider |
 | `public/assets/models/kaykit-medieval/wall_straight.glb` | KayKit Medieval Builder Pack 1.0 | Kay Lousberg | CC0 1.0 | Retained visual candidate; the current runtime deliberately keeps procedural box walls and does not request this file |
 | `public/assets/models/kaykit-furniture/*` | KayKit Furniture Bits 1.0 FREE | Kay Lousberg | CC0 1.0 | Grounded room furniture and rugs; visual-only placement leaves the authoritative map and collision unchanged |
 | `public/assets/audio/kenney/guard-pounce.mp3` | Kenney Impact Sounds | Kenney | CC0 1.0 | Ghost capture windup |
@@ -20,6 +23,7 @@ All runtime assets in this project are local files. No API key or expiring remot
 The original license texts are copied beside the assets:
 
 - `public/assets/models/kaykit-adventurers/LICENSE.txt`
+- `public/assets/models/original/SOURCE.txt` (project-original provenance)
 - `public/assets/models/kaykit-medieval/LICENSE.txt`
 - `public/assets/models/kaykit-furniture/LICENSE.txt`
 - `public/assets/audio/kenney/LICENSE-impact-sounds.txt`
@@ -32,6 +36,9 @@ The original license texts are copied beside the assets:
 | Asset | File size | Geometry / clips | Materials / textures |
 | --- | ---: | --- | --- |
 | Rogue Kid | 503,252 bytes | 7 meshes, about 7,562 triangles; `Idle_A`, `Running_A`, `PickUp`, `Hit_A`, each 1 second | 1 material, one embedded 256 × 256 PNG texture |
+| KayKit Ghost | 445,612 bytes | 8 meshes, about 7,185 triangles; `Idle_A`, `Running_A`, `Hit_A` | 1 material, one embedded texture |
+| Night Scout | 153,564 bytes | 20 meshes, about 808 triangles; `Idle_A`, `Running_A`, `Hit_A`; distinct Scout armature | 6 materials, no textures |
+| Old House Wraith | 108,308 bytes | 20 meshes, about 388 triangles; `Idle_A`, `Running_A`, `Hit_A`; distinct Wraith armature | 4 materials, no textures |
 | KayKit straight wall | 28,752 bytes | 1 mesh, 478 triangles, no animation | 1 material, no texture |
 | Selected KayKit furniture library | 310,198 runtime bytes | 17 unique meshes, about 6,098 source triangles; 34 visual-only room placements | 3 shared room-family materials, one shared 1024 × 1024 gradient-atlas PNG |
 | Five Kenney MP3 files | 13,994 bytes total | short one-shot SFX, no loops | decoded after a user gesture |

@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 
-import { DEFAULT_HOUSE_MAP } from '../game/defaultHouse';
+import { DEFAULT_HOUSE_ID, houseScene, isHouseId, type HouseId } from '../game/HouseCatalog';
+import { DEFAULT_KID_MODEL, defaultModelForRole, modelKind, type CharacterModelId } from '../assets/CharacterCatalog';
 import {
   DEFAULT_GAMEPLAY_TUNING,
   MatchEngine,
@@ -47,6 +48,7 @@ interface PrototypePlayer {
   isHost: boolean;
   connected: boolean;
   selectedRole: PlayerRole;
+  selectedModel: CharacterModelId;
   role: PlayerRole;
   ready: boolean;
   assetsReady: boolean;
@@ -62,6 +64,7 @@ class HarmonyHostedRoomPrototype {
   private readonly players = new Map<string, PrototypePlayer>();
   private readonly peerPlayers = new Map<string, string>();
   private phase: RoomState['phase'] = 'lobby';
+  private houseId: HouseId = DEFAULT_HOUSE_ID;
   private matchId: string | null = null;
   private round = 0;
   private notice: RoomState['notice'] = null;
@@ -127,6 +130,12 @@ class HarmonyHostedRoomPrototype {
       case 'select-role':
         this.handleRequest(peerId, message.requestId, () => this.selectRole(peerId, message.role));
         break;
+      case 'select-house':
+        this.handleRequest(peerId, message.requestId, () => this.selectHouse(peerId, message.houseId));
+        break;
+      case 'select-model':
+        this.handleRequest(peerId, message.requestId, () => this.selectModel(peerId, message.modelId));
+        break;
       case 'set-ready':
         this.handleRequest(peerId, message.requestId, () => this.setReady(peerId, message.ready));
         break;
@@ -177,6 +186,7 @@ class HarmonyHostedRoomPrototype {
       isHost,
       connected: true,
       selectedRole: null,
+      selectedModel: DEFAULT_KID_MODEL,
       role: null,
       ready: false,
       assetsReady: false,
@@ -230,6 +240,38 @@ class HarmonyHostedRoomPrototype {
     }
     if (player.selectedRole !== role) {
       player.selectedRole = role;
+      if (modelKind(player.selectedModel) !== (role === 'ghost' ? 'ghost' : 'kid')) {
+        player.selectedModel = defaultModelForRole(role);
+      }
+      player.ready = false;
+    }
+    this.broadcastRoomState();
+    return { ok: true };
+  }
+
+  private selectHouse(peerId: string, houseId: unknown): BasicActionResponse {
+    const player = this.playerForPeer(peerId);
+    if (!player) return this.error('NOT_IN_ROOM', '尚未加入房间。');
+    if (!player.isHost) return this.error('NOT_HOST', '只有房主可以选择房子。');
+    if (this.phase !== 'lobby' && this.phase !== 'ended') return this.error('ROOM_CLOSED', '当前不能更换房子。');
+    if (!isHouseId(houseId)) return this.error('BAD_REQUEST', '房子选择无效。');
+    if (this.houseId !== houseId) {
+      this.houseId = houseId;
+      for (const member of this.players.values()) member.ready = false;
+    }
+    this.broadcastRoomState();
+    return { ok: true };
+  }
+
+  private selectModel(peerId: string, modelId: unknown): BasicActionResponse {
+    const player = this.playerForPeer(peerId);
+    if (!player) return this.error('NOT_IN_ROOM', '尚未加入房间。');
+    if (this.phase !== 'lobby' && this.phase !== 'ended') return this.error('ROOM_CLOSED', '当前不能更换模型。');
+    if (!player.selectedRole || modelKind(modelId) !== (player.selectedRole === 'ghost' ? 'ghost' : 'kid')) {
+      return this.error('BAD_REQUEST', '模型与所选阵营不匹配。');
+    }
+    if (player.selectedModel !== modelId) {
+      player.selectedModel = modelId as CharacterModelId;
       player.ready = false;
     }
     this.broadcastRoomState();
@@ -308,7 +350,7 @@ class HarmonyHostedRoomPrototype {
     this.matchId = randomId('match');
     this.engine = new MatchEngine({
       seed: Math.floor(Math.random() * 0x7fff_ffff),
-      map: DEFAULT_HOUSE_MAP,
+      map: houseScene(this.houseId).map,
       ghostPlayerId: ghost.playerId,
       childPlayerIds: children.map((child) => child.playerId),
       gameplayTuning: this.gameplayTuning,
@@ -370,7 +412,6 @@ class HarmonyHostedRoomPrototype {
       this.phase = 'ended';
       const endedAtMs = Date.now();
       for (const player of this.players.values()) {
-        player.selectedRole = null;
         player.ready = false;
         player.assetsReady = false;
         if (!player.connected) player.disconnectDeadlineMs = endedAtMs + RECONNECT_GRACE_MS;
@@ -428,6 +469,7 @@ class HarmonyHostedRoomPrototype {
   private broadcastRoomState(): void {
     const state: RoomState = {
       roomCode: this.roomCode,
+      houseId: this.houseId,
       phase: this.phase,
       matchId: this.matchId,
       round: this.round,
@@ -437,6 +479,7 @@ class HarmonyHostedRoomPrototype {
         isHost: player.isHost,
         connected: player.connected,
         selectedRole: player.selectedRole,
+        selectedModel: player.selectedModel,
         role: player.role,
         ready: player.ready,
         assetsReady: player.assetsReady,
@@ -463,7 +506,6 @@ class HarmonyHostedRoomPrototype {
       this.reconcileLoadingAfterDeparture();
     } else {
       player.connected = false;
-      player.selectedRole = null;
       player.ready = false;
       player.assetsReady = false;
       player.latestInput = null;
@@ -650,6 +692,7 @@ class HarmonyHostedRoomPrototype {
     this.players.clear();
     this.peerPlayers.clear();
     this.phase = 'lobby';
+    this.houseId = DEFAULT_HOUSE_ID;
     this.matchId = null;
     this.round = 0;
     this.notice = null;

@@ -9,7 +9,7 @@ type FlashlightArmJoints = Pick<
 type JointRotation = readonly [x: number, y: number, z: number];
 type FlashlightArmRig = Pick<
   CharacterAssetInstance,
-  'root' | 'jointRestModelRotations' | 'jointRestRotations'
+  'root' | 'modelId' | 'jointRestModelRotations' | 'jointRestRotations'
 > & { joints: FlashlightArmJoints };
 
 // KayKit Idle_A-relative rotations that aim the right-hand slot along the actor's +X axis.
@@ -17,6 +17,11 @@ const FLASHLIGHT_ARM_POSE = {
   upper: [1.74, -0.013, 0.71],
   lower: [1.31, -0.16, 0.055],
   wrist: [-0.61, -0.69, 0.15],
+} as const satisfies Record<string, JointRotation>;
+const SCOUT_FLASHLIGHT_ARM_POSE = {
+  upper: [0.82, -0.01, 0.48],
+  lower: [0.75, -0.08, 0.03],
+  wrist: [-0.30, -0.35, 0.08],
 } as const satisfies Record<string, JointRotation>;
 
 const ROTATION_AXIS = new THREE.Vector3();
@@ -33,23 +38,24 @@ export function stabilizeChildFlashlightArm(
 ): void {
   const blend = THREE.MathUtils.clamp(progress, 0, 1);
   if (blend <= 0) return;
-  stabilizeUpperArm(rig, blend);
+  const pose = rig.modelId === 'scout' ? SCOUT_FLASHLIGHT_ARM_POSE : FLASHLIGHT_ARM_POSE;
+  stabilizeUpperArm(rig, pose.upper, blend);
   stabilizeJoint(
     rig.joints.rightLowerArm,
     rig.jointRestRotations,
-    FLASHLIGHT_ARM_POSE.lower,
+    pose.lower,
     blend,
   );
   stabilizeJoint(
     rig.joints.rightWrist,
     rig.jointRestRotations,
-    FLASHLIGHT_ARM_POSE.wrist,
+    pose.wrist,
     blend,
   );
   stabilizeJoint(rig.joints.rightHand, rig.jointRestRotations, [0, 0, 0], blend);
 }
 
-function stabilizeUpperArm(rig: FlashlightArmRig, blend: number): void {
+function stabilizeUpperArm(rig: FlashlightArmRig, rotation: JointRotation, blend: number): void {
   const joint = rig.joints.rightUpperArm;
   if (!joint?.parent) return;
   const restModelRotation = rig.jointRestModelRotations.get(joint);
@@ -58,7 +64,7 @@ function stabilizeUpperArm(rig: FlashlightArmRig, blend: number): void {
   rig.root.getWorldQuaternion(MODEL_WORLD_ROTATION);
   joint.parent.getWorldQuaternion(PARENT_WORLD_ROTATION).invert();
   TARGET_WORLD_ROTATION.copy(MODEL_WORLD_ROTATION).multiply(restModelRotation);
-  appendRotation(TARGET_WORLD_ROTATION, FLASHLIGHT_ARM_POSE.upper);
+  appendRotation(TARGET_WORLD_ROTATION, rotation);
   TARGET_ROTATION.copy(PARENT_WORLD_ROTATION).multiply(TARGET_WORLD_ROTATION);
   joint.quaternion.slerp(TARGET_ROTATION, blend);
 }

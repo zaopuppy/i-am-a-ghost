@@ -11,10 +11,12 @@
 | 层 | 入口 |
 | --- | --- |
 | 小孩、感应人偶、鬼 | `src/assets/ImportedAssets.ts` |
+| 可选角色目录与逐模型适配 | `src/assets/CharacterCatalog.ts`、`docs/original-character-models.md` |
 | 墙纸、地板、房间家具材质 | `src/assets/MaterialLibrary.ts` |
 | 家具 GLTF 库 | `src/assets/EnvironmentAssets.ts` |
 | 家具 ID、脚印、场景编译 | `src/game/HouseScene.ts` |
 | 房屋摆放 | `assets/maps/m3-nine-room-house.scene.json` |
+| 可选房屋 | `src/game/HouseCatalog.ts`、`assets/maps/ring-old-house.scene.json` |
 | 许可台账 | `docs/ASSET_LICENSES.md` |
 
 运行时墙是程序化盒体，不加载 `public/assets/models/kaykit-medieval/wall_straight.glb`。
@@ -30,7 +32,7 @@
 | 换家具、地毯、桌椅、柜子 | [家具](#5-家具) |
 | 都换 | 三条都做，先角色，再墙，再家具 |
 
-角色 GLB 同时喂给对局、感应人偶、开场 `OpeningScene`。家具 ID `table_low`、`cabinet_medium_decorated`、`chair_A_wood`、`rug_oval_A` 也被开场直接实例化。删 ID 或改加载合同会同时打到对局和开场。
+可选角色 GLB 同时喂给对局和开场 `OpeningScene`；感应人偶固定沿用 Rogue Kid。家具 ID `table_low`、`cabinet_medium_decorated`、`chair_A_wood`、`rug_oval_A` 也被开场直接实例化。删 ID 或改加载合同会同时打到对局和开场。
 
 ## 2. 源文件与 inspect
 
@@ -75,7 +77,7 @@ npx --yes @gltf-transform/cli inspect <repo-or-tmp-path>
 | 手电 | parent 到 `handslotr`，本地变换为单位；`FLASHLIGHT_ARM_POSE` 把插槽对准角色 `+X` |
 | 材质 | 小孩按槽位染色，感应人偶再混一层棕色；鬼写成半透明冷色，供显形淡出改 `opacity` |
 
-当前写死的字节数：小孩 `503_252`，鬼 `445_612`。换文件后改 `ImportedAssets.ts`、`tests/server/asset-contract.test.ts`、`tests/deterministic-states.spec.ts`。
+四个可选模型的路径、身高、朝向和字节数现在集中在 `CharacterCatalog.ts`。更新模型后改目录、`ImportedAssets.ts` 的关节映射、`tests/server/asset-contract.test.ts` 和视觉基线。
 
 ### 墙合同卡
 
@@ -107,7 +109,7 @@ npx --yes @gltf-transform/cli inspect <repo-or-tmp-path>
 
 1. 把验收通过的 GLB 写到合同卡上的路径（或改 `KID_URL` / `GHOST_URL` 并更新全部引用）。
 2. 更新 `fileBytes` 和许可台账。
-3. 小孩和感应人偶共用 `Rogue_Kid.glb`。只要换小孩文件，四个槽位和四个人偶一起变。
+3. 感应人偶固定使用 `Rogue_Kid.glb`；玩家小孩使用其所选模型。
 4. 鬼文件同时喂给对局鬼和开场鬼。
 5. 跑第 6 节。手电方向差一点时只调 `src/game/ChildAnimation.ts` 的 `FLASHLIGHT_ARM_POSE`，不要改权威朝向。
 

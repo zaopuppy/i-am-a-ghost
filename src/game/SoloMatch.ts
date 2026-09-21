@@ -1,4 +1,6 @@
 import { GridNavigator } from './GridNavigator';
+import type { CharacterModelId } from '../assets/CharacterCatalog';
+import type { HouseId } from './HouseCatalog';
 import { DEFAULT_GAMEPLAY_TUNING, MATCH_RULES, MatchEngine, type GameplayTuning, type MatchEvent, type MatchMap, type Vec2 } from './MatchEngine';
 import { SoloBot } from './SoloBot';
 import type { ViewerFrame } from './ViewerFrame';
@@ -8,6 +10,8 @@ export interface SoloOptions {
   role: 'ghost' | 'child';
   childCount: number;
   seed: number;
+  houseId: HouseId;
+  modelId: CharacterModelId;
 }
 
 /** Local authority and fixed-step clock. No transport, storage, or rendering dependencies. */

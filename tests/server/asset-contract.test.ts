@@ -35,3 +35,24 @@ test('runtime model and audio assets are present with copied CC0 licenses', () =
     assert.match(readFileSync(licensePath, 'utf8'), /Creative Commons Zero|CC0/i);
   }
 });
+
+test('original Blender characters ship editable sources, rigs, and required clips', () => {
+  for (const [name, prefix] of [['Night_Scout', 'Scout'], ['Old_House_Wraith', 'Wraith']] as const) {
+    assert.ok(statSync(`assets/models/original/${name}.blend`).size > 10_000);
+    const glb = readFileSync(`public/assets/models/original/${name}.glb`);
+    assert.equal(glb.toString('ascii', 0, 4), 'glTF');
+    const jsonLength = glb.readUInt32LE(12);
+    const document = JSON.parse(glb.toString('utf8', 20, 20 + jsonLength)) as {
+      animations: Array<{ name: string }>;
+      nodes: Array<{ name?: string }>;
+      skins: unknown[];
+    };
+    assert.equal(document.skins.length, 1);
+    assert.deepEqual(document.animations.map((clip) => clip.name), ['Idle_A', 'Running_A', 'Hit_A']);
+    const names = new Set(document.nodes.map((node) => node.name));
+    for (const joint of ['Torso', 'Skull', 'ArmUpperL', 'ArmUpperR', 'ArmLowerL', 'ArmLowerR',
+      'LegUpperL', 'LegUpperR', 'LegLowerL', 'LegLowerR', 'TorchSocketR', 'FootL', 'FootR']) {
+      assert.ok(names.has(`${prefix}_${joint}`), `${name} needs ${joint}`);
+    }
+  }
+});
