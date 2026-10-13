@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { createCastleCandleLighting, createCastleReflectionEnvironment } from '../assets/CastleLighting';
 import { DEFAULT_GHOST_MODEL, DEFAULT_KID_MODEL, type GhostModelId, type KidModelId } from '../assets/CharacterCatalog';
 import { ChildStrafeAnimation } from './ChildStrafeAnimation';
 import { MovementIndicator } from './MovementIndicator';
@@ -190,6 +191,7 @@ export class GameWorld {
   private disposed = false;
   private childModels: KidModelId[] = [DEFAULT_KID_MODEL, DEFAULT_KID_MODEL, DEFAULT_KID_MODEL, DEFAULT_KID_MODEL];
   private ghostModel: GhostModelId = DEFAULT_GHOST_MODEL;
+  private castleReflectionEnvironment: THREE.DataTexture | null = null;
 
   constructor(
     private readonly house: CompiledHouseScene = COMPILED_DEFAULT_HOUSE,
@@ -197,6 +199,12 @@ export class GameWorld {
   ) {
     this.scene.background = new THREE.Color(0x050608);
     this.scene.fog = new THREE.FogExp2(0x050608, 0.018);
+    if (usesAuthoredCastleEnvironment(this.house)) {
+      this.castleReflectionEnvironment = createCastleReflectionEnvironment();
+      this.scene.environment = this.castleReflectionEnvironment;
+      this.scene.environmentIntensity = 0.24;
+      this.scene.add(createCastleCandleLighting());
+    }
     this.scene.add(new THREE.HemisphereLight(0x69748e, 0x07080a, 0.72));
     const moon = new THREE.DirectionalLight(0xaeb8d5, 2.1);
     moon.position.set(-10, 18, 7);
@@ -515,6 +523,11 @@ export class GameWorld {
 
   dispose(): void {
     this.disposed = true;
+    if (this.castleReflectionEnvironment) {
+      this.scene.environment = null;
+      this.castleReflectionEnvironment.dispose();
+      this.castleReflectionEnvironment = null;
+    }
     this.houseStage?.dispose?.();
     this.lightningLight.shadow.dispose();
     const allActors = new Set([...this.actors.values(), ...this.preparedActors.values()]);

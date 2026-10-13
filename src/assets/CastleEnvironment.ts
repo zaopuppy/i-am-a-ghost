@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { FLASHLIGHT_OCCLUDER_LAYER, LIGHTNING_OCCLUDER_LAYER } from '../game/RenderLayers';
 
 export const CASTLE_SCENE_ID = 'midnight-castle';
@@ -31,7 +32,7 @@ export class CastleEnvironment {
       if (!response.ok) throw new Error(`Castle GLB request failed: HTTP ${response.status}.`);
       const bytes = await response.arrayBuffer();
       this.diagnostics.fileBytes = bytes.byteLength;
-      const gltf = await new GLTFLoader().parseAsync(bytes, CASTLE_DIRECTORY);
+      const gltf = await new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).parseAsync(bytes, CASTLE_DIRECTORY);
       if (this.disposed) {
         disposeCastleObjects(gltf.scene);
         return;

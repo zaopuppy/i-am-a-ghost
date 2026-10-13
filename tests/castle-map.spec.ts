@@ -7,7 +7,10 @@ async function selectCastle(page: Page): Promise<void> {
   await page.goto('/');
   await page.waitForFunction(() => Boolean(window.__THREE_GAME_TEST_HOOKS__));
   await page.evaluate(async () => {
-    const path = '/src/game/GameWorld.ts';
+    // Match Vite's current module URL, including its HMR version when present.
+    const path = performance.getEntriesByType('resource')
+      .filter((entry) => new URL(entry.name).pathname === '/src/game/GameWorld.ts')
+      .at(-1)?.name ?? '/src/game/GameWorld.ts';
     const { GameWorld } = await import(path);
     const sync = GameWorld.prototype.sync;
     GameWorld.prototype.sync = function (...args: unknown[]) {
@@ -18,6 +21,18 @@ async function selectCastle(page: Page): Promise<void> {
           const names: string[] = [];
           world.scene.traverse((object: { name: string }) => names.push(object.name));
           return names;
+        },
+        __castleMaterialColors: () => {
+          const colors: Record<string, { r: number; g: number; b: number }> = {};
+          world.scene.getObjectByName('castle-environment')?.traverse((object: {
+            material?: { name: string; color?: { r: number; g: number; b: number } }
+              | Array<{ name: string; color?: { r: number; g: number; b: number } }>;
+          }) => {
+            for (const material of Array.isArray(object.material) ? object.material : object.material ? [object.material] : []) {
+              if (material.color) colors[material.name] = { r: material.color.r, g: material.color.g, b: material.color.b };
+            }
+          });
+          return colors;
         },
         __castleShadowWalls: () => {
           const walls: Array<{ name: string; mask: number; castShadow: boolean; x: number; z: number; width: number; height: number; depth: number }> = [];
@@ -43,7 +58,7 @@ async function selectCastle(page: Page): Promise<void> {
   await expect(page.locator('#solo-start')).toBeEnabled({ timeout: 45_000 });
   await page.locator('#solo-start').click();
   await expect.poll(() => page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.world.sceneId)).toBe('midnight-castle');
-  await expect.poll(() => page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.ownPosition)).not.toBeNull();
+  await expect.poll(() => page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.ownPosition), { timeout: 30_000 }).not.toBeNull();
 }
 
 test('castle selection loads the Blender scene, moves, pauses, restarts and switches back to a stock house', async ({ page }, testInfo) => {
@@ -58,7 +73,15 @@ test('castle selection loads the Blender scene, moves, pauses, restarts and swit
   expect(world.assets.castle?.meshes).toBeGreaterThan(30);
   expect(world.assets.castle?.triangles).toBeGreaterThan(1_000);
   expect(world.assets.castle?.fileBytes).toBeGreaterThan(10_000);
+  // The refined map must retain authored surface maps through Blender's GLB export.
+  expect(world.assets.castle?.textures).toBeGreaterThan(0);
   expect(world.assets.castle?.error).toBeNull();
+  const colors = await page.evaluate(() => (window as Window & {
+    __castleMaterialColors(): Record<string, { r: number; g: number; b: number }>;
+  }).__castleMaterialColors());
+  // Neutral shared texture maps must keep the authored oak and wine-red color factors.
+  expect(colors.wood.r).toBeGreaterThan(colors.wood.b);
+  expect(colors.wine.r).toBeGreaterThan(colors.wine.g);
   const names = await page.evaluate(() => (window as Window & { __castleSceneNames(): string[] }).__castleSceneNames());
   expect(names).toContain('castle-environment');
   for (const stockGroup of ['box-walls', 'room-furniture', 'room-floors', 'house-openings']) {
@@ -96,7 +119,9 @@ test('castle selection loads the Blender scene, moves, pauses, restarts and swit
   await expect.poll(() => page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.world.assets.castle?.status)).toBe('ready');
   await captureActiveCastle(page, testInfo.outputPath('castle-active-desktop.png'));
   await page.evaluate(async () => {
-    const path = '/src/core/CameraRig.ts';
+    const path = performance.getEntriesByType('resource')
+      .filter((entry) => new URL(entry.name).pathname === '/src/core/CameraRig.ts')
+      .at(-1)?.name ?? '/src/core/CameraRig.ts';
     const { CameraRig, RECOMMENDED_CAMERA_PRESETS } = await import(path);
     const update = CameraRig.prototype.update;
     CameraRig.prototype.update = function (input: Record<string, unknown>) {

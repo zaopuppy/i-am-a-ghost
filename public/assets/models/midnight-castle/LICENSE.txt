@@ -1,11 +1,15 @@
 Midnight Pact Castle
 
-Original geometry and material palette authored for i-am-a-ghost using
-scripts/blender/build_midnight_castle.py. No downloaded meshes or textures.
+Original geometry, material palette and procedural surface maps authored for
+i-am-a-ghost using scripts/blender/build_midnight_castle.py and its furniture,
+architecture and surface modules. The moon-stag stained-glass artwork was
+created with the built-in ImageGen tool for this project; its prompt and
+provenance are recorded in docs/midnight-castle-refinement.md.
+No third-party model pack or downloaded photographic texture is included.
 
 CC0 1.0 Universal
 
 To the extent possible under law, the authors have waived all copyright and
-related or neighboring rights to these original model assets.
+related or neighboring rights to these original model and texture assets.
 
 https://creativecommons.org/publicdomain/zero/1.0/

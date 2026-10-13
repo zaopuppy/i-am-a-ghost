@@ -8,10 +8,18 @@ import json
 import math
 from pathlib import Path
 import random
+import shutil
+import struct
+import subprocess
 import sys
 
 import bpy
 from mathutils import Vector
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from castle_props import build_furniture
+from castle_architecture import build_decor
+from castle_surfaces import attach_surface_maps
 
 ROOT = Path(__file__).resolve().parents[2]
 RNG = random.Random(71)
@@ -76,19 +84,46 @@ def cube(name, position, size, mat, category='dressing', bevel=.025):
     if bevel:
         mod = obj.modifiers.new('soft handcrafted edges', 'BEVEL')
         mod.width = min(bevel, min(size) * .2)
-        mod.segments = 1
+        mod.segments = 2 if bevel >= .015 else 1
+        mod.harden_normals = True
     return obj
 
 
-def cylinder(name, pos, radius, depth, mat, category='dressing', vertices=10):
-    bpy.ops.mesh.primitive_cylinder_add(vertices=vertices, radius=radius, depth=depth, location=pos)
-    return place(bpy.context.object, name, category, mat)
+def cylinder(name, pos, radius, depth, mat, category='dressing', vertices=16):
+    if radius < .025:
+        vertices=min(vertices,8)
+    verts=[(radius*math.cos(i*math.tau/vertices),radius*math.sin(i*math.tau/vertices),z)
+           for z in [-depth/2,depth/2] for i in range(vertices)]
+    faces=[(i,(i+1)%vertices,(i+1)%vertices+vertices,i+vertices) for i in range(vertices)]
+    faces += [tuple(reversed(range(vertices))),tuple(range(vertices,vertices*2))]
+    obj=mesh(name,verts,faces,mat,category)
+    obj.location=pos
+    for face in obj.data.polygons:
+        face.use_smooth=len(face.vertices)==4
+    return obj
 
 
 def sphere(name, pos, scale, mat, category='dressing'):
-    bpy.ops.mesh.primitive_uv_sphere_add(segments=12, ring_count=6, radius=1, location=pos)
-    obj = place(bpy.context.object, name, category, mat)
+    # Tiny rivets need a highlight, not 224 triangles each. Larger silhouettes
+    # retain the finer profile, including helmets, pottery and carved bosses.
+    segments,rings=(8,4) if max(scale)<=.055 else ((12,6) if max(scale)<=.12 else (16,8))
+    verts=[(0,0,1)]
+    verts += [(math.sin(row*math.pi/rings)*math.cos(i*math.tau/segments),
+               math.sin(row*math.pi/rings)*math.sin(i*math.tau/segments),math.cos(row*math.pi/rings))
+              for row in range(1,rings) for i in range(segments)]
+    bottom=len(verts)
+    verts.append((0,0,-1))
+    faces=[(0,1+i,1+(i+1)%segments) for i in range(segments)]
+    for row in range(rings-2):
+        start=1+row*segments
+        faces += [(start+i,start+segments+i,start+segments+(i+1)%segments,start+(i+1)%segments) for i in range(segments)]
+    last=1+(rings-2)*segments
+    faces += [(bottom,last+(i+1)%segments,last+i) for i in range(segments)]
+    obj=mesh(name,verts,faces,mat,category)
+    obj.location=pos
     obj.scale = scale
+    for face in obj.data.polygons:
+        face.use_smooth=True
     return obj
 
 
@@ -107,6 +142,48 @@ def mesh(name, verts, faces, mat, category='dressing'):
     collection(category).objects.link(obj)
     obj['category'] = category
     obj.data.materials.append(MATS[mat])
+    uv = data.uv_layers.new(name='Surface coordinates')
+    for face in data.polygons:
+        normal = face.normal
+        axis = max(range(3), key=lambda i: abs(normal[i]))
+        axes = [i for i in range(3) if i != axis]
+        for index in face.loop_indices:
+            point = data.vertices[data.loops[index].vertex_index].co
+            uv.data[index].uv = (point[axes[0]], point[axes[1]])
+    return obj
+
+
+def lathe(name, profile, pos, mat, category='dressing', segments=16):
+    verts = [(r * math.cos(i * math.tau / segments), r * math.sin(i * math.tau / segments), h)
+             for r, h in profile for i in range(segments)]
+    faces = [(j * segments + i, j * segments + (i + 1) % segments,
+              (j + 1) * segments + (i + 1) % segments, (j + 1) * segments + i)
+             for j in range(len(profile) - 1) for i in range(segments)]
+    faces += [tuple(reversed(range(segments))), tuple((len(profile) - 1) * segments + i for i in range(segments))]
+    obj = mesh(name, verts, faces, mat, category)
+    obj.location = pos
+    for face in obj.data.polygons:
+        face.use_smooth = len(face.vertices) == 4
+    return obj
+
+
+def tube(name, points, radius, mat, category='dressing', sides=6):
+    verts = []
+    for i, point in enumerate(points):
+        center = Vector(point)
+        tangent = Vector(points[min(i + 1, len(points) - 1)]) - Vector(points[max(0, i - 1)])
+        tangent.normalize()
+        reference = Vector((0, 0, 1)) if abs(tangent.z) < .9 else Vector((0, 1, 0))
+        side = tangent.cross(reference).normalized()
+        up = tangent.cross(side).normalized()
+        verts.extend(tuple(center + radius * (math.cos(j * math.tau / sides) * side + math.sin(j * math.tau / sides) * up))
+                     for j in range(sides))
+    faces = [(i * sides + j, i * sides + (j + 1) % sides,
+              (i + 1) * sides + (j + 1) % sides, (i + 1) * sides + j)
+             for i in range(len(points) - 1) for j in range(sides)]
+    obj = mesh(name, verts, faces, mat, category)
+    for face in obj.data.polygons:
+        face.use_smooth = True
     return obj
 
 
@@ -141,7 +218,7 @@ def wall(rect, boundary=False):
     width = rect['maxX']-rect['minX']
     depth = rect['maxZ']-rect['minZ']
     horizontal = width > depth
-    height = 1.05 if horizontal and z > 0 else 1.65
+    height = 3.15 if boundary and horizontal and z < 0 else (1.05 if horizontal and z > 0 else 1.55)
     cat = 'boundary' if boundary else 'wall'
     name = rect['id']
     cube(f'{name}-mortar',(x,-z,height/2),(width,depth,height),'mortar',cat,0)
@@ -157,7 +234,7 @@ def wall(rect, boundary=False):
             along = start+step/2
             pos = (x+along,-z,h0+height/rows/2) if horizontal else (x,-z-along,h0+height/rows/2)
             size = (step-.018,depth+.035,height/rows-.02) if horizontal else (width+.035,step-.018,height/rows-.02)
-            cube(f'{name}-ashlar-{row}',pos,size,RNG.choice(['stone','stone','stone-light','stone-dark']),cat,.018)
+            cube(f'{name}-ashlar-{row}',pos,size,RNG.choice(['stone','stone','stone-light','stone-dark']),cat,.012)
             start += step
     cube(f'{name}-cutaway-cap',(x,-z,height+.04),(width+.055,depth+.055,.08),'stone-light',cat,.015)
     cube(f'{name}-plinth',(x,-z,.10),(width+.06,depth+.06,.20),'stone-dark',cat,.015)
@@ -168,13 +245,13 @@ def floors():
         x,z = room['center']['x'],room['center']['z']
         w,d = room['width'],room['depth']
         cube(f"{room['id']}-foundation",(x,-z,-.15),(w,d,.28),'mortar','floor',0)
-        cols,rows = math.ceil(w/1.4),math.ceil(d/1.4)
+        cols,rows = math.ceil(w/1.65),math.ceil(d/1.65)
         for i in range(cols):
             for j in range(rows):
                 tx=x-w/2+(i+.5)*w/cols
                 tz=z-d/2+(j+.5)*d/rows
                 mat = 'tile-warm' if room['id']=='kitchen' else ('tile-dark' if (i+j)%3==0 else 'tile')
-                cube(f"{room['id']}-flagstone-{i}-{j}",(tx,-tz,-.008),(w/cols-.018,d/rows-.018,.035),mat,'floor',.01)
+                cube(f"{room['id']}-flagstone-{i}-{j}",(tx,-tz,-.008),(w/cols-.014,d/rows-.014,.035),mat,'floor',.005)
         # Inlaid border makes individual rooms legible from the game camera.
         for side in [-1,1]:
             cube(f"{room['id']}-border-x",(x+side*(w/2-.32),-z,.018),(.075,d-.6,.015),'inlay','floor',0)
@@ -191,105 +268,40 @@ def rug(name,x,z,w,d,mat='wine'):
         diamond.rotation_euler.z=math.pi/4
 
 
+def model_api():
+    return {name: globals()[name] for name in [
+        'cube', 'cylinder', 'sphere', 'mesh', 'beam', 'lathe', 'tube',
+        'arch', 'rug', 'candle', 'shield', 'armor',
+    ]}
+
+
 def furniture(placement):
-    room = next(r for r in SCENE['rooms'] if r['id']==placement['roomId'])
-    x=room['center']['x']+placement['offsetX']
-    z=room['center']['z']+placement['offsetZ']
-    scale=placement.get('scale',1)
-    yaw=placement.get('yawRadians',0)
-    asset=placement['asset']
-    w,d=FOOTPRINTS[asset]
-    name=placement['id']
-    before=set(bpy.data.objects)
-    def box(suffix,pos,size,mat='wood',bevel=.018):
-        return cube(name+'-'+suffix,pos,size,mat,'furniture',bevel)
-    if 'table' in asset and placement['roomId']!='storage':
-        h=.62 if asset=='table_low' else .95
-        if placement['roomId']=='chapel':
-            # Pew back runs within the same footprint as its authoritative low table.
-            box('pew-back',(0,d/2-.08,.82),(w,.12,.8))
-            h=.48
-        box('top',(0,0,h),(w,d,.12),'wood-light')
-        for sx in [-1,1]:
-            for sy in [-1,1]:
-                box('carved-leg',(sx*(w/2-.13),sy*(d/2-.13),h/2),(.15,.15,h))
-        box('stretcher',(0,0,.23),(w-.2,.10,.12),'wood-dark')
-        for j in range(1,5):
-            box('plank-seam',(0,-d/2+j*d/5,h+.061),(w-.03,.012,.005),'wood-dark',0)
-        if placement['roomId']=='banquet':
-            box('table-runner',(0,0,h+.068),(w-.08,d*.3,.01),'wine',0)
-            for sx in [-.28,.28]:
-                cylinder(name+'-platter',(sx*w,0,h+.075),.19,.025,'pewter','furniture',12)
-                cylinder(name+'-goblet',(sx*w,d*.25,h+.12),.07,.12,'gold','furniture',8)
-            candle(name+'-table-candle',0,0,h+.07,'furniture')
-        elif placement['roomId']=='kitchen':
-            sphere(name+'-pot',(w*.22,0,h+.16),(.22,.22,.16),'iron','furniture')
-            box('chopping-board',(-w*.25,0,h+.08),(.6,.45,.03),'wood-dark')
-        elif placement['roomId']=='library':
-            for j in range(3):
-                book=box('book-stack',(.2,-.15,h+.09+j*.065),(.42,.3,.06),['wine','sage','ink'][j])
-                book.rotation_euler.z=.12*j
-            candle(name+'-desk-candle',-.5,.4,h+.07,'furniture')
-        elif placement['roomId']=='armory':
-            shield(name+'-shield',0,0,h+.12,.5,'furniture',flat=True)
-    elif asset=='chair_A_wood':
-        box('seat',(0,0,.46),(w,d,.12),'wood-light')
-        for sx in [-1,1]:
-            for sy in [-1,1]:
-                box('leg',(sx*(w/2-.06),sy*(d/2-.06),.23),(.095,.095,.46))
-        box('back',(0,d/2-.06,.85),(w,.1,.7))
-        box('back-inlay',(0,d/2-.12,.88),(w*.65,.025,.36),'wine')
-    elif asset=='shelf_B_large_decorated':
-        h=1.35
-        for sx in [-1,1]:
-            box('side',(sx*(w/2-.055),0,h/2),(.11,d,h))
-        box('back',(0,d/2-.03,h/2),(w,.06,h),'wood-dark')
-        for height in [.12,.54,.96,1.35]:
-            box('shelf',(0,0,height),(w,d,.07),'wood-light')
-        for row in range(3):
-            for i in range(9):
-                bh=RNG.uniform(.22,.32)
-                book=box('book',(-w/2+.18+i*(w-.3)/9,-.01,.18+row*.41+bh/2),(.09,.27,bh),RNG.choice(['wine','sage','ink','paper']),.006)
-                book.rotation_euler.y=RNG.uniform(-.06,.06)
-    elif placement['roomId']=='storage':
-        box('crate',(0,0,.43),(w,d,.86),'wood')
-        for sy in [-1,1]:
-            for height in [.12,.74]:
-                box('crate-band',(0,sy*(d/2+.003),height),(w,.035,.06),'iron')
-            brace=box('crate-diagonal',(0,sy*(d/2+.02),.43),(w*.95,.025,.07),'wood-light')
-            brace.rotation_euler.y=math.atan2(.5,w)
-    else:
-        h=1.25
-        box('cabinet-body',(0,0,h/2),(w,d,h))
-        box('cabinet-top',(0,0,h+.04),(w+.03,d+.03,.08),'wood-light')
-        for sx in [-1,1]:
-            box('raised-panel',(sx*w*.25,-d/2-.01,.65),(w*.44,.035,.98),'wood-light')
-            sphere(name+'-handle',(sx*.1,-d/2-.055,.65),(.04,.04,.04),'gold','furniture')
-        if placement['roomId']=='chapel':
-            box('altar-cloth',(0,0,h+.09),(w*.65,d+.08,.035),'wine',0)
-            for sx in [-.55,.55]:
-                candle(name+'-altar-candle',sx,0,h+.11,'furniture')
-        elif placement['roomId']=='armory':
-            armor(name+'-armor',0,0,h+.09,'furniture')
-    # Local (X,Y,Z-up) furniture -> map offset and Y-axis rotation in game.
-    for obj in set(bpy.data.objects)-before:
-        lx,ly,lz=obj.location
-        obj.location=(x+scale*(math.cos(yaw)*lx-math.sin(yaw)*ly),
-                      -z+scale*(math.sin(yaw)*lx+math.cos(yaw)*ly),
-                      placement.get('elevation',.012)+scale*lz)
-        obj.rotation_euler.z+=yaw
-        obj.scale*=scale
-    proxy=bpy.data.objects.new('proxy-'+name,None)
+    room = next(r for r in SCENE['rooms'] if r['id'] == placement['roomId'])
+    x = room['center']['x'] + placement['offsetX']
+    z = room['center']['z'] + placement['offsetZ']
+    scale = placement.get('scale', 1)
+    yaw = placement.get('yawRadians', 0)
+    before = set(bpy.data.objects)
+    build_furniture(model_api(), placement)
+    for obj in set(bpy.data.objects) - before:
+        lx, ly, lz = obj.location
+        obj.location = (
+            x + scale * (math.cos(yaw) * lx - math.sin(yaw) * ly),
+            -z + scale * (math.sin(yaw) * lx + math.cos(yaw) * ly),
+            placement.get('elevation', .012) + scale * lz,
+        )
+        obj.rotation_euler.z += yaw
+        obj.scale *= scale
+    proxy = bpy.data.objects.new('proxy-' + placement['id'], None)
     collection('proxies').objects.link(proxy)
-    proxy.location=(x,-z,0)
-    proxy['placementId']=name
-    proxy['asset']=asset
-    proxy['roomId']=placement['roomId']
-    proxy['game_x']=x
-    proxy['game_z']=z
-    proxy['halfWidth']=w*scale/2
-    proxy['halfDepth']=d*scale/2
-    proxy['yawRadians']=yaw
+    proxy.location = (x, -z, 0)
+    w, d = FOOTPRINTS[placement['asset']]
+    for key, value in {
+        'placementId': placement['id'], 'asset': placement['asset'],
+        'roomId': placement['roomId'], 'game_x': x, 'game_z': z,
+        'halfWidth': w * scale / 2, 'halfDepth': d * scale / 2, 'yawRadians': yaw,
+    }.items():
+        proxy[key] = value
 
 
 def candle(name,x,y,h,category='dressing'):
@@ -382,14 +394,14 @@ def lighting():
     scene.render.engine='CYCLES'
     scene.cycles.samples=24
     scene.cycles.use_denoising=True
-    scene.render.resolution_x=1600
-    scene.render.resolution_y=1100
+    scene.render.resolution_x=2200
+    scene.render.resolution_y=1500
     scene.render.resolution_percentage=100
     scene.view_settings.view_transform='AgX'
     return camera('Castle overview',(26,-34,38),43),camera('Layout top',(0,0,50),38)
 
 
-def export_runtime():
+def export_runtime(compress=True):
     # Copy/apply/merge only runtime objects; keep the saved source fully editable.
     bpy.ops.object.select_all(action='DESELECT')
     authored_scene=bpy.context.scene
@@ -421,8 +433,48 @@ def export_runtime():
     bpy.ops.export_scene.gltf(filepath=str(OUT/'midnight-castle.glb'),export_format='GLB',export_yup=True,use_active_scene=True,
                               export_extras=True,export_cameras=False,export_lights=False)
     triangles=sum(sum(len(face.vertices)-2 for face in o.data.polygons) for o in export_scene.objects if o.type=='MESH')
-    stats={'sceneId':SCENE['id'],'seed':71,'rooms':len(SCENE['rooms']),'furniture':len(SCENE['furniture']),
-           'meshes':len(groups),'triangles':triangles,'materials':len(MATS),
+    binary=(OUT/'midnight-castle.glb').read_bytes()
+    json_length=struct.unpack_from('<I',binary,12)[0]
+    gltf=json.loads(binary[20:20+json_length])
+    # Blender 5.2 drops the constant multiplier from a MixRGB->BaseColor
+    # chain. Keep source shading and runtime tint identical, then deduplicate
+    # samplers so twelve tinted materials still share three normal maps.
+    for mat in gltf['materials']:
+        pbr=mat.get('pbrMetallicRoughness',{})
+        if 'baseColorTexture' in pbr and mat['name'] != 'moon-glass':
+            pbr['baseColorFactor']=list(MATS[mat['name']].diffuse_color)
+    textures=[]
+    texture_keys={}
+    remap={}
+    for index,texture in enumerate(gltf.get('textures',[])):
+        key=json.dumps(texture,sort_keys=True)
+        if key not in texture_keys:
+            texture_keys[key]=len(textures)
+            textures.append(texture)
+        remap[index]=texture_keys[key]
+    for mat in gltf['materials']:
+        for owner in [mat,mat.get('pbrMetallicRoughness',{})]:
+            for key,value in owner.items():
+                if key.endswith('Texture') and isinstance(value,dict) and 'index' in value:
+                    value['index']=remap[value['index']]
+    gltf['textures']=textures
+    encoded=json.dumps(gltf,separators=(',',':')).encode('utf-8')
+    encoded+=b' '*((-len(encoded))%4)
+    remainder=binary[20+json_length:]
+    binary=struct.pack('<III',0x46546c67,2,20+len(encoded)+len(remainder))+struct.pack('<II',len(encoded),0x4e4f534a)+encoded+remainder
+    (OUT/'midnight-castle.glb').write_bytes(binary)
+    uncompressed_bytes=len(binary)
+    if compress:
+        node=shutil.which('node')
+        if node is None:
+            raise RuntimeError('Node.js is needed for Meshopt; pass --uncompressed for a raw GLB.')
+        subprocess.run([node,str(ROOT/'scripts/blender/optimize_castle.mjs')],cwd=ROOT,check=True)
+        binary=(OUT/'midnight-castle.glb').read_bytes()
+        gltf=json.loads(binary[20:20+struct.unpack_from('<I',binary,12)[0]])
+    stats={'sceneId':SCENE['id'],'refinement':2,'seed':71,'rooms':len(SCENE['rooms']),'furniture':len(SCENE['furniture']),
+           'meshes':len(gltf['meshes']),'triangles':triangles,'materials':len(gltf['materials']),
+           'textures':len(gltf.get('textures',[])),
+           'compression':'meshopt' if compress else 'none','uncompressedBytes':uncompressed_bytes,
            'fileBytes':(OUT/'midnight-castle.glb').stat().st_size,'blender':bpy.app.version_string,
            'source':'scripts/blender/build_midnight_castle.py','coordinateContract':'Blender (X,-Z,Y) -> glTF/game (X,Y,Z)'}
     (OUT/'manifest.json').write_text(json.dumps(stats,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
@@ -435,6 +487,7 @@ def main():
     args=sys.argv[sys.argv.index('--')+1:] if '--' in sys.argv else []
     parser=argparse.ArgumentParser()
     parser.add_argument('--render',action='store_true')
+    parser.add_argument('--uncompressed',action='store_true',help='Skip the Node/Meshopt packaging step.')
     options=parser.parse_args(args)
     bpy.ops.wm.read_factory_settings(use_empty=True)
     OUT.mkdir(parents=True,exist_ok=True)
@@ -447,12 +500,23 @@ def main():
                        ('wood',(.22,.105,.055)),('wood-light',(.35,.19,.09)),('wood-dark',(.12,.065,.04)),
                        ('wine',(.30,.055,.075)),('sage',(.12,.23,.19)),('ink',(.085,.13,.23)),('paper',(.73,.62,.42))]:
         material(name,color,emission=.08)
-    material('gold',(.58,.38,.12),.4,.6,.06)
+    material('gold',(.58,.38,.12),.28,.6,.08)
     material('iron',(.10,.12,.15),.48,.65,.07)
     material('pewter',(.43,.49,.55),.36,.7,.06)
     material('flame',(1,.55,.13),.5,0,2)
-    for name,color in [('glass-blue',(.12,.35,.70)),('glass-amber',(.70,.40,.12)),('glass-wine',(.45,.10,.23))]:
-        material(name,color,.42,0,.6)
+    material('bone',(.73,.65,.46),.8,0,.06)
+    material('ceramic',(.59,.47,.29),.28,0,.06)
+    material('copper',(.52,.22,.075),.35,.6,.07)
+    material('moon-glass',(1,1,1),.36,0,.35)
+    material('stained-pool',(1,1,1),1,0,.4)
+    material('wear',(.06,.045,.028),1,0,0)
+    for name,alpha in [('stained-pool',.19),('wear',.18)]:
+        mat=MATS[name]
+        mat.diffuse_color=(*mat.diffuse_color[:3],alpha)
+        mat.node_tree.nodes.get('Principled BSDF').inputs['Alpha'].default_value=alpha
+        mat.surface_render_method='DITHERED'
+    print('CASTLE_BUILD shared surface maps',flush=True)
+    attach_surface_maps(MATS,OUT/'textures')
     print('CASTLE_BUILD floors',flush=True)
     floors()
     print('CASTLE_BUILD walls',flush=True)
@@ -467,7 +531,7 @@ def main():
     print('CASTLE_BUILD furniture',flush=True)
     for placement in SCENE['furniture']:
         furniture(placement)
-    decor()
+    build_decor(model_api(), SCENE)
     print('CASTLE_BUILD preview and export',flush=True)
     overview,top=lighting()
     scene=bpy.context.scene
@@ -482,9 +546,11 @@ def main():
                 area.spaces.active.shading.color_type='MATERIAL'
     bpy.context.preferences.filepaths.save_version=0
     bpy.ops.wm.save_as_mainfile(filepath=str(SOURCE))
-    export_runtime()
+    export_runtime(compress=not options.uncompressed)
     if options.render:
-        for name,cam in [('midnight-castle-overview',overview),('midnight-castle-top',top)]:
+        detail=camera('Chapel workmanship',(9,-2,13),18)
+        detail.rotation_euler=(Vector((0,8,1.2))-detail.location).to_track_quat('-Z','Y').to_euler()
+        for name,cam in [('midnight-castle-refined-overview',overview),('midnight-castle-refined-top',top),('midnight-castle-refined-chapel',detail)]:
             scene.camera=cam
             scene.render.filepath=str(PREVIEWS/(name+'.png'))
             bpy.ops.render.render(write_still=True)

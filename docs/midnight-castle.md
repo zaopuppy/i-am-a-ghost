@@ -1,5 +1,7 @@
 # 午夜契约古堡
 
+当前模型已完成第二版精细化；最新美术、资源规模与验证见 [古堡精细化制作](midnight-castle-refinement.md)。本文下方第一版验收数据保留为基线。
+
 ## 玩家体验与边界
 
 孩子为证明胆量闯入废弃古堡，触发午夜捉迷藏契约。在冷月光与残留烛火中辨认房间、选择绕行路线、收集电池并用手电应对被附身的伙伴。沿用现有抓捕、reset、感应人偶、胜负与五分钟对局规则；不新增门开关、藏柜或楼层。
@@ -33,7 +35,7 @@ npm run validate:map -- assets/maps/midnight-castle.scene.json
 npm run build
 ```
 
-`--render`额外生成文档中的斜俯视与俯视PNG；不带参数仍生成 `.blend`、`.glb` 和资源统计。预览使用独立摄影灯，最终可读性以游戏截图为准。
+`--render`额外生成第二版斜俯视、俯视和礼拜堂近景PNG；不带参数仍生成 `.blend`、`.glb` 和资源统计。运行版默认用Node.js和固定版本glTF Transform进行Meshopt压缩；`--uncompressed`跳过此步骤。预览使用独立摄影灯，最终可读性以游戏截图为准。
 
 ## 技能与来源记录
 

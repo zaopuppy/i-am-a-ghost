@@ -8,7 +8,7 @@ All runtime assets in this project are local files. No API key or expiring remot
 | `public/assets/models/kaykit-adventurers/Ghost.glb` | KayKit Adventurers Character Pack 2.0 | Kay Lousberg | CC0 1.0 | Original selectable ghost visual |
 | `public/assets/models/original/Night_Scout.glb` | Created for this repository with Blender | Project | Project-owned original | Second selectable child visual; same authoritative collider |
 | `public/assets/models/original/Old_House_Wraith.glb` | Created for this repository with Blender | Project | Project-owned original | Second selectable ghost visual; same authoritative collider |
-| `public/assets/models/midnight-castle/midnight-castle.glb` | Original Blender construction from `assets/maps/midnight-castle.scene.json` | Project | CC0 1.0 | Seven-room castle environment; editable source and deterministic script retained, independent map collision |
+| `public/assets/models/midnight-castle/midnight-castle.glb` and `textures/*` | Original Blender construction and procedural PBR maps; moon-stag glass artwork generated for this project with ImageGen | Project | CC0 1.0 | Refined seven-room castle environment; editable source, prompt and deterministic scripts retained, independent map collision |
 | `public/assets/models/kaykit-medieval/wall_straight.glb` | KayKit Medieval Builder Pack 1.0 | Kay Lousberg | CC0 1.0 | Retained visual candidate; the current runtime deliberately keeps procedural box walls and does not request this file |
 | `public/assets/models/kaykit-furniture/*` | KayKit Furniture Bits 1.0 FREE | Kay Lousberg | CC0 1.0 | Grounded room furniture and rugs; visual-only placement leaves the authoritative map and collision unchanged |
 | `public/assets/audio/kenney/guard-pounce.mp3` | Kenney Impact Sounds | Kenney | CC0 1.0 | Ghost capture windup |
@@ -41,7 +41,7 @@ The original license texts are copied beside the assets:
 | KayKit Ghost | 445,612 bytes | 8 meshes, about 7,185 triangles; `Idle_A`, `Running_A`, `Hit_A` | 1 material, one embedded texture |
 | Night Scout | 153,564 bytes | 20 meshes, about 808 triangles; `Idle_A`, `Running_A`, `Hit_A`; distinct Scout armature | 6 materials, no textures |
 | Old House Wraith | 108,308 bytes | 20 meshes, about 388 triangles; `Idle_A`, `Running_A`, `Hit_A`; distinct Wraith armature | 4 materials, no textures |
-| Midnight Pact Castle | 4,893,736 bytes | 40 batched meshes, 81,524 triangles; 27 furniture proxy metadata nodes; no animation | 22 shared materials, no textures; original `.blend` and build script |
+| Midnight Pact Castle, refinement 2 | 9,484,516 bytes | 49 batched meshes, 234,916 triangles; 27 furniture proxy metadata nodes; no animation; Meshopt compressed | 25 shared materials, 7 embedded images/textures; original `.blend`, generation modules and retained texture sources |
 | KayKit straight wall | 28,752 bytes | 1 mesh, 478 triangles, no animation | 1 material, no texture |
 | Selected KayKit furniture library | 310,198 runtime bytes | 17 unique meshes, about 6,098 source triangles; 34 visual-only room placements | 3 shared room-family materials, one shared 1024 × 1024 gradient-atlas PNG |
 | Five Kenney MP3 files | 13,994 bytes total | short one-shot SFX, no loops | decoded after a user gesture |
