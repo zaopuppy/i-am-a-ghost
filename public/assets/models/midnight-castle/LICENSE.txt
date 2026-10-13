@@ -1,0 +1,11 @@
+Midnight Pact Castle
+
+Original geometry and material palette authored for i-am-a-ghost using
+scripts/blender/build_midnight_castle.py. No downloaded meshes or textures.
+
+CC0 1.0 Universal
+
+To the extent possible under law, the authors have waived all copyright and
+related or neighboring rights to these original model assets.
+
+https://creativecommons.org/publicdomain/zero/1.0/

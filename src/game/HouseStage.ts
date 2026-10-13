@@ -1,18 +1,24 @@
 import * as THREE from 'three';
+import { CastleEnvironment, type CastleAssetMetrics } from '../assets/CastleEnvironment';
 import { loadFurnitureLibrary } from '../assets/EnvironmentAssets';
 import type { HouseMaterialKit } from '../assets/MaterialLibrary';
 import { COMPILED_DEFAULT_HOUSE } from './defaultHouse';
-import type { CompiledHouseScene, RoomFamily } from './HouseScene';
+import { usesAuthoredCastleEnvironment } from './HouseCatalog';
+import { createHouseBoundaryWalls, type CompiledHouseScene, type RoomFamily } from './HouseScene';
 import type { LightningDirection } from './MatchEngine';
+import { FLASHLIGHT_OCCLUDER_LAYER, LIGHTNING_OCCLUDER_LAYER } from './RenderLayers';
 
 const DOOR_HEIGHT = 2.15;
 const POST_SIZE = 0.11;
+const CASTLE_SHADOW_WALL_HEIGHT = 2.8;
 
 export interface HouseStageBuild {
   root: THREE.Group;
   ready: Promise<void>;
   furnitureCount: number;
-  windowGlows: Record<LightningDirection, THREE.MeshBasicMaterial>;
+  windowGlows: Record<LightningDirection, THREE.MeshBasicMaterial> | null;
+  castle?: CastleAssetMetrics;
+  dispose?: () => void;
 }
 
 export const HOUSE_FURNITURE_COUNT = COMPILED_DEFAULT_HOUSE.furniture.length;
@@ -20,6 +26,15 @@ export const HOUSE_FURNITURE_COUNT = COMPILED_DEFAULT_HOUSE.furniture.length;
 export function buildHouseStage(
   materials: HouseMaterialKit,
   house: CompiledHouseScene = COMPILED_DEFAULT_HOUSE,
+): HouseStageBuild {
+  if (usesAuthoredCastleEnvironment(house)) return buildCastleStage(materials, house);
+  return buildStockHouseStage(materials, house);
+}
+
+function buildStockHouseStage(
+  materials: HouseMaterialKit,
+  house: CompiledHouseScene,
+  isActive: () => boolean = () => true,
 ): HouseStageBuild {
   const root = new THREE.Group();
   root.name = 'house-stage';
@@ -33,10 +48,76 @@ export function buildHouseStage(
   root.add(furniture);
   return {
     root,
-    ready: populateFurniture(furniture, materials, house),
+    ready: populateFurniture(furniture, materials, house, isActive),
     furnitureCount: house.furniture.length,
     windowGlows: windows.materials,
   };
+}
+
+function buildCastleStage(materials: HouseMaterialKit, house: CompiledHouseScene): HouseStageBuild {
+  const root = new THREE.Group();
+  root.name = 'house-stage';
+  const castle = new CastleEnvironment();
+  castle.root.name = 'castle-environment';
+  root.add(castle.root);
+  // The visible cutaway cannot block beams at head height. Keep full-height
+  // rule walls in shadow-camera layers only, preserving the playable door gaps.
+  root.add(buildCastleShadowWalls(materials, house));
+  let disposed = false;
+  const ready = castle.load().catch(async () => {
+    if (disposed) return;
+    const fallback = buildStockHouseStage(materials, house, () => !disposed);
+    fallback.root.name = 'castle-fallback';
+    root.add(fallback.root);
+    const fallbackWalls = [
+      ...house.map.walls.map((wall) => ({ wall, boundary: false })),
+      ...createHouseBoundaryWalls(house.map.bounds).map((wall) => ({ wall, boundary: true })),
+    ];
+    for (const { wall, boundary } of fallbackWalls) {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(wall.maxX - wall.minX, 1.65, wall.maxZ - wall.minZ), materials.wall);
+      mesh.name = 'wall-castle-fallback';
+      mesh.position.set((wall.minX + wall.maxX) / 2, 0.825, (wall.minZ + wall.maxZ) / 2);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.layers.enable(FLASHLIGHT_OCCLUDER_LAYER);
+      if (!boundary) mesh.layers.enable(LIGHTNING_OCCLUDER_LAYER);
+      fallback.root.add(mesh);
+    }
+    await fallback.ready;
+  });
+  return {
+    root,
+    ready,
+    furnitureCount: house.furniture.length,
+    windowGlows: null,
+    castle: castle.diagnostics,
+    dispose: () => {
+      disposed = true;
+      castle.dispose();
+    },
+  };
+}
+
+function buildCastleShadowWalls(materials: HouseMaterialKit, house: CompiledHouseScene): THREE.Group {
+  const root = new THREE.Group();
+  root.name = 'castle-shadow-walls';
+  const walls = [
+    ...house.map.walls.map((wall) => ({ wall, boundary: false })),
+    ...createHouseBoundaryWalls(house.map.bounds).map((wall) => ({ wall, boundary: true })),
+  ];
+  for (const [index, { wall, boundary }] of walls.entries()) {
+    const proxy = new THREE.Mesh(
+      new THREE.BoxGeometry(wall.maxX - wall.minX, CASTLE_SHADOW_WALL_HEIGHT, wall.maxZ - wall.minZ),
+      materials.wall,
+    );
+    proxy.name = `castle-shadow-${boundary ? 'boundary' : 'wall'}-${index}`;
+    proxy.position.set((wall.minX + wall.maxX) / 2, CASTLE_SHADOW_WALL_HEIGHT / 2, (wall.minZ + wall.maxZ) / 2);
+    proxy.castShadow = true;
+    proxy.layers.set(FLASHLIGHT_OCCLUDER_LAYER);
+    if (!boundary) proxy.layers.enable(LIGHTNING_OCCLUDER_LAYER);
+    root.add(proxy);
+  }
+  return root;
 }
 
 function buildRoomFloors(materials: HouseMaterialKit, house: CompiledHouseScene): THREE.Group {
@@ -176,8 +257,10 @@ async function populateFurniture(
   group: THREE.Group,
   materials: HouseMaterialKit,
   house: CompiledHouseScene,
+  isActive: () => boolean,
 ): Promise<void> {
   const library = await loadFurnitureLibrary(materials);
+  if (!isActive()) return;
   for (const placement of house.furniture) {
     const root = library.instantiate(placement.asset, familyOf(house, placement.roomId));
     root.name = `furniture-${placement.id}`;

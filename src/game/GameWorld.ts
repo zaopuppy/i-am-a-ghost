@@ -32,6 +32,7 @@ import {
 } from './FlashlightPresentation';
 import { ghostFadeOpacity } from './GhostPresentation';
 import { buildHouseStage } from './HouseStage';
+import { usesAuthoredCastleEnvironment } from './HouseCatalog';
 import { createHouseBoundaryWalls, type CompiledHouseScene } from './HouseScene';
 import { DEFAULT_GAMEPLAY_TUNING, MATCH_RULES, type HeadlampBand, type Vec2 } from './MatchEngine';
 import {
@@ -177,6 +178,7 @@ export class GameWorld {
   private readonly claimedPreparedActors = new Set<string>();
   private characterPrewarmPromise: Promise<void> | null = null;
   private environmentReady: Promise<void> = Promise.resolve();
+  private houseStage: ReturnType<typeof buildHouseStage> | null = null;
   private flashlightLength = DEFAULT_GAMEPLAY_TUNING.flashlightLength;
   private flashlightConeDegrees = DEFAULT_GAMEPLAY_TUNING.flashlightConeDegrees;
   private pendingAssetUpgrades = 0;
@@ -467,6 +469,7 @@ export class GameWorld {
     };
     assets: ReturnType<typeof importedAssetMetrics> & {
       furniture: ReturnType<typeof furnitureAssetMetrics>;
+      castle: ReturnType<typeof buildHouseStage>['castle'] | null;
     };
   } {
     let visibleObjects = 0;
@@ -505,12 +508,14 @@ export class GameWorld {
       assets: {
         ...importedAssetMetrics(),
         furniture: furnitureAssetMetrics(),
+        castle: this.houseStage?.castle ?? null,
       },
     };
   }
 
   dispose(): void {
     this.disposed = true;
+    this.houseStage?.dispose?.();
     this.lightningLight.shadow.dispose();
     const allActors = new Set([...this.actors.values(), ...this.preparedActors.values()]);
     const sharedGeometries = new Set<THREE.BufferGeometry>();
@@ -539,6 +544,15 @@ export class GameWorld {
   }
 
   private buildHouse(): void {
+    const stage = buildHouseStage(this.materials, this.house);
+    this.houseStage = stage;
+    this.windowGlows = stage.windowGlows;
+    this.scene.add(stage.root);
+    this.pendingAssetUpgrades += 1;
+    this.environmentReady = stage.ready.catch(() => undefined).finally(() => {
+      this.pendingAssetUpgrades -= 1;
+    });
+    if (usesAuthoredCastleEnvironment(this.house)) return;
     const { bounds } = this.house.map;
     const width = bounds.maxX - bounds.minX;
     const depth = bounds.maxZ - bounds.minZ;
@@ -547,14 +561,6 @@ export class GameWorld {
     floor.position.set((bounds.minX + bounds.maxX) / 2, -0.025, (bounds.minZ + bounds.maxZ) / 2);
     floor.receiveShadow = true;
     this.scene.add(floor);
-
-    const stage = buildHouseStage(this.materials, this.house);
-    this.windowGlows = stage.windowGlows;
-    this.scene.add(stage.root);
-    this.pendingAssetUpgrades += 1;
-    this.environmentReady = stage.ready.catch(() => undefined).finally(() => {
-      this.pendingAssetUpgrades -= 1;
-    });
 
     this.walls.name = 'box-walls';
     const walls = [

@@ -1,0 +1,477 @@
+{
+  "version": 1,
+  "id": "midnight-castle",
+  "bounds": {
+    "minX": -16,
+    "maxX": 16,
+    "minZ": -12,
+    "maxZ": 12
+  },
+  "walls": [
+    {
+      "id": "h--4-0",
+      "minX": -16,
+      "maxX": -13.1,
+      "minZ": -4.18,
+      "maxZ": -3.82
+    },
+    {
+      "id": "h--4-1",
+      "minX": -10.9,
+      "maxX": -1.1,
+      "minZ": -4.18,
+      "maxZ": -3.82
+    },
+    {
+      "id": "h--4-2",
+      "minX": 1.1,
+      "maxX": 10.9,
+      "minZ": -4.18,
+      "maxZ": -3.82
+    },
+    {
+      "id": "h--4-3",
+      "minX": 13.1,
+      "maxX": 16,
+      "minZ": -4.18,
+      "maxZ": -3.82
+    },
+    {
+      "id": "h-6-4",
+      "minX": -16,
+      "maxX": -13.1,
+      "minZ": 5.82,
+      "maxZ": 6.18
+    },
+    {
+      "id": "h-6-5",
+      "minX": -10.9,
+      "maxX": -1.1,
+      "minZ": 5.82,
+      "maxZ": 6.18
+    },
+    {
+      "id": "h-6-6",
+      "minX": 1.1,
+      "maxX": 10.9,
+      "minZ": 5.82,
+      "maxZ": 6.18
+    },
+    {
+      "id": "h-6-7",
+      "minX": 13.1,
+      "maxX": 16,
+      "minZ": 5.82,
+      "maxZ": 6.18
+    },
+    {
+      "id": "v--6-8",
+      "minX": -6.18,
+      "maxX": -5.82,
+      "minZ": -12,
+      "maxZ": -9.1
+    },
+    {
+      "id": "v--6-9",
+      "minX": -6.18,
+      "maxX": -5.82,
+      "minZ": -6.9,
+      "maxZ": -4
+    },
+    {
+      "id": "v-6-10",
+      "minX": 5.82,
+      "maxX": 6.18,
+      "minZ": -12,
+      "maxZ": -9.1
+    },
+    {
+      "id": "v-6-11",
+      "minX": 5.82,
+      "maxX": 6.18,
+      "minZ": -6.9,
+      "maxZ": -4
+    },
+    {
+      "id": "v--8-12",
+      "minX": -8.18,
+      "maxX": -7.82,
+      "minZ": -4,
+      "maxZ": -0.10000000000000009
+    },
+    {
+      "id": "v--8-13",
+      "minX": -8.18,
+      "maxX": -7.82,
+      "minZ": 2.1,
+      "maxZ": 6
+    },
+    {
+      "id": "v-8-14",
+      "minX": 7.82,
+      "maxX": 8.18,
+      "minZ": -4,
+      "maxZ": -0.10000000000000009
+    },
+    {
+      "id": "v-8-15",
+      "minX": 7.82,
+      "maxX": 8.18,
+      "minZ": 2.1,
+      "maxZ": 6
+    }
+  ],
+  "rooms": [
+    {
+      "id": "library",
+      "name": "书房",
+      "family": "old",
+      "center": {
+        "x": -11,
+        "z": -8
+      },
+      "width": 10,
+      "depth": 8
+    },
+    {
+      "id": "chapel",
+      "name": "小礼拜堂",
+      "family": "old",
+      "center": {
+        "x": 0,
+        "z": -8
+      },
+      "width": 12,
+      "depth": 8
+    },
+    {
+      "id": "armory",
+      "name": "兵器陈列室",
+      "family": "old",
+      "center": {
+        "x": 11,
+        "z": -8
+      },
+      "width": 10,
+      "depth": 8
+    },
+    {
+      "id": "kitchen",
+      "name": "厨房",
+      "family": "living",
+      "center": {
+        "x": -12,
+        "z": 1
+      },
+      "width": 8,
+      "depth": 10
+    },
+    {
+      "id": "banquet",
+      "name": "宴会大厅",
+      "family": "living",
+      "center": {
+        "x": 0,
+        "z": 1
+      },
+      "width": 16,
+      "depth": 10
+    },
+    {
+      "id": "storage",
+      "name": "储藏室",
+      "family": "old",
+      "center": {
+        "x": 12,
+        "z": 1
+      },
+      "width": 8,
+      "depth": 10
+    },
+    {
+      "id": "entrance",
+      "name": "入口长厅",
+      "family": "old",
+      "center": {
+        "x": 0,
+        "z": 9
+      },
+      "width": 32,
+      "depth": 6
+    }
+  ],
+  "furniture": [
+    {
+      "id": "library-shelf-west",
+      "roomId": "library",
+      "asset": "shelf_B_large_decorated",
+      "offsetX": -3.2,
+      "offsetZ": -2.6,
+      "scale": 1.6
+    },
+    {
+      "id": "library-shelf-east",
+      "roomId": "library",
+      "asset": "shelf_B_large_decorated",
+      "offsetX": 1.7,
+      "offsetZ": -2.6,
+      "scale": 1.6
+    },
+    {
+      "id": "library-desk",
+      "roomId": "library",
+      "asset": "table_medium",
+      "offsetX": 0,
+      "offsetZ": 0
+    },
+    {
+      "id": "library-chair",
+      "roomId": "library",
+      "asset": "chair_A_wood",
+      "offsetX": 0,
+      "offsetZ": 1.5
+    },
+    {
+      "id": "chapel-altar",
+      "roomId": "chapel",
+      "asset": "cabinet_medium_decorated",
+      "offsetX": 0,
+      "offsetZ": -2.85,
+      "scale": 1.25
+    },
+    {
+      "id": "chapel-pew--3--1.5",
+      "roomId": "chapel",
+      "asset": "table_low",
+      "offsetX": -3,
+      "offsetZ": -1.5
+    },
+    {
+      "id": "chapel-pew--3-1",
+      "roomId": "chapel",
+      "asset": "table_low",
+      "offsetX": -3,
+      "offsetZ": 1
+    },
+    {
+      "id": "chapel-pew-3--1.5",
+      "roomId": "chapel",
+      "asset": "table_low",
+      "offsetX": 3,
+      "offsetZ": -1.5
+    },
+    {
+      "id": "chapel-pew-3-1",
+      "roomId": "chapel",
+      "asset": "table_low",
+      "offsetX": 3,
+      "offsetZ": 1
+    },
+    {
+      "id": "armory-rack",
+      "roomId": "armory",
+      "asset": "cabinet_medium_decorated",
+      "offsetX": 2.7,
+      "offsetZ": -2.8
+    },
+    {
+      "id": "armory-display",
+      "roomId": "armory",
+      "asset": "table_medium",
+      "offsetX": -1,
+      "offsetZ": -1.4
+    },
+    {
+      "id": "kitchen-counter",
+      "roomId": "kitchen",
+      "asset": "table_medium_long",
+      "offsetX": 0,
+      "offsetZ": 0,
+      "scale": 1.1
+    },
+    {
+      "id": "kitchen-cupboard",
+      "roomId": "kitchen",
+      "asset": "cabinet_medium_decorated",
+      "offsetX": -2.5,
+      "offsetZ": -3.2
+    },
+    {
+      "id": "kitchen-shelf",
+      "roomId": "kitchen",
+      "asset": "shelf_B_large_decorated",
+      "offsetX": -2.5,
+      "offsetZ": 3.3,
+      "scale": 1.2
+    },
+    {
+      "id": "banquet-table--3.5",
+      "roomId": "banquet",
+      "asset": "table_medium_long",
+      "offsetX": -3.5,
+      "offsetZ": 0,
+      "scale": 1.4,
+      "yawRadians": 1.5707963267948966
+    },
+    {
+      "id": "banquet-chair--3.5--1",
+      "roomId": "banquet",
+      "asset": "chair_A_wood",
+      "offsetX": -5.7,
+      "offsetZ": -1,
+      "yawRadians": -1.5707963267948966
+    },
+    {
+      "id": "banquet-chair--3.5-1.1",
+      "roomId": "banquet",
+      "asset": "chair_A_wood",
+      "offsetX": -5.7,
+      "offsetZ": 1.1,
+      "yawRadians": -1.5707963267948966
+    },
+    {
+      "id": "banquet-table-3.5",
+      "roomId": "banquet",
+      "asset": "table_medium_long",
+      "offsetX": 3.5,
+      "offsetZ": 0,
+      "scale": 1.4,
+      "yawRadians": 1.5707963267948966
+    },
+    {
+      "id": "banquet-chair-3.5--1",
+      "roomId": "banquet",
+      "asset": "chair_A_wood",
+      "offsetX": 5.7,
+      "offsetZ": -1,
+      "yawRadians": 1.5707963267948966
+    },
+    {
+      "id": "banquet-chair-3.5-1.1",
+      "roomId": "banquet",
+      "asset": "chair_A_wood",
+      "offsetX": 5.7,
+      "offsetZ": 1.1,
+      "yawRadians": 1.5707963267948966
+    },
+    {
+      "id": "storage-cupboard",
+      "roomId": "storage",
+      "asset": "cabinet_medium_decorated",
+      "offsetX": 2.6,
+      "offsetZ": 0
+    },
+    {
+      "id": "storage-crate--1--2.8",
+      "roomId": "storage",
+      "asset": "table_small",
+      "offsetX": -1,
+      "offsetZ": -2.8,
+      "scale": 1.35
+    },
+    {
+      "id": "storage-crate-2--3.5",
+      "roomId": "storage",
+      "asset": "table_small",
+      "offsetX": 2,
+      "offsetZ": -3.5,
+      "scale": 1.35
+    },
+    {
+      "id": "storage-crate--1-2.8",
+      "roomId": "storage",
+      "asset": "table_small",
+      "offsetX": -1,
+      "offsetZ": 2.8,
+      "scale": 1.35
+    },
+    {
+      "id": "storage-crate-2-3.5",
+      "roomId": "storage",
+      "asset": "table_small",
+      "offsetX": 2,
+      "offsetZ": 3.5,
+      "scale": 1.35
+    },
+    {
+      "id": "entry-bench--8",
+      "roomId": "entrance",
+      "asset": "table_low",
+      "offsetX": -8,
+      "offsetZ": 0,
+      "scale": 1.1
+    },
+    {
+      "id": "entry-bench-8",
+      "roomId": "entrance",
+      "asset": "table_low",
+      "offsetX": 8,
+      "offsetZ": 0,
+      "scale": 1.1
+    }
+  ],
+  "ghostSpawn": {
+    "x": 0,
+    "z": 0
+  },
+  "childSpawns": [
+    {
+      "x": -13,
+      "z": -7
+    },
+    {
+      "x": 13,
+      "z": -7
+    },
+    {
+      "x": -13,
+      "z": 10
+    },
+    {
+      "x": 13,
+      "z": 10
+    }
+  ],
+  "batterySpawns": [
+    {
+      "x": -13,
+      "z": -9
+    },
+    {
+      "x": -8,
+      "z": -6
+    },
+    {
+      "x": -4.5,
+      "z": -10.8
+    },
+    {
+      "x": 4.5,
+      "z": -5.5
+    },
+    {
+      "x": 13,
+      "z": -9
+    },
+    {
+      "x": -14,
+      "z": 3
+    },
+    {
+      "x": 10,
+      "z": 3
+    },
+    {
+      "x": 0,
+      "z": 4
+    },
+    {
+      "x": -4,
+      "z": 9
+    },
+    {
+      "x": 4,
+      "z": 9
+    }
+  ]
+}

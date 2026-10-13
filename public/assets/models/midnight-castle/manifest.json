@@ -1,0 +1,13 @@
+{
+  "sceneId": "midnight-castle",
+  "seed": 71,
+  "rooms": 7,
+  "furniture": 27,
+  "meshes": 40,
+  "triangles": 81524,
+  "materials": 22,
+  "fileBytes": 4893736,
+  "blender": "5.2.1 LTS",
+  "source": "scripts/blender/build_midnight_castle.py",
+  "coordinateContract": "Blender (X,-Z,Y) -> glTF/game (X,Y,Z)"
+}
