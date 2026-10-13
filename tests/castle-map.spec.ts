@@ -154,6 +154,46 @@ test('castle selection loads the Blender scene, moves, pauses, restarts and swit
   expect(errors).toEqual([]);
 });
 
+test('the actual ghost walks behind the chapel front pews and through both side aisles', async ({ page }, testInfo) => {
+  test.setTimeout(90_000);
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  const draft = structuredClone(castleSource);
+  draft.ghostSpawn = { x: -4.8, z: -10.2 };
+  await page.addInitScript((scene) => {
+    localStorage.setItem('i-am-a-ghost:house-scene-draft:v1', JSON.stringify(scene));
+  }, draft);
+  await page.goto('/?scenePlaytest=ghost');
+  await expect.poll(() => page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.world.assets.castle?.status),
+    { timeout: 30_000 }).toBe('ready');
+  await expect.poll(() => page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__?.ownPosition?.x),
+    { timeout: 30_000 }).toBeCloseTo(-4.8, 1);
+  await page.evaluate(() => window.__THREE_GAME_TEST_HOOKS__!.hideDebugUi(true));
+
+  const walk = async (key: string, axis: 'x' | 'z', target: number, increasing: boolean): Promise<void> => {
+    await page.keyboard.down(key);
+    try {
+      await expect.poll(async () => {
+        const point = await page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__!.ownPosition!);
+        return increasing ? point[axis] >= target : point[axis] <= target;
+      }, { timeout: 10_000, intervals: [50] }).toBe(true);
+    } finally {
+      await page.keyboard.up(key);
+    }
+  };
+  await walk('KeyD', 'x', -1.7, true);
+  await walk('KeyS', 'z', -4.9, true);
+  await walk('KeyW', 'z', -10.2, false);
+  await walk('KeyD', 'x', 4.8, true);
+  await walk('KeyA', 'x', 1.7, false);
+  await walk('KeyS', 'z', -4.9, true);
+  const end = await page.evaluate(() => window.__THREE_GAME_DIAGNOSTICS__!.ownPosition!);
+  expect(end.x).toBeCloseTo(1.7, 0);
+  expect(end.z).toBeGreaterThanOrEqual(-4.9);
+  await page.screenshot({ path: testInfo.outputPath('chapel-aisles-played.png') });
+  expect(errors).toEqual([]);
+});
+
 test('a failed castle GLB preserves a playable seven-room fallback', async ({ page }, testInfo) => {
   test.setTimeout(60_000);
   const errors: string[] = [];

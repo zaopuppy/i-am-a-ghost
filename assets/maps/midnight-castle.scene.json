@@ -229,43 +229,52 @@
       "roomId": "library",
       "asset": "chair_A_wood",
       "offsetX": 0,
-      "offsetZ": 1.5
+      "offsetZ": 1.5,
+      "yawRadians": 3.141592653589793
     },
     {
       "id": "chapel-altar",
       "roomId": "chapel",
       "asset": "cabinet_medium_decorated",
       "offsetX": 0,
-      "offsetZ": -2.85,
-      "scale": 1.25
+      "offsetZ": -3.3,
+      "scale": 0.95
     },
     {
       "id": "chapel-pew--3--1.5",
       "roomId": "chapel",
       "asset": "table_low",
-      "offsetX": -3,
-      "offsetZ": -1.5
+      "offsetX": -3.2,
+      "offsetZ": -1.1,
+      "scale": 0.9,
+      "yawRadians": 3.141592653589793
     },
     {
       "id": "chapel-pew--3-1",
       "roomId": "chapel",
       "asset": "table_low",
-      "offsetX": -3,
-      "offsetZ": 1
+      "offsetX": -3.2,
+      "offsetZ": 1.5,
+      "scale": 0.9,
+      "yawRadians": 3.141592653589793
     },
     {
       "id": "chapel-pew-3--1.5",
       "roomId": "chapel",
       "asset": "table_low",
-      "offsetX": 3,
-      "offsetZ": -1.5
+      "offsetX": 3.2,
+      "offsetZ": -1.1,
+      "scale": 0.9,
+      "yawRadians": 3.141592653589793
     },
     {
       "id": "chapel-pew-3-1",
       "roomId": "chapel",
       "asset": "table_low",
-      "offsetX": 3,
-      "offsetZ": 1
+      "offsetX": 3.2,
+      "offsetZ": 1.5,
+      "scale": 0.9,
+      "yawRadians": 3.141592653589793
     },
     {
       "id": "armory-rack",
@@ -319,7 +328,7 @@
       "asset": "chair_A_wood",
       "offsetX": -5.7,
       "offsetZ": -1,
-      "yawRadians": -1.5707963267948966
+      "yawRadians": 1.5707963267948966
     },
     {
       "id": "banquet-chair--3.5-1.1",
@@ -327,7 +336,7 @@
       "asset": "chair_A_wood",
       "offsetX": -5.7,
       "offsetZ": 1.1,
-      "yawRadians": -1.5707963267948966
+      "yawRadians": 1.5707963267948966
     },
     {
       "id": "banquet-table-3.5",
@@ -344,7 +353,7 @@
       "asset": "chair_A_wood",
       "offsetX": 5.7,
       "offsetZ": -1,
-      "yawRadians": 1.5707963267948966
+      "yawRadians": -1.5707963267948966
     },
     {
       "id": "banquet-chair-3.5-1.1",
@@ -352,7 +361,7 @@
       "asset": "chair_A_wood",
       "offsetX": 5.7,
       "offsetZ": 1.1,
-      "yawRadians": 1.5707963267948966
+      "yawRadians": -1.5707963267948966
     },
     {
       "id": "storage-cupboard",

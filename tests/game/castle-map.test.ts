@@ -10,6 +10,52 @@ import { MATCH_RULES, type MatchMap, type Vec2 } from '../../src/game/MatchEngin
 
 const castle = houseScene('midnight-castle');
 
+test('chapel players can cross between the altar and front pews and use both side aisles', () => {
+  const paths: Array<[Vec2, Vec2]> = [
+    [{ x: -4.8, z: -10.2 }, { x: 4.8, z: -10.2 }],
+    [{ x: -1.7, z: -10.2 }, { x: -1.7, z: -4.9 }],
+    [{ x: 1.7, z: -10.2 }, { x: 1.7, z: -4.9 }],
+    [{ x: -5.1, z: -8 }, { x: 5.1, z: -8 }],
+  ];
+  for (const [from, to] of paths) {
+    assert.ok(mapSegmentIsOpen(castle.map, from, to,
+      MATCH_RULES.playerRadius, MATCH_RULES.mapCollisionRadius),
+    `A player cannot traverse the chapel aisle ${JSON.stringify({ from, to })}`);
+  }
+  const altar = castle.furniture.find((item) => item.id === 'chapel-altar')!.collider!;
+  const frontPews = castle.furniture.filter((item) => item.id.startsWith('chapel-pew-'))
+    .sort((left, right) => left.position.z - right.position.z).slice(0, 2);
+  for (const pew of frontPews) {
+    const gap = pew.position.z - pew.collider!.halfDepth - (altar.center.z + altar.halfDepth);
+    assert.ok(gap >= 1.25, `Altar-to-pew clear width is only ${gap.toFixed(3)}m`);
+  }
+});
+
+test('banquet chairs face their adjacent table rather than the outer room wall', () => {
+  const tables = castle.furniture.filter((item) => item.id.startsWith('banquet-table-'));
+  const chairs = castle.furniture.filter((item) => item.id.startsWith('banquet-chair-'));
+  assert.equal(chairs.length, 4);
+  for (const chair of chairs) {
+    const table = tables.find((candidate) => Math.sign(candidate.position.x) === Math.sign(chair.position.x))!;
+    // The authored chair's seat front is local game +Z; its back is -Z.
+    const front = { x: Math.sin(chair.yawRadians), z: Math.cos(chair.yawRadians) };
+    const toward = { x: table.position.x - chair.position.x, z: table.position.z - chair.position.z };
+    const alignment = (front.x * toward.x + front.z * toward.z) / Math.hypot(toward.x, toward.z);
+    assert.ok(alignment > 0.85, `${chair.id} points away from its table (alignment=${alignment.toFixed(3)})`);
+  }
+});
+
+test('the library chair faces its desk and chapel pews face the altar', () => {
+  const chair = castle.furniture.find((item) => item.id === 'library-chair')!;
+  const desk = castle.furniture.find((item) => item.id === 'library-desk')!;
+  const forward = { x: Math.sin(chair.yawRadians), z: Math.cos(chair.yawRadians) };
+  const toward = { x: desk.position.x - chair.position.x, z: desk.position.z - chair.position.z };
+  assert.ok(forward.x * toward.x + forward.z * toward.z > 0, 'The library chair faces away from its desk.');
+  for (const pew of castle.furniture.filter((item) => item.id.startsWith('chapel-pew-'))) {
+    assert.ok(Math.cos(pew.yawRadians) < -0.95, `${pew.id} faces away from the altar.`);
+  }
+});
+
 test('the castle is the canonical seven-room 32 by 24 metre map with usable spawn points', () => {
   assert.deepEqual(castle.definition, castleSource);
   assert.deepEqual(castle.issues, []);

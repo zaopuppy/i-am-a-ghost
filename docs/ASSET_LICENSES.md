@@ -41,7 +41,7 @@ The original license texts are copied beside the assets:
 | KayKit Ghost | 445,612 bytes | 8 meshes, about 7,185 triangles; `Idle_A`, `Running_A`, `Hit_A` | 1 material, one embedded texture |
 | Night Scout | 153,564 bytes | 20 meshes, about 808 triangles; `Idle_A`, `Running_A`, `Hit_A`; distinct Scout armature | 6 materials, no textures |
 | Old House Wraith | 108,308 bytes | 20 meshes, about 388 triangles; `Idle_A`, `Running_A`, `Hit_A`; distinct Wraith armature | 4 materials, no textures |
-| Midnight Pact Castle, refinement 2 | 9,484,516 bytes | 49 batched meshes, 234,916 triangles; 27 furniture proxy metadata nodes; no animation; Meshopt compressed | 25 shared materials, 7 embedded images/textures; original `.blend`, generation modules and retained texture sources |
+| Midnight Pact Castle, refinement 2 | 9,478,404 bytes | 49 batched meshes, 234,916 triangles; 27 furniture proxy metadata nodes; no animation; Meshopt compressed | 25 shared materials, 7 embedded images/textures; original `.blend`, generation modules and retained texture sources |
 | KayKit straight wall | 28,752 bytes | 1 mesh, 478 triangles, no animation | 1 material, no texture |
 | Selected KayKit furniture library | 310,198 runtime bytes | 17 unique meshes, about 6,098 source triangles; 34 visual-only room placements | 3 shared room-family materials, one shared 1024 × 1024 gradient-atlas PNG |
 | Five Kenney MP3 files | 13,994 bytes total | short one-shot SFX, no loops | decoded after a user gesture |
